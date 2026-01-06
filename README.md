@@ -114,7 +114,8 @@ If you use ideas, code, or experiments from this repository, please cite:
   note         = {Private research repository}
 }
 
-```## 📜 License
+```
+## 📜 License
 
 This project is licensed under the **MIT License**.
 
