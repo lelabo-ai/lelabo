@@ -1,0 +1,1 @@
+python scripts/launch_grid.py --config configs/compare.yaml --max-parallel 4

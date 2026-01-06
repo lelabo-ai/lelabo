@@ -1,0 +1,20 @@
+name: compare_bp_kp_lpl_mnist
+
+display_keys: [algo, dataset, model, lr, hidden, layers, seed, input-noise-training]
+
+base:
+  dataset: mnist
+  model: mlp
+  epochs: 100
+  batch: 64
+  device: cuda
+  robustness: all
+  verbose: 0
+
+grid:
+  algo: [bp, softhebb]
+  seed: [0]
+  input-noise-training: [0.0, 0.05, 0.10, 0.15]
+  #lr: [1e-3, 3e-4]
+  #hidden: [128, 256]
+  #layers: [2, 3]
