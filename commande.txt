@@ -1,1 +1,3 @@
 python scripts/launch_grid.py --config configs/compare.yaml --max-parallel 4
+
+python plots/plot_sweep_table.py --config configs/compare.yaml --metric eval.test.acc
