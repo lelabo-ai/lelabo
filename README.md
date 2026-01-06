@@ -100,6 +100,22 @@ This flexibility is a feature, not a limitation.
 
 ---
 
+## 📖 Citation
+
+If you use ideas, code, or experiments from this repository, please cite:
+
+**Adrien Kegreisz**, *Le Labo – Personal Research Laboratory for Learning Algorithms in Deep Learning*.
+
+```bibtex
+@misc{kegreisz_le_labo,
+  author       = {Adrien Kegreisz},
+  title        = {Le Labo: Personal Research Laboratory for Learning Algorithms in Deep Learning},
+  year         = {2026},
+  note         = {Private research repository}
+}
+
+---
+
 ## 📜 License
 
 This project is licensed under the **MIT License**.
