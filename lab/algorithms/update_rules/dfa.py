@@ -2,11 +2,11 @@
 import math
 import torch
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
 
-class DirectFeedbackAlignment(Algorithm):
+class DirectFeedbackAlignment(UpdateRule):
     """
     Direct Feedback Alignment (DFA) with an external optimizer.
 

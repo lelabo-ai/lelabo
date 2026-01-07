@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import torch
 
-class Algorithm(ABC):
+class UpdateRule(ABC):
     """
     Plug-in interface: implement train_step().
     The trainer calls train_step for each batch.

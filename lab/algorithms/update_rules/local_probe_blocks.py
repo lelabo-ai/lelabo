@@ -2,9 +2,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 
-class LocalProbeBlocks(Algorithm):
+class LocalProbeBlocks(UpdateRule):
     def __init__(self, base_optimizer, probe_lr=1e-3):
         super().__init__()
         self.base_optimizer = base_optimizer

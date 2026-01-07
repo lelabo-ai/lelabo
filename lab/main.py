@@ -26,8 +26,8 @@ from models.convnet import ConvNetClassifier
 from models.resnet import build_resnet
 
 # Algorithms
-from algorithms.backprop import Backprop
-from algorithms.local_probe_mlp import LocalProbeMLP
+from algorithms.update_rules.backprop import Backprop
+from algorithms.update_rules.local_probe_mlp import LocalProbeMLP
 
 
 def _write_json(path: Path, obj: Dict[str, Any]) -> None:
@@ -49,20 +49,20 @@ def main():
     # General
     parser.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue"], default="iris")
     parser.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    parser.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="softhebb")
+    parser.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="bp")
 
     parser.add_argument("--hidden", type=int, default=256)
-    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--layers", type=int, default=3)
 
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--batch", type=int, default=256)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--verbose", type=int, default=0)
 
     parser.add_argument("--optimizer", type=str, default="adamw", choices=["adamw", "sgd", "sgd+momentum", "ano"])
-    parser.add_argument("--input-noise-training", type=float, default=0.0, help="stddev of gaussian noise added to inputs during training")
+    parser.add_argument("--input-noise-training", type=float, default=2, help="stddev of gaussian noise added to inputs during training")
 
     # Robustness
     parser.add_argument(
@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--max-length", type=int, default=128)
 
     # optimizer extras
-    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
 
     # Logging
     parser.add_argument(
@@ -223,13 +223,13 @@ def main():
 
     elif args.algo == "lpl":
         if args.dataset == "glue":
-            from algorithms.local_probe_bert import LocalProbeBERT
+            from algorithms.update_rules.local_probe_bert import LocalProbeBERT
             algo = LocalProbeBERT(base_optimizer=optimizer, probe_lr=args.lr)
         elif args.model == "mlp":
             algo = LocalProbeMLP(base_optimizer=optimizer, probe_lr=args.lr, weight_decay=args.weight_decay)
         else:
             try:
-                from algorithms.local_probe_blocks import LocalProbeBlocks
+                from algorithms.update_rules.local_probe_blocks import LocalProbeBlocks
             except ModuleNotFoundError as e:
                 raise ModuleNotFoundError(
                     "LocalProbeBlocks not found. Create algorithms/local_probe_blocks.py "
@@ -238,15 +238,15 @@ def main():
             algo = LocalProbeBlocks(base_optimizer=optimizer, probe_lr=args.lr)
 
     elif args.algo == "kp":
-        from algorithms.kp import KP
+        from algorithms.update_rules.kp import KP
         algo = KP(learning_rate=args.lr)
 
     elif args.algo == "softhebb":
-        from algorithms.softhebb import SoftHebb
+        from algorithms.update_rules.softhebb import SoftHebb
         algo = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
 
     elif args.algo == "tp":
-        from algorithms.targetprop import TargetPropagation
+        from algorithms.update_rules.targetprop import TargetPropagation
         dummy = torch.nn.Parameter(torch.zeros(()), requires_grad=True)
         inv_optim = torch.optim.SGD([dummy], lr=args.lr)
         algo = TargetPropagation(
@@ -257,11 +257,11 @@ def main():
         )
 
     elif args.algo == "fa":
-        from algorithms.feedbackalignment import FeedbackAlignment
+        from algorithms.update_rules.feedbackalignment import FeedbackAlignment
         algo = FeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
     elif args.algo == "dfa":
-        from algorithms.dfa import DirectFeedbackAlignment
+        from algorithms.update_rules.dfa import DirectFeedbackAlignment
         algo = DirectFeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
     else:

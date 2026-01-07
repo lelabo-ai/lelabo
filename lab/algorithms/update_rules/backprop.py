@@ -1,9 +1,9 @@
 # algorithms/backprop.py
 import torch
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
-class Backprop(Algorithm):
+class Backprop(UpdateRule):
     def __init__(self, optimizer, grad_clip=None):
         super().__init__()
         self.optimizer = optimizer

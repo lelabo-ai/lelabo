@@ -1,9 +1,9 @@
 # algorithms/kp1.py
 import torch
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
-class KP(Algorithm):
+class KP(UpdateRule):
     def __init__(self, learning_rate=0.05):
         super().__init__()
         self.lr = learning_rate

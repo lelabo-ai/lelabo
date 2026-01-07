@@ -1,11 +1,11 @@
 # algorithms/softhebb.py
 import torch
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
 
-class SoftHebb(Algorithm):
+class SoftHebb(UpdateRule):
     """
     SoftHebb-style local learning:
       - Conv2d / Linear layers updated with:

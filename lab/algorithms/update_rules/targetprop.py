@@ -1,11 +1,11 @@
 # algorithms/targetprop.py
 import torch
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
 
-class TargetPropagation(Algorithm):
+class TargetPropagation(UpdateRule):
     """
     Difference Target Propagation (DTP) for MLPClassifier-style models.
 

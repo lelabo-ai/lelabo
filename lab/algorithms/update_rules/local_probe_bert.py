@@ -2,9 +2,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 
-class LocalProbeBERT(Algorithm):
+class LocalProbeBERT(UpdateRule):
     """
     Local probe learning for BERT-like models (e.g., BertForSequenceClassification).
 

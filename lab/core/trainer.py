@@ -44,31 +44,39 @@ class Trainer:
             return
         _append_jsonl(self.metrics_path, record)
 
+    def _maybe_sync_cuda(self) -> None:
+        if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
+            torch.cuda.synchronize()
+
     def fit(self, train_loader, epochs: int = 10, show_progress: bool = True) -> Dict[str, Any]:
         self.algorithm.on_train_start(self.model, self.task, self.device)
 
         best_train_acc = float("-inf")
         best_train_loss = float("inf")
 
-        total_sum_loss = 0.0
-        total_sum_acc = 0.0
-        total_batches = 0
+        # Global accumulators (sample-weighted)
+        total_loss_sum = 0.0   # sum over samples of (loss_per_sample * 1) i.e. batch_mean_loss * bs
+        total_acc_sum = 0.0    # sum over samples of correct fraction -> batch_acc * bs
         total_samples = 0
+        total_batches = 0
 
         epoch_times: list[float] = []
         epoch_samples_per_sec: list[float] = []
 
+        self._maybe_sync_cuda()
         train_start = time.perf_counter()
 
         for ep in range(1, epochs + 1):
             self.model.train()
 
+            self._maybe_sync_cuda()
             ep_start = time.perf_counter()
 
-            sum_loss = 0.0
-            sum_acc = 0.0
-            n_batches = 0
-            n_samples = 0
+            # Epoch accumulators (sample-weighted)
+            ep_loss_sum = 0.0
+            ep_acc_sum = 0.0
+            ep_samples = 0
+            ep_batches = 0
 
             iterator = train_loader
             use_bar = show_progress and (tqdm is not None)
@@ -80,49 +88,52 @@ class Trainer:
                 x = x.to(self.device)
                 y = y.to(self.device)
 
-                # count samples
-                try:
-                    bs = int(x.size(0))
-                except Exception:
-                    bs = 0
-                n_samples += bs
+                bs = int(x.size(0)) if hasattr(x, "size") else 0
+                ep_samples += bs
 
+                # input noise during training (enabled)
                 if self.input_noise_training > 0.0:
                     x = x + torch.randn_like(x) * self.input_noise_training
 
                 stats = self.algorithm.train_step(self.model, self.task, (x, y), self.device)
 
+                # Assume stats["loss"] is mean loss over batch, stats["acc"] is fraction correct over batch
                 loss = float(stats.get("loss", 0.0))
                 acc = float(stats.get("acc", 0.0))
 
-                sum_loss += loss
-                sum_acc += acc
-                n_batches += 1
+                # Sample-weighted accumulation
+                ep_loss_sum += loss * bs
+                ep_acc_sum += acc * bs
+                ep_batches += 1
 
                 if use_bar:
-                    iterator.set_postfix(loss=sum_loss / max(1, n_batches), acc=sum_acc / max(1, n_batches))
+                    denom = max(1, ep_samples)
+                    iterator.set_postfix(
+                        loss=(ep_loss_sum / denom),
+                        acc=(ep_acc_sum / denom),
+                    )
 
+            self._maybe_sync_cuda()
             ep_time = time.perf_counter() - ep_start
             epoch_times.append(float(ep_time))
 
-            mean_loss = sum_loss / max(1, n_batches)
-            mean_acc = sum_acc / max(1, n_batches)
+            denom = max(1, ep_samples)
+            mean_loss = ep_loss_sum / denom
+            mean_acc = ep_acc_sum / denom
 
             best_train_acc = max(best_train_acc, mean_acc)
             best_train_loss = min(best_train_loss, mean_loss)
 
-            # Throughput
-            samples_per_sec = (n_samples / ep_time) if ep_time > 0 else 0.0
-            batches_per_sec = (n_batches / ep_time) if ep_time > 0 else 0.0
+            samples_per_sec = (ep_samples / ep_time) if ep_time > 0 else 0.0
+            batches_per_sec = (ep_batches / ep_time) if ep_time > 0 else 0.0
             epoch_samples_per_sec.append(float(samples_per_sec))
 
-            # Global accumulators (useful for global throughput)
-            total_sum_loss += sum_loss
-            total_sum_acc += sum_acc
-            total_batches += n_batches
-            total_samples += n_samples
+            # Global accumulators
+            total_loss_sum += ep_loss_sum
+            total_acc_sum += ep_acc_sum
+            total_samples += ep_samples
+            total_batches += ep_batches
 
-            # Log epoch train summary
             self.log(
                 {
                     "t": "train",
@@ -130,8 +141,8 @@ class Trainer:
                     "loss": float(mean_loss),
                     "acc": float(mean_acc),
                     "epoch_time_sec": float(ep_time),
-                    "samples": int(n_samples),
-                    "batches": int(n_batches),
+                    "samples": int(ep_samples),
+                    "batches": int(ep_batches),
                     "samples_per_sec": float(samples_per_sec),
                     "batches_per_sec": float(batches_per_sec),
                 }
@@ -144,15 +155,14 @@ class Trainer:
                     f"time={ep_time:.2f}s | {samples_per_sec:.1f} samples/s"
                 )
 
+        self._maybe_sync_cuda()
         total_time = time.perf_counter() - train_start
 
-        # “Overall” throughput across the whole training
         overall_samples_per_sec = (total_samples / total_time) if total_time > 0 else 0.0
         overall_batches_per_sec = (total_batches / total_time) if total_time > 0 else 0.0
 
-        # Final epoch stats (safe if epochs==0 not expected, but keep sane)
-        final_train_loss = float((total_sum_loss / max(1, total_batches)))
-        final_train_acc = float((total_sum_acc / max(1, total_batches)))
+        final_train_loss = float(total_loss_sum / max(1, total_samples))
+        final_train_acc = float(total_acc_sum / max(1, total_samples))
 
         return {
             "best_train_loss": float(best_train_loss),
@@ -170,6 +180,7 @@ class Trainer:
     def evaluate(self, loader, split: Optional[str] = None) -> Dict[str, Any]:
         self.model.eval()
 
+        self._maybe_sync_cuda()
         eval_start = time.perf_counter()
 
         if hasattr(self.task, "evaluate"):
@@ -185,21 +196,20 @@ class Trainer:
                 loss = self.task.loss(logits, y)
                 acc = self.task.metrics(logits, y)["acc"]
 
-                n = x.size(0)
-                total_loss += loss.item() * n
-                total_acc += acc * n
+                n = int(x.size(0))
+                total_loss += float(loss.item()) * n
+                total_acc += float(acc) * n
                 total_n += n
 
-            res = {"loss": total_loss / total_n, "acc": total_acc / total_n}
+            res = {"loss": total_loss / max(1, total_n), "acc": total_acc / max(1, total_n)}
 
+        self._maybe_sync_cuda()
         eval_time = time.perf_counter() - eval_start
 
-        # Log eval (include timing)
         payload: Dict[str, Any] = {"t": "eval", "eval_time_sec": float(eval_time)}
         if split is not None:
             payload["split"] = split
 
-        # keep numeric metrics
         for k, v in res.items():
             if isinstance(v, (int, float)):
                 payload[k] = float(v)

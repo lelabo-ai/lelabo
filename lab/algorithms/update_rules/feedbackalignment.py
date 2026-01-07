@@ -2,11 +2,11 @@
 import math
 import torch
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 from collections.abc import Mapping
 
 
-class FeedbackAlignment(Algorithm):
+class FeedbackAlignment(UpdateRule):
     """
     Feedback Alignment (FA) with an external optimizer.
 

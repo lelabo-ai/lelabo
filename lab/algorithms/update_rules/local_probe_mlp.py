@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .base import Algorithm
+from .base import UpdateRule
 
-class LocalProbeMLP(Algorithm):
+class LocalProbeMLP(UpdateRule):
     """
     Local Probe Learning for MLP.
     Probes are updated using the SAME base optimizer (Adam/SGD/AdamW/etc),
