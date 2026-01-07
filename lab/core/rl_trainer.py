@@ -8,17 +8,12 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 
-
 def _append_jsonl(path: Path, record: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-
 class RLTrainer:
-    """
-    Trainer RL: boucle env -> collect -> update -> logs.
-    """
     def __init__(self, env, algo, device: str = "cpu", run_dir: Optional[str] = None, verbose: bool = False):
         self.env = env
         self.algo = algo
@@ -43,7 +38,6 @@ class RLTrainer:
 
         start = time.perf_counter()
         updates = 0
-        last_log = time.perf_counter()
 
         while self.algo.total_steps < total_steps:
             obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
@@ -66,13 +60,8 @@ class RLTrainer:
 
             if done:
                 ep_idx += 1
-                self.log({
-                    "t": "episode",
-                    "episode": int(ep_idx),
-                    "step": int(self.algo.total_steps),
-                    "return": float(ep_return),
-                    "length": int(ep_len),
-                })
+                self.log({"t": "episode", "episode": int(ep_idx), "step": int(self.algo.total_steps),
+                          "return": float(ep_return), "length": int(ep_len)})
                 if self.verbose:
                     print(f"episode={ep_idx} step={self.algo.total_steps} return={ep_return:.1f} len={ep_len}")
 
@@ -99,6 +88,7 @@ class RLTrainer:
     def evaluate(self, eval_episodes: int = 5) -> Dict[str, Any]:
         returns = []
         lengths = []
+
         for _ in range(eval_episodes):
             obs, _ = self.env.reset()
             done = False
@@ -106,7 +96,6 @@ class RLTrainer:
             ep_len = 0
             while not done:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
-                # greedy action during eval
                 qvals = self.algo.q(obs_t.unsqueeze(0))
                 action = int(torch.argmax(qvals, dim=-1).item())
 
@@ -114,17 +103,16 @@ class RLTrainer:
                 done = bool(terminated or truncated)
                 ep_ret += float(reward)
                 ep_len += 1
+
             returns.append(ep_ret)
             lengths.append(ep_len)
 
         mean_ret = float(np.mean(returns)) if returns else 0.0
         ci95 = 0.0
         if len(returns) > 1:
-            import math
             m = mean_ret
             var = sum((x - m) ** 2 for x in returns) / (len(returns) - 1)
-            se = math.sqrt(var) / math.sqrt(len(returns))
-            # normal approx ok here
+            se = (var ** 0.5) / (len(returns) ** 0.5)
             ci95 = float(1.96 * se)
 
         out = {"mean_return": mean_ret, "ci95": float(ci95), "n": int(len(returns))}

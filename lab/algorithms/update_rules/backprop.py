@@ -13,11 +13,10 @@ class Backprop(UpdateRule):
         model.train()
         self.optimizer.zero_grad(set_to_none=True)
 
-        # --------- NEW: handle dict batches (GLUE / transformers) ----------
+        # --------- handle dict batches (GLUE / transformers) ----------
         if isinstance(batch, Mapping):
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            # HuggingFace models return (loss, logits, ...) when labels are provided
             outputs = model(**batch)
             loss = outputs.loss
 
@@ -30,7 +29,6 @@ class Backprop(UpdateRule):
 
             stats = {"loss": float(loss.item())}
 
-            # optional quick batch acc (only for classification tasks)
             if hasattr(outputs, "logits") and batch["labels"].dtype in (torch.int64, torch.int32, torch.int16):
                 with torch.no_grad():
                     preds = outputs.logits.argmax(dim=-1)
@@ -40,9 +38,15 @@ class Backprop(UpdateRule):
             self.global_step += 1
             return stats
 
-        # --------- classic tuple batch (vision) ----------
+        # --------- classic tuple batch (vision + RL-style) ----------
         x, y = batch
-        x, y = x.to(device), y.to(device)
+        x = x.to(device)
+
+        # NEW: allow y to be dict-like for RL targets
+        if isinstance(y, Mapping):
+            y = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in y.items()}
+        else:
+            y = y.to(device)
 
         logits = model(x)
         loss = task.loss(logits, y)

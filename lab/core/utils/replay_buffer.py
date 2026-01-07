@@ -1,11 +1,8 @@
 # core/replay_buffer.py
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Tuple
-
 import numpy as np
 import torch
-
+from dataclasses import dataclass
 
 @dataclass
 class ReplayBatch:
@@ -14,7 +11,6 @@ class ReplayBatch:
     r: torch.Tensor
     sp: torch.Tensor
     done: torch.Tensor
-
 
 class ReplayBuffer:
     def __init__(self, capacity: int, obs_dim: int):
@@ -30,6 +26,9 @@ class ReplayBuffer:
         self.ptr = 0
         self.size = 0
 
+    def __len__(self) -> int:
+        return self.size
+
     def add(self, s, a, r, sp, done) -> None:
         i = self.ptr
         self.s[i] = s
@@ -40,9 +39,6 @@ class ReplayBuffer:
 
         self.ptr = (self.ptr + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
-
-    def __len__(self) -> int:
-        return self.size
 
     def sample(self, batch_size: int, device: str) -> ReplayBatch:
         idx = np.random.randint(0, self.size, size=batch_size)
