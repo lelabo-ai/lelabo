@@ -58,7 +58,7 @@ class PPOTrainer:
             }
             self.log(rec)
 
-            if self.verbose:
+            if self.verbose and False:
                 print(
                     f"[ep {self.episode_count:5d}] "
                     f"steps={self.algo.global_step:9d} "
@@ -67,7 +67,7 @@ class PPOTrainer:
                     f"avgR20={avg_r:8.2f}"
                 )
 
-    def train(self, total_timesteps: int, log_every: int = 1) -> Dict[str, Any]:
+    def train(self, total_timesteps: int, log_every: int = 5) -> Dict[str, Any]:
         self.algo.to(self.device)
 
         cfg = self.algo.cfg
