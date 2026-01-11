@@ -1,2 +1,0 @@
-{"t": "train", "epoch": 1, "loss": 2.0288781695683795, "acc": 0.3905166666666667, "epoch_time_sec": 0.43822741900112305, "samples": 60000, "batches": 469, "samples_per_sec": 136915.21205305101, "batches_per_sec": 1070.220574214682}
-{"t": "eval", "eval_time_sec": 0.04037907600104518, "split": "test", "loss": 1.774059282875061, "acc": 0.5391}

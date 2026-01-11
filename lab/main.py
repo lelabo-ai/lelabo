@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     # General
     p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cartpole")
     p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="softhebb")
+    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="bp")
 
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--layers", type=int, default=3)
