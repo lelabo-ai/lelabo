@@ -1,21 +1,17 @@
 # lab/core/trainer.py
-import json
+from __future__ import annotations
+
 import time
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
+
+from .utils.logger import RunLogger
 
 try:
     from tqdm.auto import tqdm
 except ImportError:
     tqdm = None
-
-
-def _append_jsonl(path: Path, record: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 class Trainer:
@@ -27,7 +23,7 @@ class Trainer:
         device: str = "cpu",
         input_noise_training: float = 0.0,
         verbose: bool = False,
-        run_dir: Optional[str] = None,
+        logger: Optional[RunLogger] = None,
     ):
         self.model = model.to(device)
         self.task = task
@@ -35,14 +31,10 @@ class Trainer:
         self.algorithm = algorithm
         self.device = device
         self.verbose = verbose
-
-        self.run_dir = Path(run_dir) if run_dir else None
-        self.metrics_path = (self.run_dir / "metrics.jsonl") if self.run_dir else None
+        self.logger = logger or RunLogger(run_dir=None)
 
     def log(self, record: Dict[str, Any]) -> None:
-        if self.metrics_path is None:
-            return
-        _append_jsonl(self.metrics_path, record)
+        self.logger.log(record)
 
     def _maybe_sync_cuda(self) -> None:
         if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
@@ -54,9 +46,8 @@ class Trainer:
         best_train_acc = float("-inf")
         best_train_loss = float("inf")
 
-        # Global accumulators (sample-weighted)
-        total_loss_sum = 0.0   # sum over samples of (loss_per_sample * 1) i.e. batch_mean_loss * bs
-        total_acc_sum = 0.0    # sum over samples of correct fraction -> batch_acc * bs
+        total_loss_sum = 0.0
+        total_acc_sum = 0.0
         total_samples = 0
         total_batches = 0
 
@@ -72,7 +63,6 @@ class Trainer:
             self._maybe_sync_cuda()
             ep_start = time.perf_counter()
 
-            # Epoch accumulators (sample-weighted)
             ep_loss_sum = 0.0
             ep_acc_sum = 0.0
             ep_samples = 0
@@ -91,27 +81,21 @@ class Trainer:
                 bs = int(x.size(0)) if hasattr(x, "size") else 0
                 ep_samples += bs
 
-                # input noise during training (enabled)
                 if self.input_noise_training > 0.0:
                     x = x + torch.randn_like(x) * self.input_noise_training
 
                 stats = self.algorithm.train_step(self.model, self.task, (x, y), self.device)
 
-                # Assume stats["loss"] is mean loss over batch, stats["acc"] is fraction correct over batch
                 loss = float(stats.get("loss", 0.0))
                 acc = float(stats.get("acc", 0.0))
 
-                # Sample-weighted accumulation
                 ep_loss_sum += loss * bs
                 ep_acc_sum += acc * bs
                 ep_batches += 1
 
                 if use_bar:
                     denom = max(1, ep_samples)
-                    iterator.set_postfix(
-                        loss=(ep_loss_sum / denom),
-                        acc=(ep_acc_sum / denom),
-                    )
+                    iterator.set_postfix(loss=(ep_loss_sum / denom), acc=(ep_acc_sum / denom))
 
             self._maybe_sync_cuda()
             ep_time = time.perf_counter() - ep_start
@@ -128,7 +112,6 @@ class Trainer:
             batches_per_sec = (ep_batches / ep_time) if ep_time > 0 else 0.0
             epoch_samples_per_sec.append(float(samples_per_sec))
 
-            # Global accumulators
             total_loss_sum += ep_loss_sum
             total_acc_sum += ep_acc_sum
             total_samples += ep_samples
@@ -150,8 +133,7 @@ class Trainer:
 
             if self.verbose:
                 print(
-                    f"Epoch {ep}/{epochs} | "
-                    f"train_loss={mean_loss:.4f} | train_acc={mean_acc*100:.2f}% | "
+                    f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_acc={mean_acc*100:.2f}% | "
                     f"time={ep_time:.2f}s | {samples_per_sec:.1f} samples/s"
                 )
 

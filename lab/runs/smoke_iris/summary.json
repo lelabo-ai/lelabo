@@ -1,0 +1,118 @@
+{
+  "args": {
+    "dataset": "iris",
+    "model": "mlp",
+    "algo": "bp",
+    "hidden": 256,
+    "layers": 3,
+    "lr": 0.0003,
+    "epochs": 1,
+    "batch": 64,
+    "device": "cpu",
+    "seed": 2,
+    "verbose": 1,
+    "optimizer": "adamw",
+    "weight_decay": 0.01,
+    "input_noise_training": 0.0,
+    "env": "CartPole-v1",
+    "rl_steps": 500000,
+    "rl_eval_episodes": 5,
+    "rl_algo": "ppo",
+    "gamma": 0.99,
+    "buffer_size": 100000,
+    "learning_starts": 1000,
+    "train_freq": 1,
+    "target_update_freq": 1000,
+    "eps_start": 1.0,
+    "eps_end": 0.05,
+    "eps_decay_steps": 50000,
+    "rl_batch_size": 256,
+    "ppo_num_envs": 8,
+    "ppo_num_steps": 128,
+    "ppo_update_epochs": 4,
+    "ppo_num_minibatches": 4,
+    "gae_lambda": 0.95,
+    "clip_coef": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "norm_adv": 1,
+    "clip_vloss": 1,
+    "target_kl": null,
+    "max_grad_norm": 0.5,
+    "robustness": "input_noise",
+    "noise_trials": 30,
+    "glue_task": "cola",
+    "hf_model": "bert-base-uncased",
+    "max_length": 128,
+    "run_dir": "runs/smoke_iris"
+  },
+  "train": {
+    "best_train_loss": 1.2033790508906046,
+    "best_train_acc": 0.3333333333333333,
+    "final_train_loss": 1.2033790508906046,
+    "final_train_acc": 0.3333333333333333,
+    "total_train_time_sec": 0.015106442000615061,
+    "overall_samples_per_sec": 7943.630935405848,
+    "overall_batches_per_sec": 132.3938489234308,
+    "mean_epoch_time_sec": 0.015019860000393237,
+    "mean_epoch_samples_per_sec": 7989.422005055857
+  },
+  "eval": {
+    "test": {
+      "loss": 1.2032933235168457,
+      "acc": 0.30000001192092896
+    }
+  },
+  "robustness": {
+    "input_noise": {
+      "trials": 30,
+      "results": [
+        {
+          "sigma": 0.0,
+          "mean_acc": 0.30000000000000004,
+          "ci95": 2.0203997520952348e-17
+        },
+        {
+          "sigma": 0.05,
+          "mean_acc": 0.3277777777777779,
+          "ci95": 0.004521365014259175
+        },
+        {
+          "sigma": 0.1,
+          "mean_acc": 0.33444444444444454,
+          "ci95": 0.003815131978532697
+        },
+        {
+          "sigma": 0.2,
+          "mean_acc": 0.33222222222222236,
+          "ci95": 0.004936369919066329
+        },
+        {
+          "sigma": 0.5,
+          "mean_acc": 0.32444444444444454,
+          "ci95": 0.0062125595470796935
+        },
+        {
+          "sigma": 1.0,
+          "mean_acc": 0.32444444444444454,
+          "ci95": 0.008248238843458119
+        },
+        {
+          "sigma": 2.0,
+          "mean_acc": 0.32444444444444454,
+          "ci95": 0.010357775237747328
+        },
+        {
+          "sigma": 5.0,
+          "mean_acc": 0.3366666666666668,
+          "ci95": 0.011445395935598093
+        },
+        {
+          "sigma": 10.0,
+          "mean_acc": 0.3366666666666668,
+          "ci95": 0.012272820378832473
+        }
+      ]
+    }
+  }
+}
