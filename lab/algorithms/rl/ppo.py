@@ -1,4 +1,4 @@
-# algorithms/rl/ppo.py
+# lab/algorithms/rl/ppo.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,4 +1,4 @@
-# core/glue_task.py
+# lab/core/glue_task.py
 import torch
 import evaluate
 

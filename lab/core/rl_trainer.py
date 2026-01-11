@@ -1,4 +1,4 @@
-# core/rl_trainer.py
+# lab/core/rl_trainer.py
 from __future__ import annotations
 import json
 import time

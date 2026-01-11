@@ -1,4 +1,4 @@
-# core/data.py
+# lab/core/data.py
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.datasets import load_iris

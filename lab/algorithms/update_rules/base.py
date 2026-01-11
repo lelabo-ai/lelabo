@@ -1,3 +1,5 @@
+# lab/algorithms/update_rules/base.py
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import torch
 

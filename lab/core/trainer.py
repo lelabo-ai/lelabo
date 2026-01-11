@@ -1,4 +1,4 @@
-# core/trainer.py
+# lab/core/trainer.py
 import json
 import time
 from pathlib import Path

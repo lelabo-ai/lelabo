@@ -1,4 +1,4 @@
-# algorithms/backprop.py
+# lab/algorithms/update_rules/backprop.py
 import torch
 from .base import UpdateRule
 from collections.abc import Mapping

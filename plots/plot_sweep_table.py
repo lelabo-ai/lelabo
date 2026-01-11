@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# scripts/plot_sweep_table.py
+# plots/plot_sweep_table.py
 
 import argparse
 import json

@@ -1,4 +1,4 @@
-# core/ppo_trainer.py
+# lab/core/ppo_trainer.py
 from __future__ import annotations
 
 import json

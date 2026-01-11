@@ -1,4 +1,4 @@
-# algorithms/dfa.py
+# lab/algorithms/update_rules/dfa.py
 import math
 import torch
 import torch.nn.functional as F
