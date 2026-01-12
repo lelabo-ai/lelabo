@@ -23,15 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
 
     # General
-    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cartpole")
+    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="iris")
     p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="bp")
+    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="softhebb")
 
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--layers", type=int, default=3)
 
-    p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--epochs", type=int, default=1000)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=2)

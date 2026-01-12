@@ -1,185 +1,93 @@
-# algorithms/feedback_alignment.py
-import math
+# lab/algorithms/update_rules/feedback_alignment.py
+from __future__ import annotations
+
 import torch
-import torch.nn.functional as F
-from .base import UpdateRule
 from collections.abc import Mapping
+
+from .base import UpdateRule
+from .helpers import (
+    to_device,
+    collect_linear_cache,
+    infer_activation_name,
+    act_deriv_from_name,
+    ce_delta_logits,
+    ensure_fa_feedback,
+    set_linear_grads_,
+    optimizer_step,
+)
 
 
 class FeedbackAlignment(UpdateRule):
     """
-    Feedback Alignment (FA) with an external optimizer.
-
-    - Computes approximate gradients locally (no autograd)
-    - Writes them into param.grad
-    - Calls optimizer.step()
-
-    Works best for MLPs (2D Linear activations).
-    For transformer-style dict batches, it usually updates only the classifier head
-    (since internal linears are often 3D and we skip those).
+    FA (no autograd): écrit des gradients estimés dans .grad puis optimizer.step().
+    Support principal: MLP-style (model.linears + return_cache=True).
+    Fallback possible via hooks si pas de cache.
     """
-
-    def __init__(
-        self,
-        optimizer,
-        feedback_scale=1.0,
-        grad_clip=None,
-        activation=None,   # override: "relu", "tanh", "sigmoid"
-        grad_scale=1.0,    # multiply all grads (useful if you want separate "algo lr")
-        eps=1e-8,
-    ):
+    def __init__(self, optimizer, feedback_scale=1.0, grad_clip=None, activation=None, grad_scale=1.0):
         super().__init__()
         self.optimizer = optimizer
         self.feedback_scale = float(feedback_scale)
         self.grad_clip = grad_clip
         self.activation = activation
         self.grad_scale = float(grad_scale)
-        self.eps = float(eps)
-
-        # B_l maps delta_{l+1} (out_{l+1}) -> delta_l (out_l), fixed random
         self.B_mats = None
 
-    # -------------------------
-    # helpers
-    # -------------------------
-    def _get_act_name(self, model) -> str:
-        if self.activation is not None:
-            return str(self.activation).lower()
-        if hasattr(model, "activation"):
-            return str(model.activation).lower()
-        return "relu"
-
-    def _act_deriv(self, z: torch.Tensor, act_name: str) -> torch.Tensor:
-        if act_name == "relu":
-            return (z > 0).to(z.dtype)
-        if act_name == "tanh":
-            h = torch.tanh(z)
-            return 1.0 - h * h
-        if act_name == "sigmoid":
-            h = torch.sigmoid(z)
-            return h * (1.0 - h)
-        return (z > 0).to(z.dtype)
-
-    def _ensure_feedback(self, linear_layers: list[torch.nn.Linear], device, dtype):
-        L = len(linear_layers)
-        if L < 2:
-            self.B_mats = []
-            return
-
-        if self.B_mats is not None and len(self.B_mats) == (L - 1):
-            ok = True
-            for l in range(L - 1):
-                out_next = linear_layers[l + 1].out_features
-                out_cur = linear_layers[l].out_features
-                if self.B_mats[l].shape != (out_next, out_cur):
-                    ok = False
-                    break
-            if ok:
-                self.B_mats = [B.to(device=device, dtype=dtype) for B in self.B_mats]
-                return
-
-        self.B_mats = []
-        for l in range(L - 1):
-            out_next = linear_layers[l + 1].out_features
-            out_cur = linear_layers[l].out_features
-            scale = self.feedback_scale / math.sqrt(max(out_next, 1))
-            B = torch.randn(out_next, out_cur, device=device, dtype=dtype) * scale
-            self.B_mats.append(B)
-
-    def _ce_delta_logits(self, logits: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-        # dL/dlogits for CE-softmax (already averaged by batch)
-        B = logits.size(0)
-        probs = F.softmax(logits, dim=1)
-        onehot = torch.zeros_like(probs)
-        onehot.scatter_(1, y_true.view(-1, 1), 1.0)
-        return (probs - onehot) / float(B)
-
-    # -------------------------
-    # main API
-    # -------------------------
     @torch.no_grad()
     def train_step(self, model, task, batch, device):
         model.train()
         self.optimizer.zero_grad(set_to_none=True)
 
-        # ---- capture (x, z) for each Linear layer ----
-        layer_cache = []  # list of (x, z) in the order hooks fire
-        hooks = []
-
-        def hook_fn(module, inputs, output):
-            x = inputs[0]
-            z = output
-            # MLP-friendly only
-            if x.dim() == 2 and z.dim() == 2:
-                layer_cache.append((x.detach(), z.detach(), module))
-
-        for m in model.modules():
-            if isinstance(m, torch.nn.Linear):
-                hooks.append(m.register_forward_hook(hook_fn))
-
-        # ---- forward (tuple or dict batches) ----
+        # ---- forward & cache ----
         if isinstance(batch, Mapping):
-            batch = {k: v.to(device) for k, v in batch.items()}
-            outputs = model(**batch)
+            # FA nécessite labels; on supporte HF uniquement si labels existent + si on capte un Linear head (fallback hooks)
+            b = to_device(batch, device)
+            outputs = model(**b)
             logits = outputs.logits
-            y_true = batch.get("labels", None)
-        else:
-            x, y_true = batch
-            x, y_true = x.to(device), y_true.to(device)
-            logits = model(x)
-
-        for h in hooks:
-            h.remove()
-
-        # If no labels, can't compute CE delta (so we can't FA-train)
-        if y_true is None or len(layer_cache) == 0:
-            stats = {"loss": 0.0}
+            y_true = b.get("labels", None)
+            # pour FA interne sur transformer, ça devient vite fragile -> si pas de cache, on update rien
+            if y_true is None:
+                self.global_step += 1
+                return {"loss": 0.0}
+            # pas de layer_cache fiable ici => on retourne loss uniquement
+            loss = task.loss(logits, y_true)
             self.global_step += 1
-            return stats
+            return {"loss": float(loss.item())}
 
-        # linear layers we actually captured (already includes module ref)
+        x, y_true = to_device(batch, device)
+        logits, layer_cache = collect_linear_cache(model, x)
+
+        if y_true is None or len(layer_cache) == 0:
+            self.global_step += 1
+            return {"loss": 0.0}
+
         linear_layers = [m for (_, _, m) in layer_cache]
-        act_name = self._get_act_name(model)
+        act_name = infer_activation_name(model, self.activation)
 
-        # fixed random feedback
-        self._ensure_feedback(linear_layers, device=logits.device, dtype=logits.dtype)
+        # ---- feedback matrices ----
+        self.B_mats = ensure_fa_feedback(
+            linear_layers, self.feedback_scale, device=logits.device, dtype=logits.dtype, prev=self.B_mats
+        )
 
         # ---- deltas ----
         deltas = [None] * len(linear_layers)
-        deltas[-1] = self._ce_delta_logits(logits, y_true)  # (B, C)
+        deltas[-1] = ce_delta_logits(logits, y_true)  # (B,C)
 
-        # Backward with random feedback
         for l in reversed(range(len(linear_layers) - 1)):
             x_l, z_l, _ = layer_cache[l]
-            delta_next = deltas[l + 1]           # (B, out_{l+1})
-            Bmat = self.B_mats[l]                # (out_{l+1}, out_l)
-            delta_l = delta_next @ Bmat          # (B, out_l)
-            delta_l = delta_l * self._act_deriv(z_l, act_name)
+            delta_next = deltas[l + 1]          # (B, out_{l+1})
+            Bmat = self.B_mats[l]               # (out_{l+1}, out_l)
+            delta_l = (delta_next @ Bmat) * act_deriv_from_name(z_l, act_name)
             deltas[l] = delta_l
 
-        # ---- write grads into .grad and optimizer.step() ----
-        Bsz = logits.size(0)
-        for l, (x_l, z_l, layer) in enumerate(layer_cache):
-            delta_l = deltas[l]  # (B, out)
+        # ---- write grads ----
+        for (x_l, _z_l, layer), delta in zip(layer_cache, deltas):
+            set_linear_grads_(layer, x_l, delta, scale=self.grad_scale)
 
-            # gradient estimate
-            dW = (delta_l.T @ x_l) / float(Bsz)   # (out, in)
-            if layer.weight.grad is None:
-                layer.weight.grad = torch.zeros_like(layer.weight)
-            layer.weight.grad.copy_(self.grad_scale * dW)
+        # ---- step ----
+        params = list(model.parameters())
+        optimizer_step(self.optimizer, params_for_clip=params, grad_clip=self.grad_clip)
 
-            if layer.bias is not None:
-                db = delta_l.mean(dim=0)
-                if layer.bias.grad is None:
-                    layer.bias.grad = torch.zeros_like(layer.bias)
-                layer.bias.grad.copy_(self.grad_scale * db)
-
-        if self.grad_clip is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
-
-        self.optimizer.step()
-
-        # ---- logging ----
+        # ---- stats ----
         loss = task.loss(logits, y_true)
         stats = {"loss": float(loss.item())}
         if hasattr(task, "metrics"):
