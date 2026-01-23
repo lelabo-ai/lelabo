@@ -16,6 +16,6 @@ base:
   optimizer: ano
 
 grid:
-  algo: [dni]
+  algo: [bp, softhebb, kp]
   seed: [0, 1, 2]
-  lr: [3e-3, 3e-4, 3e-5]
+  lr: [1e-3]

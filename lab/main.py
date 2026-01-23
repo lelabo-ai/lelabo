@@ -23,15 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
 
     # General
-    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="iris")
+    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cartpole")
     p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa"], default="softhebb")
+    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa", "dni"], default="bp")
 
     p.add_argument("--hidden", type=int, default=256)
-    p.add_argument("--layers", type=int, default=3)
+    p.add_argument("--layers", type=int, default=10)
 
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--epochs", type=int, default=1000)
+    p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=2)
@@ -42,10 +42,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--input-noise-training", type=float, default=0.0, help="stddev gaussian noise on inputs during training")
 
+    # Validation split (supervised classic datasets)
+    p.add_argument("--val-frac", type=float, default=0.1, help="fraction of train set used as validation (0 disables)")
+
+    # Early stopping
+    p.add_argument("--early-stop", action="store_true", help="enable early stopping")
+    p.add_argument("--no-early-stop", dest="early_stop", action="store_false", help="disable early stopping")
+    p.set_defaults(early_stop=True)
+
+    p.add_argument("--early-monitor", type=str, default="val.acc")
+    p.add_argument("--early-patience", type=int, default=30)
+    p.add_argument("--early-min-delta", type=float, default=0.0)
+    p.add_argument("--early-warmup", type=int, default=5)
+
     # RL common
     p.add_argument("--env", type=str, default="CartPole-v1")
     p.add_argument("--rl-steps", type=int, default=500_000)
-    p.add_argument("--rl-eval-episodes", type=int, default=5)
+    p.add_argument("--rl-eval-episodes", type=int, default=10)
     p.add_argument("--rl-algo", type=str, default="ppo", choices=["dqn", "ppo"])
 
     # DQN
@@ -133,9 +146,24 @@ def run_rl(args, logger: RunLogger):
 
         if args.algo == "bp":
             learner = Backprop(optimizer=optimizer, grad_clip=args.max_grad_norm)
+        elif args.algo =='kp':
+            from algorithms.update_rules.kp import KP
+            learner = KP(learning_rate=args.lr, head_lr=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
         elif args.algo == "softhebb":
             from algorithms.update_rules.softhebb import SoftHebb
             learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
+        elif args.algo == 'tp':
+            from algorithms.update_rules.targetprop import TargetPropagation
+            learner = TargetPropagation(fwd_lr=args.lr, inv_lr=args.lr, fwd_optimizer=optimizer, inv_optimizer=optimizer)
+        elif args.algo == 'fa':
+            from algorithms.update_rules.feedbackalignment import FeedbackAlignment
+            learner = FeedbackAlignment(optimizer=optimizer)
+        elif args.algo == 'dfa':
+            from algorithms.update_rules.dfa import DirectFeedbackAlignment
+            learner = DirectFeedbackAlignment(optimizer=optimizer)
+        elif args.algo == 'dni':
+            from algorithms.update_rules.dni import DNI
+            learner = DNI(lr=args.lr, sg_lr=args.lr, net_weight_decay=args.weight_decay, sg_weight_decay=args.weight_decay)
         else:
             raise ValueError("PPO scaffold: --algo doit être bp ou softhebb")
 
@@ -183,7 +211,6 @@ def main():
         logger.write_summary(summary)
         return
 
-    # supervised / glue
     summary = run_supervised(args, logger)
     logger.write_summary(summary)
 

@@ -2,4 +2,4 @@ python scripts/launch_grid.py --config configs/compare.yaml --max-parallel 4
 
 python plots/plot_sweep_table.py --config configs/compare.yaml --metric eval.test.acc
 
-python lab/main.py --verbose 1 --algo softhebb
+python lab/main.py --verbose 1 --algo bp

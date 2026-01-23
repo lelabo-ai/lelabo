@@ -21,7 +21,7 @@ class MLPClassifier(nn.Module):
         hidden_dim: int,
         num_layers: int,
         num_classes: int,
-        activation: str = "heaviside",
+        activation: str = "relu",
     ):
         super().__init__()
         self.in_dim = int(in_dim)

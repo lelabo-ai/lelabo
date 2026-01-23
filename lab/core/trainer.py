@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 import torch
 
+from .callbacks import Callback
 from .utils.logger import RunLogger
 
 try:
@@ -23,6 +24,7 @@ class Trainer:
         device: str = "cpu",
         input_noise_training: float = 0.0,
         verbose: bool = False,
+        callbacks: Optional[list[Callback]] = None,
         logger: Optional[RunLogger] = None,
     ):
         self.model = model.to(device)
@@ -32,6 +34,9 @@ class Trainer:
         self.device = device
         self.verbose = verbose
         self.logger = logger or RunLogger(run_dir=None)
+        self.callbacks = callbacks or []
+        self.stop_training = False
+        self.stop_reason = None
 
     def log(self, record: Dict[str, Any]) -> None:
         self.logger.log(record)
@@ -40,7 +45,16 @@ class Trainer:
         if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
 
-    def fit(self, train_loader, epochs: int = 10, show_progress: bool = True) -> Dict[str, Any]:
+    def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> Dict[str, Any]:
+        best_val_acc = float("-inf")
+        best_val_loss = float("inf")
+        final_val_acc = None
+        final_val_loss = None
+        best_epoch_by_val = None
+
+        for cb in self.callbacks:
+            cb.on_train_start(self)
+
         self.algorithm.on_train_start(self.model, self.task, self.device)
 
         best_train_acc = float("-inf")
@@ -57,7 +71,10 @@ class Trainer:
         self._maybe_sync_cuda()
         train_start = time.perf_counter()
 
+        last_epoch_ran = 0
+
         for ep in range(1, epochs + 1):
+            last_epoch_ran = ep
             self.model.train()
 
             self._maybe_sync_cuda()
@@ -131,11 +148,43 @@ class Trainer:
                 }
             )
 
+            logs: Dict[str, float] = {
+                "train.loss": float(mean_loss),
+                "train.acc": float(mean_acc),
+            }
+
+            if val_loader is not None:
+                val_res = self.evaluate(val_loader, split="val")
+                vloss = float(val_res.get("loss", 0.0))
+                vacc  = float(val_res.get("acc", 0.0))
+
+                logs["val.loss"] = vloss
+                logs["val.acc"]  = vacc
+
+                # track best val
+                if vacc > best_val_acc:
+                    best_val_acc = vacc
+                    best_val_loss = vloss
+                    best_epoch_by_val = ep
+
+                final_val_acc = vacc
+                final_val_loss = vloss
+
+
+            for cb in self.callbacks:
+                cb.on_epoch_end(self, ep, logs)
+
+            if self.stop_training:
+                if self.verbose and self.stop_reason:
+                    print(self.stop_reason)
+                break
+
             if self.verbose:
-                print(
-                    f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_acc={mean_acc*100:.2f}% | "
-                    f"time={ep_time:.2f}s | {samples_per_sec:.1f} samples/s"
-                )
+                msg = f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_acc={mean_acc*100:.2f}%"
+                if val_loader is not None:
+                    msg += f" | val_acc={logs.get('val.acc', 0.0)*100:.2f}%"
+                msg += f" | time={ep_time:.2f}s | {samples_per_sec:.1f} samples/s"
+                print(msg)
 
         self._maybe_sync_cuda()
         total_time = time.perf_counter() - train_start
@@ -146,16 +195,26 @@ class Trainer:
         final_train_loss = float(total_loss_sum / max(1, total_samples))
         final_train_acc = float(total_acc_sum / max(1, total_samples))
 
+        for cb in self.callbacks:
+            cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)})
+
         return {
             "best_train_loss": float(best_train_loss),
             "best_train_acc": float(best_train_acc),
             "final_train_loss": final_train_loss,
             "final_train_acc": final_train_acc,
+            "best_val_loss": None if val_loader is None else float(best_val_loss),
+            "best_val_acc":  None if val_loader is None else float(best_val_acc),
+            "final_val_loss": None if val_loader is None else (None if final_val_loss is None else float(final_val_loss)),
+            "final_val_acc":  None if val_loader is None else (None if final_val_acc is None else float(final_val_acc)),
+            "best_epoch_by_val": None if val_loader is None else int(best_epoch_by_val) if best_epoch_by_val is not None else None,
             "total_train_time_sec": float(total_time),
             "overall_samples_per_sec": float(overall_samples_per_sec),
             "overall_batches_per_sec": float(overall_batches_per_sec),
             "mean_epoch_time_sec": float(sum(epoch_times) / max(1, len(epoch_times))),
             "mean_epoch_samples_per_sec": float(sum(epoch_samples_per_sec) / max(1, len(epoch_samples_per_sec))),
+            "stopped_early": bool(self.stop_training),
+            "stop_reason": self.stop_reason,
         }
 
     @torch.no_grad()

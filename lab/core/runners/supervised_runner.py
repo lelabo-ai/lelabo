@@ -1,7 +1,7 @@
 # lab/runners/supervised_runner.py
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 from core.trainer import Trainer
@@ -27,6 +27,8 @@ from models.resnet import build_resnet
 from algorithms.update_rules.backprop import Backprop
 from algorithms.update_rules.local_probe_mlp import LocalProbeMLP
 
+from core.callbacks import EarlyStopping, EarlyStoppingConfig
+
 
 def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     Xte = yte = None
@@ -35,26 +37,39 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     num_labels = None
     is_regression = False
 
+    val_loader = None  # <- new for classic datasets
+
+    callbacks = []
+    if bool(args.early_stop):
+        callbacks.append(EarlyStopping(EarlyStoppingConfig(
+            monitor=args.early_monitor,
+            mode="max" if "acc" in args.early_monitor else "min",
+            patience=args.early_patience,
+            min_delta=args.early_min_delta,
+            warmup_epochs=max(0, args.early_warmup),
+            restore_best=True,
+        )))
+
     if args.dataset == "iris":
-        train_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_iris_loaders(
-            batch_size=args.batch, seed=args.seed
+        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_iris_loaders(
+            batch_size=args.batch, seed=args.seed, val_frac=args.val_frac
         )
 
     elif args.dataset == "breast_cancer":
-        train_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_breast_cancer_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=True
+        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_breast_cancer_loaders(
+            batch_size=args.batch, seed=args.seed, flatten=True, val_frac=args.val_frac
         )
 
     elif args.dataset == "mnist":
         flatten = (args.model == "mlp")
-        train_loader, test_loader, Xtr, ytr, Xte, yte, in_dim_or_shape, num_classes = make_mnist_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=flatten
+        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim_or_shape, num_classes = make_mnist_loaders(
+            batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac
         )
 
     elif args.dataset in ["cifar10", "cifar100"]:
         flatten = (args.model == "mlp")
-        train_loader, test_loader, in_dim_or_shape, num_classes = make_cifar_loaders(
-            dataset=args.dataset, batch_size=args.batch, seed=args.seed, flatten=flatten
+        train_loader, val_loader, test_loader, in_dim_or_shape, num_classes = make_cifar_loaders(
+            dataset=args.dataset, batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac
         )
 
     else:  # glue
@@ -117,7 +132,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     elif args.algo == "kp":
         from algorithms.update_rules.kp import KP
-        algo = KP(learning_rate=args.lr)
+        algo = KP(learning_rate=args.lr, head_lr=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
 
     elif args.algo == "softhebb":
         from algorithms.update_rules.softhebb import SoftHebb
@@ -137,6 +152,17 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         from algorithms.update_rules.dfa import DirectFeedbackAlignment
         algo = DirectFeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
+    elif args.algo == "dni":
+        from algorithms.update_rules.dni import DNI
+        algo = DNI(
+            lr=args.lr,
+            sg_lr=args.lr,
+            sg_hidden=0,
+            condition_on_label=False,
+            lambda_mix=0.0,
+            sg_scale=1.0,
+            activation="relu",
+        )
     else:
         raise ValueError(f"Unknown algo: {args.algo}")
 
@@ -147,13 +173,19 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         device=args.device,
         input_noise_training=args.input_noise_training,
         verbose=bool(args.verbose),
+        callbacks=callbacks,
         logger=logger,
     )
 
     summary: Dict[str, Any] = {"args": vars(args)}
 
-    # train
-    summary["train"] = trainer.fit(train_loader, epochs=args.epochs, show_progress=True)
+    # train (pass val_loader!)
+    summary["train"] = trainer.fit(
+        train_loader,
+        epochs=args.epochs,
+        show_progress=True,
+        val_loader=val_loader
+    )
 
     # eval
     eval_block: Dict[str, Any] = {}
@@ -165,7 +197,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         eval_block["test"] = trainer.evaluate(test_loader, split="test")
     summary["eval"] = eval_block
 
-    # robustness
+    # robustness (unchanged, uses Xte/yte)
     robustness_block: Dict[str, Any] = {}
     if args.dataset in ["iris", "mnist", "cifar10", "cifar100", "breast_cancer"] and args.robustness != "none":
         sigmas_input = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]

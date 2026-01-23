@@ -70,7 +70,7 @@ class RLRunner:
                     self._last_lengths.append(float(ep["length"]))
 
                 rec = {"t": "episode", "total_steps": int(self.algo.total_steps), **ep}
-                self.logger.log(rec)
+                #self.logger.log(rec)
 
             stats = self.algo.update(batch, device=self.device)
 
@@ -81,7 +81,6 @@ class RLRunner:
                 if (updates % log_every_updates) == 0:
                     rec = {"t": "rl_update", "total_steps": int(self.algo.total_steps), **stats}
 
-                    # ajoute rolling metrics dans les logs aussi (pratique)
                     rec["roll_mean_return_20"] = self._mean(self._last_returns)
                     rec["roll_mean_length_20"] = self._mean(self._last_lengths)
 

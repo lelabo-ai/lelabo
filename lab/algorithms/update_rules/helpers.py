@@ -132,14 +132,14 @@ def optimizer_step(
 
 def ce_delta_logits(logits: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
     """
-    dL/dlogits for CE-softmax, already averaged by batch.
+    dL/dlogits for CE-softmax.
     logits: [B,C], y_true: [B]
     """
     B = logits.size(0)
     probs = F.softmax(logits, dim=1)
     onehot = torch.zeros_like(probs)
     onehot.scatter_(1, y_true.view(-1, 1), 1.0)
-    return (probs - onehot) / float(B)
+    return (probs - onehot)
 
 
 def infer_activation_name(model, override: Optional[str] = None) -> str:
