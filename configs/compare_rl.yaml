@@ -1,6 +1,5 @@
 name: compare_all_cartpole
-
-display_keys: [algo, dataset, lr, seed, rl-algo, rl-steps]
+display_keys: [algo, dataset, lr, seed, rl-algo, rl-steps, optimizer]
 
 base:
   dataset: cartpole
@@ -16,6 +15,6 @@ base:
   optimizer: ano
 
 grid:
-  algo: [bp, softhebb, kp]
+  algo: [bp, kp, dfa, fa, dni, softhebb, tp]
   seed: [0, 1, 2]
-  lr: [1e-3]
+  lr: [3e-4]

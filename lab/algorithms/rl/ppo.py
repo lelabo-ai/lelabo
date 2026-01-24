@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.distributions.categorical import Categorical
 
-from core.task import PPOConfig, PPOTask
+from ...core.task import PPOConfig, PPOTask
 
 
 @dataclass

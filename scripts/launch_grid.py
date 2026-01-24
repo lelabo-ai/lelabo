@@ -119,7 +119,13 @@ def run_job(job: Job, env: Dict[str, str] | None = None) -> int:
     with job.log_path.open("w") as f:
         f.write(" ".join(job.cmd) + "\n\n")
         f.flush()
-        p = subprocess.run(job.cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
+        p = subprocess.run(
+            job.cmd,
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=Path(__file__).resolve().parents[1],  # repo root
+        )
         return p.returncode
 
 
@@ -127,7 +133,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, required=True, help="YAML config describing base args + grid.")
     ap.add_argument("--python", type=str, default="python", help="Python executable")
-    ap.add_argument("--entry", type=str, default="lab/main.py", help="Entry script (your single-run main)")
+    ap.add_argument("--entry", type=str, default="lab.main", help="Entry script (your single-run main)")
     ap.add_argument("--outdir", type=str, default="results/runs", help="Where logs/metadata are written")
     ap.add_argument("--name", type=str, default=None, help="Experiment name (default: timestamp)")
     ap.add_argument("--max-parallel", type=int, default=1, help="Number of concurrent runs")
@@ -142,12 +148,6 @@ def main():
 
     if yaml is None:
         raise RuntimeError("PyYAML not installed. Run: pip install pyyaml")
-
-    repo_root = Path(__file__).resolve().parents[1]  # .../LeLabo/
-    entry_path = (repo_root / args.entry).resolve()
-
-    if not entry_path.exists():
-        raise FileNotFoundError(f"Entry script not found: {entry_path}")
 
     cfg = yaml.safe_load(Path(args.config).read_text())
 
@@ -171,7 +171,7 @@ def main():
 
         run_dirname = build_run_dirname(merged, display_keys)
         job_dir = out_root / run_dirname
-        cmd = [args.python, str(entry_path)] + to_cli_args(merged) + ["--run-dir", str(job_dir)]
+        cmd = [args.python, "-m", args.entry] + to_cli_args(merged) + ["--run-dir", str(job_dir)]
 
 
         jobs.append(

@@ -8,6 +8,8 @@ import torch
 
 from .callbacks import Callback
 from .utils.logger import RunLogger
+from .batch import infer_batch_size
+from .steps import compute_loss_and_stats
 
 try:
     from tqdm.auto import tqdm
@@ -20,7 +22,7 @@ class Trainer:
         self,
         model,
         task,
-        algorithm,
+        learner,
         device: str = "cpu",
         input_noise_training: float = 0.0,
         verbose: bool = False,
@@ -30,7 +32,10 @@ class Trainer:
         self.model = model.to(device)
         self.task = task
         self.input_noise_training = float(input_noise_training)
-        self.algorithm = algorithm
+
+        self.learner = learner
+        self.algorithm = learner  # compat
+
         self.device = device
         self.verbose = verbose
         self.logger = logger or RunLogger(run_dir=None)
@@ -46,22 +51,23 @@ class Trainer:
             torch.cuda.synchronize()
 
     def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> Dict[str, Any]:
-        best_val_acc = float("-inf")
+        best_val_metric = float("-inf")
         best_val_loss = float("inf")
-        final_val_acc = None
-        final_val_loss = None
         best_epoch_by_val = None
+
+        best_train_metric = float("-inf")
+        best_train_loss = float("inf")
+
+        final_val_metric = None
+        final_val_loss = None
 
         for cb in self.callbacks:
             cb.on_train_start(self)
 
-        self.algorithm.on_train_start(self.model, self.task, self.device)
-
-        best_train_acc = float("-inf")
-        best_train_loss = float("inf")
+        self.learner.on_train_start(self.model, self.task, self.device)
 
         total_loss_sum = 0.0
-        total_acc_sum = 0.0
+        total_metric_sum = 0.0
         total_samples = 0
         total_batches = 0
 
@@ -81,7 +87,7 @@ class Trainer:
             ep_start = time.perf_counter()
 
             ep_loss_sum = 0.0
-            ep_acc_sum = 0.0
+            ep_metric_sum = 0.0
             ep_samples = 0
             ep_batches = 0
 
@@ -91,38 +97,39 @@ class Trainer:
                 iterator = tqdm(train_loader, desc=f"Epoch {ep}/{epochs}", leave=False)
 
             for batch in iterator:
-                x, y = batch
-                x = x.to(self.device)
-                y = y.to(self.device)
-
-                bs = int(x.size(0)) if hasattr(x, "size") else 0
+                bs = infer_batch_size(batch)
                 ep_samples += bs
 
-                if self.input_noise_training > 0.0:
-                    x = x + torch.randn_like(x) * self.input_noise_training
+                if self.input_noise_training > 0.0 and isinstance(batch, (tuple, list)) and len(batch) == 2:
+                    x, y = batch
+                    if torch.is_tensor(x) and x.is_floating_point():
+                        x = x.to(self.device)
+                        x = x + torch.randn_like(x) * self.input_noise_training
+                        batch = (x, y)
 
-                stats = self.algorithm.train_step(self.model, self.task, (x, y), self.device)
+                stats = self.learner.train_step(self.model, self.task, batch, self.device)
 
                 loss = float(stats.get("loss", 0.0))
-                acc = float(stats.get("acc", 0.0))
+                metric = float(stats.get("acc", stats.get("agg", 0.0)))
 
-                ep_loss_sum += loss * bs
-                ep_acc_sum += acc * bs
+                w = float(bs if bs > 0 else 1)
+                ep_loss_sum += loss * w
+                ep_metric_sum += metric * w
                 ep_batches += 1
 
                 if use_bar:
-                    denom = max(1, ep_samples)
-                    iterator.set_postfix(loss=(ep_loss_sum / denom), acc=(ep_acc_sum / denom))
+                    denom = max(1.0, float(ep_samples))
+                    iterator.set_postfix(loss=(ep_loss_sum / denom), metric=(ep_metric_sum / denom))
 
             self._maybe_sync_cuda()
             ep_time = time.perf_counter() - ep_start
             epoch_times.append(float(ep_time))
 
-            denom = max(1, ep_samples)
+            denom = max(1.0, float(ep_samples))
             mean_loss = ep_loss_sum / denom
-            mean_acc = ep_acc_sum / denom
+            mean_metric = ep_metric_sum / denom
 
-            best_train_acc = max(best_train_acc, mean_acc)
+            best_train_metric = max(best_train_metric, mean_metric)
             best_train_loss = min(best_train_loss, mean_loss)
 
             samples_per_sec = (ep_samples / ep_time) if ep_time > 0 else 0.0
@@ -130,130 +137,82 @@ class Trainer:
             epoch_samples_per_sec.append(float(samples_per_sec))
 
             total_loss_sum += ep_loss_sum
-            total_acc_sum += ep_acc_sum
+            total_metric_sum += ep_metric_sum
             total_samples += ep_samples
             total_batches += ep_batches
 
-            self.log(
-                {
-                    "t": "train",
-                    "epoch": ep,
-                    "loss": float(mean_loss),
-                    "acc": float(mean_acc),
-                    "epoch_time_sec": float(ep_time),
-                    "samples": int(ep_samples),
-                    "batches": int(ep_batches),
-                    "samples_per_sec": float(samples_per_sec),
-                    "batches_per_sec": float(batches_per_sec),
-                }
-            )
+            self.log({"t": "train", "epoch": ep, "loss": float(mean_loss), "metric": float(mean_metric)})
 
-            logs: Dict[str, float] = {
-                "train.loss": float(mean_loss),
-                "train.acc": float(mean_acc),
-            }
+            logs: Dict[str, float] = {"train.loss": float(mean_loss), "train.metric": float(mean_metric)}
 
             if val_loader is not None:
                 val_res = self.evaluate(val_loader, split="val")
                 vloss = float(val_res.get("loss", 0.0))
-                vacc  = float(val_res.get("acc", 0.0))
+                vmetric = float(val_res.get("acc", val_res.get("agg", val_res.get("metric", 0.0))))
 
                 logs["val.loss"] = vloss
-                logs["val.acc"]  = vacc
+                logs["val.metric"] = vmetric
 
-                # track best val
-                if vacc > best_val_acc:
-                    best_val_acc = vacc
+                if vmetric > best_val_metric:
+                    best_val_metric = vmetric
                     best_val_loss = vloss
                     best_epoch_by_val = ep
 
-                final_val_acc = vacc
+                final_val_metric = vmetric
                 final_val_loss = vloss
-
 
             for cb in self.callbacks:
                 cb.on_epoch_end(self, ep, logs)
 
             if self.stop_training:
-                if self.verbose and self.stop_reason:
-                    print(self.stop_reason)
                 break
 
             if self.verbose:
-                msg = f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_acc={mean_acc*100:.2f}%"
-                if val_loader is not None:
-                    msg += f" | val_acc={logs.get('val.acc', 0.0)*100:.2f}%"
-                msg += f" | time={ep_time:.2f}s | {samples_per_sec:.1f} samples/s"
-                print(msg)
+                print(f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_metric={mean_metric:.4f}")
 
         self._maybe_sync_cuda()
         total_time = time.perf_counter() - train_start
 
-        overall_samples_per_sec = (total_samples / total_time) if total_time > 0 else 0.0
-        overall_batches_per_sec = (total_batches / total_time) if total_time > 0 else 0.0
-
-        final_train_loss = float(total_loss_sum / max(1, total_samples))
-        final_train_acc = float(total_acc_sum / max(1, total_samples))
+        final_train_loss = float(total_loss_sum / max(1.0, float(total_samples)))
+        final_train_metric = float(total_metric_sum / max(1.0, float(total_samples)))
 
         for cb in self.callbacks:
             cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)})
 
         return {
             "best_train_loss": float(best_train_loss),
-            "best_train_acc": float(best_train_acc),
+            "best_train_metric": float(best_train_metric),
             "final_train_loss": final_train_loss,
-            "final_train_acc": final_train_acc,
+            "final_train_metric": final_train_metric,
             "best_val_loss": None if val_loader is None else float(best_val_loss),
-            "best_val_acc":  None if val_loader is None else float(best_val_acc),
-            "final_val_loss": None if val_loader is None else (None if final_val_loss is None else float(final_val_loss)),
-            "final_val_acc":  None if val_loader is None else (None if final_val_acc is None else float(final_val_acc)),
-            "best_epoch_by_val": None if val_loader is None else int(best_epoch_by_val) if best_epoch_by_val is not None else None,
+            "best_val_metric": None if val_loader is None else float(best_val_metric),
+            "final_val_loss": None if val_loader is None else final_val_loss,
+            "final_val_metric": None if val_loader is None else final_val_metric,
+            "best_epoch_by_val": None if val_loader is None else best_epoch_by_val,
             "total_train_time_sec": float(total_time),
-            "overall_samples_per_sec": float(overall_samples_per_sec),
-            "overall_batches_per_sec": float(overall_batches_per_sec),
-            "mean_epoch_time_sec": float(sum(epoch_times) / max(1, len(epoch_times))),
-            "mean_epoch_samples_per_sec": float(sum(epoch_samples_per_sec) / max(1, len(epoch_samples_per_sec))),
-            "stopped_early": bool(self.stop_training),
-            "stop_reason": self.stop_reason,
         }
 
     @torch.no_grad()
     def evaluate(self, loader, split: Optional[str] = None) -> Dict[str, Any]:
         self.model.eval()
 
-        self._maybe_sync_cuda()
-        eval_start = time.perf_counter()
-
         if hasattr(self.task, "evaluate"):
             res = self.task.evaluate(self.model, loader, self.device)
         else:
-            total_acc = 0.0
             total_n = 0
             total_loss = 0.0
+            total_acc = 0.0
 
-            for x, y in loader:
-                x, y = x.to(self.device), y.to(self.device)
-                logits = self.model(x)
-                loss = self.task.loss(logits, y)
-                acc = self.task.metrics(logits, y)["acc"]
+            for batch in loader:
+                bs = infer_batch_size(batch)
+                loss, stats = compute_loss_and_stats(self.model, self.task, batch, self.device)
+                w = float(bs if bs > 0 else 1)
+                total_loss += float(loss.item()) * w
+                if "acc" in stats:
+                    total_acc += float(stats["acc"]) * w
+                total_n += int(bs if bs > 0 else 1)
 
-                n = int(x.size(0))
-                total_loss += float(loss.item()) * n
-                total_acc += float(acc) * n
-                total_n += n
+            res = {"loss": float(total_loss / max(1, total_n)), "acc": float(total_acc / max(1, total_n)), "metric": float(total_acc / max(1, total_n))}
 
-            res = {"loss": total_loss / max(1, total_n), "acc": total_acc / max(1, total_n)}
-
-        self._maybe_sync_cuda()
-        eval_time = time.perf_counter() - eval_start
-
-        payload: Dict[str, Any] = {"t": "eval", "eval_time_sec": float(eval_time)}
-        if split is not None:
-            payload["split"] = split
-
-        for k, v in res.items():
-            if isinstance(v, (int, float)):
-                payload[k] = float(v)
-
-        self.log(payload)
+        self.log({"t": "eval", "split": split, **{k: float(v) for k, v in res.items() if isinstance(v, (int, float))}})
         return res

@@ -2,92 +2,17 @@
 from __future__ import annotations
 
 import math
-from contextlib import contextmanager
-from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+try:
+    from ...core.batch import to_device, unpack_batch, extract_loss_and_stats
+except Exception:
+    from batch import to_device, unpack_batch, extract_loss_and_stats
 
-# -------------------------
-# Batch / device utils
-# -------------------------
-
-def to_device(obj: Any, device: str):
-    if torch.is_tensor(obj):
-        return obj.to(device)
-    if isinstance(obj, Mapping):
-        return {k: to_device(v, device) for k, v in obj.items()}
-    if isinstance(obj, (tuple, list)):
-        return type(obj)(to_device(x, device) for x in obj)
-    return obj
-
-
-def is_hf_batch(batch: Any) -> bool:
-    return isinstance(batch, Mapping)
-
-
-def unpack_batch(batch: Any, device: str):
-    """
-    Returns:
-      - mode: "hf" or "tuple"
-      - payload:
-          hf: (batch_dict,)
-          tuple: (x, y) where y can be tensor or dict
-    """
-    if is_hf_batch(batch):
-        b = to_device(batch, device)
-        return "hf", (b,)
-    x, y = batch
-    x = to_device(x, device)
-    y = to_device(y, device)
-    return "tuple", (x, y)
-
-
-# -------------------------
-# Loss / stats standardisation
-# -------------------------
-
-def extract_loss_and_stats(res) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """
-    Accept:
-      - loss_tensor
-      - (loss_tensor, stats_dict)
-      - {"loss": loss, ...scalars}
-    """
-    if torch.is_tensor(res):
-        return res, {}
-    if isinstance(res, tuple) and len(res) == 2:
-        loss, stats = res
-        if not torch.is_tensor(loss):
-            raise TypeError("loss must be a torch.Tensor")
-        out: Dict[str, float] = {}
-        if isinstance(stats, Mapping):
-            for k, v in stats.items():
-                if isinstance(v, (int, float)):
-                    out[k] = float(v)
-        return loss, out
-    if isinstance(res, Mapping):
-        if "loss" not in res:
-            raise ValueError("dict result must contain key 'loss'")
-        loss = res["loss"]
-        if not torch.is_tensor(loss):
-            loss = torch.tensor(float(loss))
-        out: Dict[str, float] = {}
-        for k, v in res.items():
-            if k == "loss":
-                continue
-            if isinstance(v, (int, float)):
-                out[k] = float(v)
-        return loss, out
-    raise TypeError(f"Unsupported loss return type: {type(res)}")
-
-
-# -------------------------
-# Grad writing / optimizer step
-# -------------------------
 
 def set_grad_(param: torch.nn.Parameter, grad: torch.Tensor, scale: float = 1.0):
     g = grad.to(device=param.device, dtype=param.dtype)
@@ -100,11 +25,6 @@ def set_grad_(param: torch.nn.Parameter, grad: torch.Tensor, scale: float = 1.0)
 
 
 def set_linear_grads_(layer: nn.Linear, x: torch.Tensor, delta: torch.Tensor, scale: float = 1.0):
-    """
-    delta = dL/dz for that layer output (shape [B, out])
-    x     = layer input (shape [B, in])
-    writes grads into layer.weight.grad, layer.bias.grad
-    """
     B = x.size(0)
     dW = (delta.T @ x) / float(B)
     set_grad_(layer.weight, dW, scale=scale)
@@ -113,12 +33,7 @@ def set_linear_grads_(layer: nn.Linear, x: torch.Tensor, delta: torch.Tensor, sc
         set_grad_(layer.bias, db, scale=scale)
 
 
-def optimizer_step(
-    optimizer: torch.optim.Optimizer,
-    *,
-    params_for_clip: Optional[List[torch.nn.Parameter]] = None,
-    grad_clip: Optional[float] = None,
-):
+def optimizer_step(optimizer: torch.optim.Optimizer, *, params_for_clip: Optional[List[torch.nn.Parameter]] = None, grad_clip: Optional[float] = None):
     if grad_clip is not None:
         if params_for_clip is None:
             raise ValueError("params_for_clip must be provided if grad_clip is not None")
@@ -126,20 +41,11 @@ def optimizer_step(
     optimizer.step()
 
 
-# -------------------------
-# CE / activation derivatives
-# -------------------------
-
 def ce_delta_logits(logits: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-    """
-    dL/dlogits for CE-softmax.
-    logits: [B,C], y_true: [B]
-    """
-    B = logits.size(0)
     probs = F.softmax(logits, dim=1)
     onehot = torch.zeros_like(probs)
     onehot.scatter_(1, y_true.view(-1, 1), 1.0)
-    return (probs - onehot)
+    return probs - onehot
 
 
 def infer_activation_name(model, override: Optional[str] = None) -> str:
@@ -162,16 +68,12 @@ def act_deriv_from_name(z: torch.Tensor, act_name: str, *, ste_heaviside: bool =
         return h * (1.0 - h)
     if act_name == "heaviside":
         if ste_heaviside:
-            return (z.abs() <= 1.0).to(z.dtype)  # simple STE band
+            return (z.abs() <= 1.0).to(z.dtype)
         return torch.zeros_like(z)
     return (z > 0).to(z.dtype)
 
 
-# -------------------------
-# Cache collection for Linear layers (prefer return_cache, fallback hooks)
-# -------------------------
-
-def has_return_cache(model) -> bool:
+def _has_return_cache(model) -> bool:
     try:
         return "return_cache" in model.forward.__code__.co_varnames
     except Exception:
@@ -180,15 +82,7 @@ def has_return_cache(model) -> bool:
 
 @torch.no_grad()
 def collect_linear_cache(model, x: torch.Tensor):
-    """
-    Returns:
-      logits, layer_cache where layer_cache is list of (x_l, z_l, layer_linear)
-    Priority:
-      - if model exposes model.linears and supports return_cache: use it (clean & stable)
-      - else fallback to forward hooks on nn.Linear (2D only)
-    """
-    # Clean path: MLP-like (model.linears + return_cache)
-    if hasattr(model, "linears") and has_return_cache(model):
+    if hasattr(model, "linears") and _has_return_cache(model):
         logits, cache = model(x, return_cache=True)
         linears = list(model.linears)
         layer_cache = []
@@ -198,7 +92,6 @@ def collect_linear_cache(model, x: torch.Tensor):
             layer_cache.append((x_l.detach(), z_l.detach(), layer))
         return logits, layer_cache
 
-    # Fallback path: hooks
     layer_cache: List[Tuple[torch.Tensor, torch.Tensor, nn.Linear]] = []
     hooks = []
 
@@ -221,10 +114,6 @@ def collect_linear_cache(model, x: torch.Tensor):
 
 
 def split_hidden_and_output(layer_cache, logits: torch.Tensor):
-    """
-    For generic architectures, pick the last Linear whose output matches logits shape.
-    Returns (hidden_cache, out_cache)
-    """
     if len(layer_cache) == 0:
         return [], None
 
@@ -242,14 +131,7 @@ def split_hidden_and_output(layer_cache, logits: torch.Tensor):
     return hidden, out
 
 
-# -------------------------
-# Random feedback matrices init
-# -------------------------
-
 def ensure_fa_feedback(linear_layers: List[nn.Linear], feedback_scale: float, device, dtype, prev: Optional[List[torch.Tensor]]):
-    """
-    FA: B_l shape (out_{l+1}, out_l) for l=0..L-2
-    """
     L = len(linear_layers)
     if L < 2:
         return []
@@ -275,9 +157,6 @@ def ensure_fa_feedback(linear_layers: List[nn.Linear], feedback_scale: float, de
 
 
 def ensure_dfa_feedback(hidden_layers: List[nn.Linear], out_dim: int, feedback_scale: float, device, dtype, prev: Optional[List[torch.Tensor]]):
-    """
-    DFA: B_l shape (C, out_l) for each hidden layer.
-    """
     H = len(hidden_layers)
     if H <= 0:
         return []

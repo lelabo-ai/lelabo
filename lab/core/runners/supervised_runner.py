@@ -4,30 +4,30 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import torch
-from core.trainer import Trainer
-from core.utils.optim import make_optimizer
-from core.utils.logger import RunLogger
+from ..trainer import Trainer
+from ..utils.optim import make_optimizer
+from ..utils.logger import RunLogger
 
 # datasets
-from core.data import make_iris_loaders, make_mnist_loaders, make_cifar_loaders, make_breast_cancer_loaders
-from core.task import ClassificationTask
-from core.robustness import test_with_noise
+from ..data import make_iris_loaders, make_mnist_loaders, make_cifar_loaders, make_breast_cancer_loaders
+from ..task import ClassificationTask
+from ..robustness import test_with_noise
 
 # GLUE
 from transformers import AutoModelForSequenceClassification
-from core.glue_data import make_glue_loaders
-from core.glue_task import GLUETask
+from ..glue_data import make_glue_loaders
+from ..glue_task import GLUETask
 
 # models
-from models.mlp import MLPClassifier
-from models.convnet import ConvNetClassifier
-from models.resnet import build_resnet
+from ...models.mlp import MLPClassifier
+from ...models.convnet import ConvNetClassifier
+from ...models.resnet import build_resnet
 
 # update rules
-from algorithms.update_rules.backprop import Backprop
-from algorithms.update_rules.local_probe_mlp import LocalProbeMLP
+from ...algorithms.update_rules.backprop import Backprop
+from ...algorithms.update_rules.local_probe_mlp import LocalProbeMLP
 
-from core.callbacks import EarlyStopping, EarlyStoppingConfig
+from ..callbacks import EarlyStopping, EarlyStoppingConfig
 
 
 def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
@@ -103,11 +103,8 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         elif args.model in ["resnet18", "resnet34", "resnet50"]:
             in_channels = 1 if args.dataset == "mnist" else 3
             model = build_resnet(
-                name=args.model,
                 num_classes=num_classes,
-                in_channels=in_channels,
-                cifar_stem=(args.dataset in ["cifar10", "cifar100", "mnist"]),
-                weights=None,
+                resnet_type=args.model,
             )
         else:
             raise ValueError(f"Unknown model: {args.model}")
@@ -118,43 +115,43 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     # algo
     if args.algo == "bp":
-        algo = Backprop(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
+        learner = Backprop(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
     elif args.algo == "lpl":
         if args.dataset == "glue":
-            from algorithms.update_rules.local_probe_bert import LocalProbeBERT
-            algo = LocalProbeBERT(base_optimizer=optimizer, probe_lr=args.lr)
+            from ...algorithms.update_rules.local_probe_bert import LocalProbeBERT
+            learner = LocalProbeBERT(base_optimizer=optimizer, probe_lr=args.lr)
         elif args.model == "mlp":
-            algo = LocalProbeMLP(base_optimizer=optimizer, probe_lr=args.lr, weight_decay=args.weight_decay)
+            learner = LocalProbeMLP(base_optimizer=optimizer, probe_lr=args.lr, weight_decay=args.weight_decay)
         else:
-            from algorithms.update_rules.local_probe_blocks import LocalProbeBlocks
-            algo = LocalProbeBlocks(base_optimizer=optimizer, probe_lr=args.lr)
+            from ...algorithms.update_rules.local_probe_blocks import LocalProbeBlocks
+            learner = LocalProbeBlocks(base_optimizer=optimizer, probe_lr=args.lr)
 
     elif args.algo == "kp":
-        from algorithms.update_rules.kp import KP
-        algo = KP(learning_rate=args.lr, head_lr=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
+        from ...algorithms.update_rules.kp import KP
+        learner = KP(learning_rate=args.lr, bp_lr=args.lr, bp_weight_decay=args.weight_decay)
 
     elif args.algo == "softhebb":
-        from algorithms.update_rules.softhebb import SoftHebb
-        algo = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
+        from ...algorithms.update_rules.softhebb import SoftHebb
+        learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
 
     elif args.algo == "tp":
-        from algorithms.update_rules.targetprop import TargetPropagation
+        from ...algorithms.update_rules.targetprop import TargetPropagation
         dummy = torch.nn.Parameter(torch.zeros(()), requires_grad=True)
         inv_optim = torch.optim.SGD([dummy], lr=args.lr)
-        algo = TargetPropagation(fwd_optimizer=optimizer, inv_optimizer=inv_optim, beta=1.0, noise_std=0.1)
+        learner = TargetPropagation(fwd_optimizer=optimizer, inv_optimizer=inv_optim, beta=1.0, noise_std=0.1)
 
     elif args.algo == "fa":
-        from algorithms.update_rules.feedbackalignment import FeedbackAlignment
-        algo = FeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
+        from ...algorithms.update_rules.feedbackalignment import FeedbackAlignment
+        learner = FeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
     elif args.algo == "dfa":
-        from algorithms.update_rules.dfa import DirectFeedbackAlignment
-        algo = DirectFeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
+        from ...algorithms.update_rules.dfa import DirectFeedbackAlignment
+        learner = DirectFeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
 
     elif args.algo == "dni":
-        from algorithms.update_rules.dni import DNI
-        algo = DNI(
+        from ...algorithms.update_rules.dni import DNI
+        learner = DNI(
             lr=args.lr,
             sg_lr=args.lr,
             sg_hidden=0,
@@ -169,7 +166,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     trainer = Trainer(
         model=model,
         task=task,
-        algorithm=algo,
+        learner=learner,
         device=args.device,
         input_noise_training=args.input_noise_training,
         verbose=bool(args.verbose),

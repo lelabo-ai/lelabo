@@ -3,32 +3,32 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from .mlp_utils import forward_mlp_with_cache
+try:
+    from .blocks import BlockModel, BlockSpec
+    from .mlp_utils import MLPStack
+except Exception:  # pragma: no cover
+    from blocks import BlockModel, BlockSpec
+    from mlp_utils import MLPStack
 
 
-class QNet(nn.Module):
-    """
-    Q-network (DQN) pour obs vectorielles.
-    forward(x) -> Q-values [B, A]
-    Optionnel: return_cache=True -> (Q, cache) avec le même format que MLPClassifier.
-    """
-    def __init__(self, obs_dim: int, n_actions: int, hidden: int = 256, layers: int = 2):
+class QNet(BlockModel):
+    def __init__(self, obs_dim: int, n_actions: int, hidden: int = 256, layers: int = 2, activation: str = "relu"):
         super().__init__()
-        obs_dim = int(obs_dim)
-        n_actions = int(n_actions)
-        hidden = int(hidden)
-        layers = int(layers)
-        assert layers >= 1
+        dims = [int(obs_dim)] + [int(hidden)] * int(layers) + [int(n_actions)]
+        self.activation = str(activation).lower()
+        self.net = MLPStack(dims, activation=self.activation)
 
-        dims = [obs_dim] + [hidden] * layers + [n_actions]
-        self.linears = nn.ModuleList([nn.Linear(dims[i], dims[i + 1]) for i in range(len(dims) - 1)])
+        self.linears = self.net.linears
+        self.q_head: nn.Linear = self.net.head
 
-        # head explicite (utile pour heads-only)
-        self.q_head = self.linears[-1]
+    def get_blocks(self) -> list[BlockSpec]:
+        blocks: list[BlockSpec] = []
+        for i, lin in enumerate(self.linears):
+            is_out = (i == (len(self.linears) - 1))
+            name = f"layer{i}" if not is_out else "q_head"
+            blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out))
+        return blocks
 
     def forward(self, x: torch.Tensor, return_cache: bool = False):
-        def relu(a): return F.relu(a)
-        q, cache = forward_mlp_with_cache(self.linears, x, relu, return_cache=return_cache)
-        return (q, cache) if return_cache else q
+        return self.net(x, return_cache=return_cache)

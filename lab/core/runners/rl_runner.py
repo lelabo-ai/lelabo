@@ -5,7 +5,7 @@ import time
 from collections import deque
 from typing import Any, Dict, Optional
 
-from core.utils.logger import RunLogger
+from ..utils.logger import RunLogger
 
 
 class RLRunner:

@@ -4,19 +4,19 @@ from pathlib import Path
 
 import torch
 
-from core.utils import RunLogger, seed_everything, make_env, make_vec_env, make_optimizer
+from .core.utils import RunLogger, seed_everything, make_env, make_vec_env, make_optimizer
 
 # RL
-from core.runners.rl_runner import RLRunner
-from models.qnet import QNet
-from models.actor_critic import ActorCriticDiscrete
-from algorithms.update_rules.backprop import Backprop
-from algorithms.rl.dqn import DQN, DQNConfig
-from algorithms.rl.ppo import PPO, PPOAlgoConfig
-from core.task import PPOConfig
+from .core.runners.rl_runner import RLRunner
+from .models.qnet import QNet
+from .models.actor_critic import ActorCriticDiscrete
+from .algorithms.update_rules.backprop import Backprop
+from .algorithms.rl.dqn import DQN, DQNConfig
+from .algorithms.rl.ppo import PPO, PPOAlgoConfig
+from .core.task import PPOConfig
 
 # Supervised
-from core.runners.supervised_runner import run_supervised
+from .core.runners.supervised_runner import run_supervised
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,13 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     # General
     p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cartpole")
     p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa", "dni"], default="bp")
+    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa", "dni"], default="kp")
 
     p.add_argument("--hidden", type=int, default=256)
-    p.add_argument("--layers", type=int, default=10)
+    p.add_argument("--layers", type=int, default=2)
 
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=2)
@@ -140,29 +140,29 @@ def run_rl(args, logger: RunLogger):
         obs_dim = int(envs.single_observation_space.shape[0])
         n_actions = int(envs.single_action_space.n)
 
-        model = ActorCriticDiscrete(obs_dim=obs_dim, n_actions=n_actions, hidden=args.hidden, layers=args.layers)
+        model = ActorCriticDiscrete(obs_dim=obs_dim, n_actions=n_actions, hidden_dim=args.hidden, num_layers=args.layers)
 
         optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
         if args.algo == "bp":
             learner = Backprop(optimizer=optimizer, grad_clip=args.max_grad_norm)
         elif args.algo =='kp':
-            from algorithms.update_rules.kp import KP
-            learner = KP(learning_rate=args.lr, head_lr=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
+            from .algorithms.update_rules.kp import KP
+            learner = KP(learning_rate=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
         elif args.algo == "softhebb":
-            from algorithms.update_rules.softhebb import SoftHebb
+            from .algorithms.update_rules.softhebb import SoftHebb
             learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
         elif args.algo == 'tp':
-            from algorithms.update_rules.targetprop import TargetPropagation
+            from .algorithms.update_rules.targetprop import TargetPropagation
             learner = TargetPropagation(fwd_lr=args.lr, inv_lr=args.lr, fwd_optimizer=optimizer, inv_optimizer=optimizer)
         elif args.algo == 'fa':
-            from algorithms.update_rules.feedbackalignment import FeedbackAlignment
+            from .algorithms.update_rules.feedbackalignment import FeedbackAlignment
             learner = FeedbackAlignment(optimizer=optimizer)
         elif args.algo == 'dfa':
-            from algorithms.update_rules.dfa import DirectFeedbackAlignment
+            from .algorithms.update_rules.dfa import DirectFeedbackAlignment
             learner = DirectFeedbackAlignment(optimizer=optimizer)
         elif args.algo == 'dni':
-            from algorithms.update_rules.dni import DNI
+            from .algorithms.update_rules.dni import DNI
             learner = DNI(lr=args.lr, sg_lr=args.lr, net_weight_decay=args.weight_decay, sg_weight_decay=args.weight_decay)
         else:
             raise ValueError("PPO scaffold: --algo doit être bp ou softhebb")

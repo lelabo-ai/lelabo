@@ -3,3 +3,10 @@ python scripts/launch_grid.py --config configs/compare.yaml --max-parallel 4
 python plots/plot_sweep_table.py --config configs/compare.yaml --metric eval.test.acc
 
 python lab/main.py --verbose 1 --algo bp
+
+python -m scripts.launch_grid --config configs/compare_mnist.yaml --max-parallel 4
+
+python plots/plot_sweep_table.py --config configs/compare_rl.yaml --metric rl.eval.mean_return
+python plots/plot_sweep_table.py --config configs/compare_cnn.yaml --metric eval.test.acc
+python plots/plot_sweep_table.py --config configs/compare_resnet.yaml --metric rl.eval.mean_return
+python plots/plot_sweep_table.py --config configs/compare_mnist.yaml --metric eval.test.acc

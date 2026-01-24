@@ -1,0 +1,17 @@
+name: compare_all_resnet_cifar100
+display_keys: [algo, dataset, model, lr, seed]
+
+base:
+  dataset: cifar100
+  model: resnet18
+  epochs: 100
+  batch: 128
+  device: cuda
+  robustness: none
+  verbose: 0
+  weight-decay: 1e-2
+
+grid:
+  algo: [bp, kp, dfa, fa, dni, softhebb, tp]
+  seed: [0, 1, 2]
+  lr: [3e-4]

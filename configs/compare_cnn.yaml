@@ -1,0 +1,17 @@
+name: compare_all_cnn
+display_keys: [algo, dataset, lr, seed]
+
+base:
+  dataset: cifar10
+  model: cnn
+  epochs: 100
+  batch: 128
+  device: cuda
+  robustness: none
+  verbose: 0
+  weight-decay: 1e-2
+
+grid:
+  algo: [kp]
+  seed: [0, 1, 2]
+  lr: [1e-3]

@@ -8,8 +8,8 @@ import copy
 import numpy as np
 import torch
 
-from core.utils.replay_buffer import ReplayBuffer
-from core.task import DQNTask
+from ...core.replay_buffer import ReplayBuffer
+from ...core.task import DQNTask
 
 
 @dataclass
