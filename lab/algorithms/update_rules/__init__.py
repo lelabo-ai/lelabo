@@ -11,3 +11,8 @@ from .kp import *
 from .scl import *
 from .kp3 import *
 from .dni import *
+
+from .registry import UpdateRuleContext, build_update_rule, get_update_rule_names, register_update_rule
+
+# optionnel mais recommandé: force l’enregistrement des builders
+from . import builders  # noqa: F401

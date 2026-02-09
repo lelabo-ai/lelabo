@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from ..models import *
 from ..core.task import *
-from ..algorithms.update_rules import *
+from ..algorithms.update_rules import UpdateRuleContext, build_update_rule
 
 # -----------------------------
 # Robust imports (package or local)
@@ -144,54 +144,39 @@ def build_ppo_minibatch( args):
     return model, task, batch
 
 
-def build_learner( algo: str, model, args):
+def build_learner(algo: str, model, args):
     algo = algo.strip().lower()
+    aliases = {
+        "backprop": "bp",
+        "feedbackalignment": "fa",
+        "targetprop": "tp",
+        "sh": "softhebb",
+    }
+    if algo in aliases:
+        algo = aliases[algo]
     opt = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    if algo in ("bp"):
-        return Backprop(optimizer=opt, grad_clip=args.max_grad_norm if args.max_grad_norm is not None else None)
+    mode = "supervised" if args.task == "classification" else "rl"
+    rl_algo = "ppo" if mode == "rl" else None
 
-    if algo in ("softhebb", "sh"):
-        if SoftHebb is None:
-            raise RuntimeError("SoftHebb not importable in this checkout.")
-        return SoftHebb(learning_rate=args.lr, head_lr=args.lr, head_optim=args.optimizer, head_weight_decay=args.weight_decay)
+    extra = {}
+    if algo == "bp":
+        extra["grad_clip"] = args.max_grad_norm
+    elif algo in ("fa", "dfa"):
+        # keep profiler behavior: no implicit dataset-based clip
+        extra["grad_clip"] = None
 
-    if algo in ("fa", "feedbackalignment"):
-        if FeedbackAlignment is None:
-            raise RuntimeError("FeedbackAlignment not importable in this checkout.")
-        return FeedbackAlignment(optimizer=opt)
-
-    if algo in ("dfa",):
-        if DirectFeedbackAlignment is None:
-            raise RuntimeError("DFA not importable in this checkout.")
-        return DirectFeedbackAlignment(optimizer=opt)
-
-    if algo in ("tp", "targetprop"):
-        if TargetPropagation is None:
-            raise RuntimeError("TargetPropagation not importable in this checkout.")
-        # many impls accept fwd_lr/inv_lr + opt hooks; keep it simple
-        return TargetPropagation(fwd_lr=args.lr, inv_lr=args.lr, fwd_optimizer=opt, inv_optimizer=opt)
-
-    if algo in ("dni",):
-        if DNI is None:
-            raise RuntimeError("DNI not importable in this checkout.")
-        return DNI(lr=args.lr, sg_lr=args.lr, net_weight_decay=args.weight_decay, sg_weight_decay=args.weight_decay)
-
-    if algo in ("kp",):
-        if KP is None:
-            raise RuntimeError("KP not importable in this checkout.")
-        return KP(learning_rate=args.lr, bp_lr=args.lr, bp_weight_decay=args.weight_decay)
-
-    if algo in ("scl",):
-        if SoftContrastiveLearning is None:
-            raise RuntimeError("KP not importable in this checkout.")
-        return SoftContrastiveLearning(local_lr=args.lr, head_lr=args.lr, head_weight_decay=args.weight_decay)
-    
-    if algo in ("kp3",):
-        if KP3 is None:
-            raise RuntimeError("KP not importable in this checkout.")
-        return KP3(learning_rate=args.lr, head_lr=args.lr, head_weight_decay=args.weight_decay)
-    raise ValueError(f"Unknown algo: {algo}")
+    ctx = UpdateRuleContext(
+        args=args,
+        model=model,
+        task=None,
+        optimizer=opt,
+        mode=mode,
+        dataset=args.dataset if mode == "supervised" else None,
+        rl_algo=rl_algo,
+        extra=extra or None,
+    )
+    return build_update_rule(algo, ctx)
 
 
 # -----------------------------

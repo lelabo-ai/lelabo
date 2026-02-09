@@ -1,7 +1,6 @@
 from .utils import *
 from .batch import *
 from .callbacks import *
-from .data import *
 from .glue_data import *
 from .glue_task import *
 from .ppo_trainer import *

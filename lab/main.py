@@ -10,7 +10,7 @@ from .core.utils import RunLogger, seed_everything, make_env, make_vec_env, make
 from .core.runners.rl_runner import RLRunner
 from .models.qnet import QNet
 from .models.actor_critic import ActorCriticDiscrete
-from .algorithms.update_rules.backprop import Backprop
+from .algorithms.update_rules import UpdateRuleContext, build_update_rule, get_update_rule_names
 from .algorithms.rl.dqn import DQN, DQNConfig
 from .algorithms.rl.ppo import PPO, PPOAlgoConfig
 from .core.task import PPOConfig
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     dataset_choices = sorted(set(get_dataset_names() + ["cartpole"]))
     p.add_argument("--dataset", choices=dataset_choices, default="cifar10")
     p.add_argument("--model", choices=get_model_names(), default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", 'scl', 'kp3', "softhebb", "tp", "fa", "dfa", "dni"], default="bp")
+    p.add_argument("--algo", choices=get_update_rule_names(), default="bp")
 
     p.add_argument("--hidden", type=int, default=2048)
     p.add_argument("--layers", type=int, default=3)
@@ -119,7 +119,17 @@ def run_rl(args, logger: RunLogger):
 
         qnet = QNet(obs_dim=obs_dim, n_actions=n_actions, hidden=args.hidden, layers=args.layers)
         optimizer = make_optimizer(args.optimizer, qnet.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        learner = Backprop(optimizer=optimizer, grad_clip=None)
+        ctx = UpdateRuleContext(
+            args=args,
+            model=qnet,
+            task=None,
+            optimizer=optimizer,
+            mode="rl",
+            dataset=args.dataset,
+            rl_algo=args.rl_algo,
+            extra={"grad_clip": None},
+        )
+        learner = build_update_rule("bp", ctx)
 
         cfg = DQNConfig(
             gamma=args.gamma,
@@ -150,28 +160,16 @@ def run_rl(args, logger: RunLogger):
 
         optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-        if args.algo == "bp":
-            learner = Backprop(optimizer=optimizer, grad_clip=args.max_grad_norm)
-        elif args.algo =='kp':
-            from .algorithms.update_rules.kp import KP
-            learner = KP(learning_rate=args.lr, bp_weight_decay=args.weight_decay, bp_lr=args.lr)
-        elif args.algo == "softhebb":
-            from .algorithms.update_rules.softhebb import SoftHebb
-            learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
-        elif args.algo == 'tp':
-            from .algorithms.update_rules.targetprop import TargetPropagation
-            learner = TargetPropagation(fwd_lr=args.lr, inv_lr=args.lr, fwd_optimizer=optimizer, inv_optimizer=optimizer)
-        elif args.algo == 'fa':
-            from .algorithms.update_rules.feedbackalignment import FeedbackAlignment
-            learner = FeedbackAlignment(optimizer=optimizer)
-        elif args.algo == 'dfa':
-            from .algorithms.update_rules.dfa import DirectFeedbackAlignment
-            learner = DirectFeedbackAlignment(optimizer=optimizer)
-        elif args.algo == 'dni':
-            from .algorithms.update_rules.dni import DNI
-            learner = DNI(lr=args.lr, sg_lr=args.lr, net_weight_decay=args.weight_decay, sg_weight_decay=args.weight_decay)
-        else:
-            raise ValueError("PPO scaffold: --algo doit être bp ou softhebb")
+        ctx = UpdateRuleContext(
+            args=args,
+            model=model,
+            task=None,
+            optimizer=optimizer,
+            mode="rl",
+            dataset=args.dataset,
+            rl_algo=args.rl_algo,
+        )
+        learner = build_update_rule(args.algo, ctx)
 
         loss_cfg = PPOConfig(
             clip_coef=args.clip_coef,

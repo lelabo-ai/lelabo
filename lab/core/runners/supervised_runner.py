@@ -20,9 +20,7 @@ from ..glue_task import GLUETask
 # models
 from ...models.registry import build_model, ModelContext
 
-# update rules
-from ...algorithms.update_rules.backprop import Backprop
-from ...algorithms.update_rules.local_probe_mlp import LocalProbeMLP
+from ...algorithms.update_rules import UpdateRuleContext, build_update_rule
 
 from ..callbacks import EarlyStopping, EarlyStoppingConfig
 
@@ -94,63 +92,15 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    # algo
-    if args.algo == "bp":
-        learner = Backprop(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
-
-    elif args.algo == "lpl":
-        if args.dataset == "glue":
-            from ...algorithms.update_rules.local_probe_bert import LocalProbeBERT
-            learner = LocalProbeBERT(base_optimizer=optimizer, probe_lr=args.lr)
-        elif args.model == "mlp":
-            learner = LocalProbeMLP(base_optimizer=optimizer, probe_lr=args.lr, weight_decay=args.weight_decay)
-        else:
-            from ...algorithms.update_rules.local_probe_blocks import LocalProbeBlocks
-            learner = LocalProbeBlocks(base_optimizer=optimizer, probe_lr=args.lr)
-
-    elif args.algo == "kp":
-        from ...algorithms.update_rules.kp import KP
-        learner = KP(learning_rate=args.lr, bp_lr=args.lr, bp_weight_decay=args.weight_decay)
-
-    elif args.algo == 'scl':
-        from ...algorithms.update_rules.scl import SoftContrastiveLearning
-        learner = SoftContrastiveLearning(local_lr=args.lr, head_lr=args.lr, local_weight_decay=args.weight_decay)
-        
-    elif args.algo == 'kp3':
-        from ...algorithms.update_rules.kp3 import KP3
-        learner = KP3(local_lr=args.lr, head_lr=args.lr, head_weight_decay=args.weight_decay)
-        
-    elif args.algo == "softhebb":
-        from ...algorithms.update_rules.softhebb import SoftHebb
-        learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)
-
-    elif args.algo == "tp":
-        from ...algorithms.update_rules.targetprop import TargetPropagation
-        dummy = torch.nn.Parameter(torch.zeros(()), requires_grad=True)
-        inv_optim = torch.optim.SGD([dummy], lr=args.lr)
-        learner = TargetPropagation(fwd_optimizer=optimizer, inv_optimizer=inv_optim, beta=1.0, noise_std=0.1)
-
-    elif args.algo == "fa":
-        from ...algorithms.update_rules.feedbackalignment import FeedbackAlignment
-        learner = FeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
-
-    elif args.algo == "dfa":
-        from ...algorithms.update_rules.dfa import DirectFeedbackAlignment
-        learner = DirectFeedbackAlignment(optimizer=optimizer, grad_clip=1.0 if args.dataset in ["mnist", "glue"] else None)
-
-    elif args.algo == "dni":
-        from ...algorithms.update_rules.dni import DNI
-        learner = DNI(
-            lr=args.lr,
-            sg_lr=args.lr,
-            sg_hidden=0,
-            condition_on_label=False,
-            lambda_mix=0.0,
-            sg_scale=1.0,
-            activation="relu",
-        )
-    else:
-        raise ValueError(f"Unknown algo: {args.algo}")
+    ctx = UpdateRuleContext(
+        args=args,
+        model=model,
+        task=task,
+        optimizer=optimizer,
+        mode="supervised",
+        dataset=args.dataset,
+    )
+    learner = build_update_rule(args.algo, ctx)
 
     trainer = Trainer(
         model=model,
