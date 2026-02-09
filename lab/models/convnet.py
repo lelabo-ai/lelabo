@@ -11,6 +11,14 @@ try:
 except Exception:  # pragma: no cover
     from blocks import BlockModel, BlockSpec
 
+from .registry import register_model, ModelContext
+
+@register_model("cnn")
+def build_cnn(ctx: ModelContext, args):
+    if ctx.in_channels is None:
+        raise ValueError("CNN needs ctx.in_channels")
+    return ConvNetClassifier(in_channels=ctx.in_channels, num_classes=ctx.num_classes)
+
 
 class ConvBlock(nn.Module):
     """Conv -> (BN) -> ReLU -> (Pool). Cache is taken right after Conv2d."""
@@ -44,16 +52,16 @@ class ConvBlock(nn.Module):
         self.act = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(pool_kernel) if pool else nn.Identity()
 
-    def forward(self, x: torch.Tensor, return_cache: bool = False) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward(self, x: torch.Tensor, return_cache: bool = False):
         cache = None
         x = self.conv(x)
         if return_cache:
-            # Cache pre-BN, pre-activation (often what you want for local rules)
             cache = x.detach().clone()
         x = self.bn(x)
         x = self.act(x)
         x = self.pool(x)
-        return x, cache
+        return (x, cache) if return_cache else x
+
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:
@@ -163,9 +171,6 @@ class ConvNetClassifier(BlockModel):
         self._conv_names = [f"conv{i}" for i in range(1, len(self.conv_blocks) + 1)]
 
     def get_blocks(self) -> list[BlockSpec]:
-        """
-        Expose the REAL learnable modules (Conv2d / Linear), not the wrapper ConvBlock.
-        """
         specs: list[BlockSpec] = []
         for name, block in zip(self._conv_names, self.conv_blocks):
             specs.append(BlockSpec(name=name, module=block, rep="identity", is_output=False))
@@ -178,7 +183,10 @@ class ConvNetClassifier(BlockModel):
         for name, block in zip(self._conv_names, self.conv_blocks):
             if return_cache:
                 cache["block_inputs"][name] = x
-            x, cache_block = block(x, return_cache=return_cache)
+            if return_cache:
+                x, cache_block = block(x, return_cache=return_cache)
+            else:
+                x = block(x, return_cache=return_cache)
             if return_cache:
                 cache["block_outputs"][name] = cache_block
 

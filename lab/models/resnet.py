@@ -11,8 +11,25 @@ try:
 except Exception:  # pragma: no cover
     from blocks import BlockModel, BlockSpec
 
+from .registry import register_model
 
-class ResNetForCIFAR(BlockModel):
+
+from .registry import register_model, ModelContext
+
+@register_model("resnet18")
+def build_resnet18(ctx: ModelContext, args):
+    return ResNet(num_classes=ctx.num_classes, resnet_type="resnet18")
+
+@register_model("resnet34")
+def build_resnet34(ctx: ModelContext, args):
+    return ResNet(num_classes=ctx.num_classes, resnet_type="resnet34")
+
+@register_model("resnet50")
+def build_resnet50(ctx: ModelContext, args):
+    return ResNet(num_classes=ctx.num_classes, resnet_type="resnet50")
+
+
+class ResNet(BlockModel):
     """
     Torchvision ResNet avec exposition de "blocks" au niveau des RESIDUAL BLOCKS
     (BasicBlock / Bottleneck), pour avoir la même abstraction que ConvBlock.
@@ -104,7 +121,3 @@ class ResNetForCIFAR(BlockModel):
             h.remove()
 
         return logits, cache
-
-
-def build_resnet(num_classes: int = 100, resnet_type: str = "resnet34", pretrained: bool = False) -> ResNetForCIFAR:
-    return ResNetForCIFAR(num_classes=num_classes, resnet_type=resnet_type, pretrained=pretrained)

@@ -18,13 +18,16 @@ from .core.task import PPOConfig
 # Supervised
 from .core.runners.supervised_runner import run_supervised
 
+from .models import get_model_names
+from .datasets import get_dataset_names
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
 
     # General
-    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cifar10")
-    p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="cnn")
+    dataset_choices = sorted(set(get_dataset_names() + ["cartpole"]))
+    p.add_argument("--dataset", choices=dataset_choices, default="cifar10")
+    p.add_argument("--model", choices=get_model_names(), default="mlp")
     p.add_argument("--algo", choices=["bp", "lpl", "kp", 'scl', 'kp3', "softhebb", "tp", "fa", "dfa", "dni"], default="bp")
 
     p.add_argument("--hidden", type=int, default=2048)

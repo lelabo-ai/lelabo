@@ -1,7 +1,7 @@
 # lab/runners/supervised_runner.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 from ..trainer import Trainer
@@ -9,19 +9,16 @@ from ..utils.optim import make_optimizer
 from ..utils.logger import RunLogger
 
 # datasets
-from ..data import make_iris_loaders, make_mnist_loaders, make_cifar_loaders, make_breast_cancer_loaders
+from ...datasets import get_dataset
 from ..task import ClassificationTask
 from ..robustness import test_with_noise
 
 # GLUE
 from transformers import AutoModelForSequenceClassification
-from ..glue_data import make_glue_loaders
 from ..glue_task import GLUETask
 
 # models
-from ...models.mlp import MLPClassifier
-from ...models.convnet import ConvNetClassifier
-from ...models.resnet import build_resnet
+from ...models.registry import build_model, ModelContext
 
 # update rules
 from ...algorithms.update_rules.backprop import Backprop
@@ -37,7 +34,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     num_labels = None
     is_regression = False
 
-    val_loader = None  # <- new for classic datasets
+    val_loader = None
 
     callbacks = []
     if bool(args.early_stop):
@@ -50,66 +47,49 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             restore_best=True,
         )))
 
-    if args.dataset == "iris":
-        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_iris_loaders(
-            batch_size=args.batch, seed=args.seed, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
-        )
-
-    elif args.dataset == "breast_cancer":
-        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_breast_cancer_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=True, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
-        )
-
-    elif args.dataset == "mnist":
-        flatten = (args.model == "mlp")
-        train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim_or_shape, num_classes = make_mnist_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
-        )
-
-    elif args.dataset in ["cifar10", "cifar100"]:
-        flatten = (args.model == "mlp")
-        train_loader, val_loader, test_loader, in_dim_or_shape, num_classes = make_cifar_loaders(
-            dataset=args.dataset, batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
-        )
-
-    else:  # glue
-        train_loader, val_loaders, num_labels, is_regression = make_glue_loaders(
-            task_name=args.glue_task,
-            model_name=args.hf_model,
-            batch_size=args.batch,
+    flatten = (args.model == "mlp")
+    dataset_kwargs = dict(
+        name=args.dataset,
+        batch_size=args.batch,
+        seed=args.seed,
+        val_frac=args.val_frac,
+        flatten=flatten,
+        input_noise_dataset=args.input_noise_dataset,
+        noise_on_test=bool(args.noise_on_test > 0),
+    )
+    if args.dataset == "glue":
+        dataset_kwargs.update(
+            glue_task=args.glue_task,
+            hf_model=args.hf_model,
             max_length=args.max_length,
-            seed=args.seed,
         )
-        test_loader = None
+
+    bundle = get_dataset(**dataset_kwargs)
+
+    train_loader = bundle.train_loader
+    val_loader = bundle.val_loader
+    test_loader = bundle.test_loader
+    num_classes = bundle.num_classes
+    Xte = bundle.x_test
+    yte = bundle.y_test
 
     # model + task
     if args.dataset == "glue":
+        val_loaders = bundle.meta.get("val_loaders", {})
+        num_labels = bundle.meta.get("num_labels", num_classes)
+        is_regression = bundle.meta.get("is_regression", False)
         model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
         task = GLUETask(task_name=args.glue_task, is_regression=is_regression, num_labels=num_labels)
     else:
-        if args.model == "mlp":
-            if args.dataset in ["iris", "breast_cancer"]:
-                in_dim = in_dim
-            elif args.dataset == "mnist":
-                in_dim = in_dim_or_shape
-            else:
-                in_dim = 3072
-
-            model = MLPClassifier(in_dim=in_dim, hidden_dim=args.hidden, num_layers=args.layers, num_classes=num_classes)
-
-        elif args.model == "cnn":
-            in_channels = 1 if args.dataset == "mnist" else 3
-            model = ConvNetClassifier(in_channels=in_channels, num_classes=num_classes)
-
-        elif args.model in ["resnet18", "resnet34", "resnet50"]:
-            in_channels = 1 if args.dataset == "mnist" else 3
-            model = build_resnet(
-                num_classes=num_classes,
-                resnet_type=args.model,
-            )
-        else:
-            raise ValueError(f"Unknown model: {args.model}")
-
+        in_channels = int(bundle.input_shape[0]) if bundle.input_shape is not None else None
+        ctx = ModelContext(
+            dataset=args.dataset,
+            num_classes=num_classes,
+            in_dim=bundle.in_dim,
+            in_channels=in_channels,
+            input_shape=bundle.input_shape,
+        )
+        model = build_model(args.model, ctx, args)
         task = ClassificationTask(num_classes=num_classes)
 
     optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -205,7 +185,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     # robustness (unchanged, uses Xte/yte)
     robustness_block: Dict[str, Any] = {}
-    if args.dataset in ["iris", "mnist", "cifar10", "cifar100", "breast_cancer"] and args.robustness != "none":
+    if args.dataset in ["iris", "mnist", "cifar10", "cifar100", "breast_cancer"] and args.robustness != "none" and Xte is not None and yte is not None:
         sigmas_input = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
         sigmas_rel = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
         sigmas_w = [0.0, 0.01, 0.05, 0.1, 0.2, 0.5]

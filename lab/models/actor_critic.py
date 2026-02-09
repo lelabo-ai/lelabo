@@ -4,12 +4,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-try:
-    from .blocks import BlockModel, BlockSpec
-    from .mlp_utils import MLPStack
-except Exception:  # pragma: no cover
-    from blocks import BlockModel, BlockSpec
-    from mlp_utils import MLPStack
+from .blocks import BlockModel, BlockSpec
+from .mlp import MLPStack
 
 
 class ActorCriticDiscrete(BlockModel):
