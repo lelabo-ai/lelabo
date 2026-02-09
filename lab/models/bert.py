@@ -11,6 +11,8 @@ try:
 except Exception:  # pragma: no cover
     from blocks import BlockModel, BlockSpec
 
+from .registry import register_model, ModelContext
+
 
 def _require_transformers():
     try:
@@ -103,6 +105,10 @@ class HFSequenceClassifier(BlockModel):
         self._emb = _find_embeddings(self._base)
         self._layers = _find_encoder_layers(self._base)
         self._head = _find_classifier_head(self.hf)
+        # compat helpers for existing update rules
+        self.config = getattr(self.hf, "config", None)
+        if not hasattr(self, "bert"):
+            self.bert = self._base
 
     def get_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
@@ -161,3 +167,15 @@ class HFSequenceClassifier(BlockModel):
 def build_bert_for_glue(model_name: str, num_labels: int, *, trust_remote_code: bool = False):
     """Factory compatible GLUE/NLP: retourne un BlockModel HFSequenceClassifier."""
     return HFSequenceClassifier(model_name=model_name, num_labels=num_labels, trust_remote_code=trust_remote_code)
+
+
+@register_model("hf")
+def build_hf_model(ctx: ModelContext, args):
+    model_name = getattr(args, "hf_model", None) or "bert-base-uncased"
+    trust_remote_code = bool(getattr(args, "hf_trust_remote_code", False))
+    return HFSequenceClassifier(model_name=model_name, num_labels=ctx.num_classes, trust_remote_code=trust_remote_code)
+
+
+@register_model("bert")
+def build_bert_model(ctx: ModelContext, args):
+    return build_hf_model(ctx, args)

@@ -76,7 +76,20 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         val_loaders = bundle.meta.get("val_loaders", {})
         num_labels = bundle.meta.get("num_labels", num_classes)
         is_regression = bundle.meta.get("is_regression", False)
-        model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
+
+        if args.model in {"hf", "bert"}:
+            ctx = ModelContext(
+                dataset=args.dataset,
+                num_classes=num_labels,
+                in_dim=None,
+                in_channels=None,
+                input_shape=None,
+                extra={"hf_model": args.hf_model},
+            )
+            model = build_model(args.model, ctx, args)
+        else:
+            model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
+
         task = GLUETask(task_name=args.glue_task, is_regression=is_regression, num_labels=num_labels)
     else:
         in_channels = int(bundle.input_shape[0]) if bundle.input_shape is not None else None

@@ -43,6 +43,7 @@ class SoftContrastiveLearning(UpdateRule):
         head_lr: float = 3e-4,
         head_optim: str = "ano",  # "adamw" | "sgd" | "ano"
         head_weight_decay: float = 0.0,
+        head_optimizer: Optional[torch.optim.Optimizer] = None,
         # local SupCon (per intermediate block)
         supcon_tau: float = 0.1,
         local_lr: float = 3e-4,
@@ -64,7 +65,8 @@ class SoftContrastiveLearning(UpdateRule):
         self.head_lr = float(head_lr)
         self.head_optim = str(head_optim).lower()
         self.head_weight_decay = float(head_weight_decay)
-        self._head_optimizer: Optional[torch.optim.Optimizer] = None
+        self._head_optimizer: Optional[torch.optim.Optimizer] = head_optimizer
+        self._head_optimizer_external: bool = head_optimizer is not None
         self._head_param_ids: Optional[Tuple[int, ...]] = None
 
         # --- local SupCon
@@ -124,6 +126,63 @@ class SoftContrastiveLearning(UpdateRule):
     def _set_requires_grad(self, module: nn.Module, flag: bool) -> None:
         for p in module.parameters():
             p.requires_grad = flag
+
+    def _unpack_block_output(self, out: Any) -> torch.Tensor:
+        if torch.is_tensor(out):
+            return out
+        if isinstance(out, (tuple, list)) and len(out) > 0 and torch.is_tensor(out[0]):
+            return out[0]
+        if hasattr(out, "last_hidden_state") and torch.is_tensor(out.last_hidden_state):
+            return out.last_hidden_state
+        raise RuntimeError(f"Unsupported block output type: {type(out)}")
+
+    def _select_representation(self, h: torch.Tensor, rep: str) -> torch.Tensor:
+        rep = str(rep).lower()
+        if h.dim() == 3:
+            if rep in ("cls", "class", "first"):
+                return h[:, 0, :]
+            if rep in ("mean", "avg", "gap", "pool"):
+                return h.mean(dim=1)
+            if rep in ("last", "eos"):
+                return h[:, -1, :]
+            return h[:, 0, :]
+        if h.dim() == 4:
+            # spatial -> GAP
+            return h.mean(dim=(2, 3))
+        return h
+
+    def _build_extended_attention_mask(self, model: nn.Module, batch: Mapping[str, Any], device: torch.device):
+        attn = batch.get("attention_mask", None)
+        if attn is None or (not torch.is_tensor(attn)):
+            return None
+        input_shape = None
+        if "input_ids" in batch and torch.is_tensor(batch["input_ids"]):
+            input_shape = batch["input_ids"].shape
+        else:
+            input_shape = attn.shape
+
+        # try model.get_extended_attention_mask (HF standard)
+        if hasattr(model, "get_extended_attention_mask"):
+            try:
+                return model.get_extended_attention_mask(attn, input_shape, device=device)
+            except TypeError:
+                try:
+                    return model.get_extended_attention_mask(attn, input_shape)
+                except Exception:
+                    pass
+
+        # try base model (e.g. HFSequenceClassifier exposes .bert)
+        base = getattr(model, "bert", None)
+        if base is not None and hasattr(base, "get_extended_attention_mask"):
+            try:
+                return base.get_extended_attention_mask(attn, input_shape, device=device)
+            except TypeError:
+                try:
+                    return base.get_extended_attention_mask(attn, input_shape)
+                except Exception:
+                    pass
+
+        return None
 
     # ============================================================
     # Depth LR scheduler helpers
@@ -186,8 +245,9 @@ class SoftContrastiveLearning(UpdateRule):
         module: nn.Module,
         device: torch.device,
         depth: int,
+        feat_dim_override: Optional[int] = None,
     ) -> Tuple[nn.Module, torch.optim.Optimizer]:
-        feat_dim = self._feature_dim_for_module(module)
+        feat_dim = int(feat_dim_override) if feat_dim_override is not None else self._feature_dim_for_module(module)
         if feat_dim is None:
             raise TypeError(f"Unsupported module for local SupCon: {type(module)}")
 
@@ -285,6 +345,46 @@ class SoftContrastiveLearning(UpdateRule):
 
         return float(loss.detach().item())
 
+    def _call_transformer_layer(self, block: nn.Module, h_in: torch.Tensor, attention_mask: Optional[torch.Tensor]):
+        if attention_mask is not None:
+            try:
+                out = block(h_in, attention_mask=attention_mask)
+                return self._unpack_block_output(out)
+            except TypeError:
+                pass
+        out = block(h_in)
+        return self._unpack_block_output(out)
+
+    def _local_supcon_update_transformer_block(
+        self,
+        block: nn.Module,
+        proj: nn.Module,
+        opt: torch.optim.Optimizer,
+        xin: torch.Tensor,     # [B, S, H]
+        labels: torch.Tensor,  # [B]
+        *,
+        rep: str,
+        attention_mask: Optional[torch.Tensor],
+    ) -> float:
+        was_req = [p.requires_grad for p in block.parameters()]
+        self._set_requires_grad(block, True)
+        self._set_requires_grad(proj, False)
+
+        h_in = xin.detach()
+        h = self._call_transformer_layer(block, h_in, attention_mask=attention_mask)
+        v = self._select_representation(h, rep=rep)
+        z = proj(v)
+        loss = self.supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
+
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+
+        for p, prev in zip(block.parameters(), was_req):
+            p.requires_grad = prev
+
+        return float(loss.detach().item())
+
     # ============================================================
     # Head optimizer (heads-only)
     # ============================================================
@@ -302,6 +402,8 @@ class SoftContrastiveLearning(UpdateRule):
         return params
 
     def _ensure_head_optimizer(self, head_params: Sequence[nn.Parameter]):
+        if self._head_optimizer_external:
+            return
         if not head_params:
             self._head_optimizer = None
             self._head_param_ids = None
@@ -408,10 +510,12 @@ class SoftContrastiveLearning(UpdateRule):
             raise RuntimeError("SoftContrastiveLearning expects model.get_blocks() to return a non-empty list.")
 
         # --- Move batch once
+        extended_attention_mask = None
         if isinstance(batch, Mapping):
             b = to_device(batch, device)
             y = b.get("labels", None)
             x_for_forward = None
+            extended_attention_mask = self._build_extended_attention_mask(model, b, device=torch.device(device))
         else:
             x, y = batch
             x = to_device(x, device)
@@ -486,6 +590,28 @@ class SoftContrastiveLearning(UpdateRule):
                     continue
                 proj, opt = self._ensure_local_supcon_modules(name, mod, device=device, depth=depth_idx)
                 loss_local = self._local_supcon_update_linear(mod, proj, opt, xin, y)
+                local_supcon_losses.append(loss_local)
+                depth_idx += 1
+                continue
+
+            # Transformer blocks: xin expected [B, S, H]
+            if xin.dim() == 3:
+                proj, opt = self._ensure_local_supcon_modules(
+                    name,
+                    mod,
+                    device=device,
+                    depth=depth_idx,
+                    feat_dim_override=int(xin.size(-1)),
+                )
+                loss_local = self._local_supcon_update_transformer_block(
+                    mod,
+                    proj,
+                    opt,
+                    xin,
+                    y,
+                    rep=getattr(bspec, "rep", "cls"),
+                    attention_mask=extended_attention_mask,
+                )
                 local_supcon_losses.append(loss_local)
                 depth_idx += 1
                 continue

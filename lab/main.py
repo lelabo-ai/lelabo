@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hidden", type=int, default=2048)
     p.add_argument("--layers", type=int, default=3)
 
-    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--lr", type=float, default=2e-4)
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
@@ -97,9 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--noise-trials", type=int, default=30)
 
     # GLUE
-    p.add_argument("--glue-task", type=str, default="cola",
+    p.add_argument("--glue-task", type=str, default="sst2",
                    choices=["cola", "sst2", "mrpc", "qqp", "stsb", "mnli", "qnli", "rte", "wnli"])
     p.add_argument("--hf-model", type=str, default="bert-base-uncased")
+    p.add_argument("--hf-trust-remote-code", action="store_true", help="allow HF trust_remote_code for custom models")
     p.add_argument("--max-length", type=int, default=128)
 
     # Logging
