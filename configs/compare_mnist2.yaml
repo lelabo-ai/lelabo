@@ -1,4 +1,4 @@
-name: compare_mnist_new_algo
+name: compare_all_mnist2
 display_keys: [algo, lr, seed, layers, hidden,  optimizer]
 
 base:
@@ -17,4 +17,4 @@ grid:
   seed: [0]
   lr: [1e-3]
   hidden: [256, 2048]
-  layers: [2, 5, 10]
+  layers: [2, 8, 16]

@@ -11,23 +11,19 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
+from ...models.convnet import ConvBlock
 
 
 class SoftHebb(UpdateRule):
     """
     SoftHebb (block-based, minimal, no RL logic):
 
-    Requirements:
-      - model.get_blocks() -> list of BlockSpec-like objects, each has:
-          - name: str
-          - module: nn.Module
-          - is_output: bool
-      - model.forward(..., return_cache=True) -> (out, cache)
-      - cache["block_inputs"][block_name] exists for blocks you want to update
-
     Policy:
       - if block.is_output: head updated with BACKPROP (heads-only optimizer)
-      - else: SoftHebb update if module is nn.Linear or nn.Conv2d (no_grad)
+      - else: SoftHebb update if module is nn.Linear or ConvBlock (no_grad)
+
+    Adds depth-adaptive local LR:
+      lr(depth) = base_lr * (depth_lr_gamma ** depth), clamped.
     """
 
     def __init__(
@@ -38,17 +34,27 @@ class SoftHebb(UpdateRule):
         anti_hebb: bool = True,
         # heads (backprop)
         head_lr: float = 3e-4,
-        head_optim: str = "ano",  # "adamw" | "sgd"
+        head_optim: str = "ano",  # "adamw" | "sgd" | "ano"
         head_weight_decay: float = 0.0,
+        # depth LR scheduler (NEW)
+        depth_lr_gamma: float = 0.5,
+        depth_lr_min_factor: float = 0.01,
+        depth_lr_max_factor: float = 100.0,
         eps: float = 1e-8,
     ):
         super().__init__()
-        self.lr = float(learning_rate)
+        self.lr = float(learning_rate)  # base local lr
         self.tau = float(tau)
         self.q = float(q)
         self.anti_hebb = bool(anti_hebb)
         self.eps = float(eps)
 
+        # depth scheduling params (NEW)
+        self.depth_lr_gamma = float(depth_lr_gamma)
+        self.depth_lr_min_factor = float(depth_lr_min_factor)
+        self.depth_lr_max_factor = float(depth_lr_max_factor)
+
+        # heads
         self.head_lr = float(head_lr)
         self.head_optim = str(head_optim).lower()
         self.head_weight_decay = float(head_weight_decay)
@@ -56,44 +62,63 @@ class SoftHebb(UpdateRule):
         self._head_optimizer: Optional[torch.optim.Optimizer] = None
         self._head_param_ids: Optional[Tuple[int, ...]] = None
 
+        # one-time freeze / param index
+        self._param_by_id: Optional[Dict[int, nn.Parameter]] = None
+        self._frozen_once: bool = True
+        self._trainable_ids: set[int] = set()
+
+    # ============================================================
+    # Depth LR scheduler helpers (NEW)
+    # ============================================================
+
+    def _depth_scaled_lr(self, depth: int) -> float:
+        """
+        lr(depth) = base_lr * gamma^depth, clamped to [min_factor, max_factor] * base_lr.
+        """
+        factor = self.depth_lr_gamma ** int(depth)
+        factor = max(self.depth_lr_min_factor, min(self.depth_lr_max_factor, factor))
+        return float(self.lr * factor)
+
     # ============================================================
     # SoftHebb core
     # ============================================================
 
-    def _eta_per_unit_from_weight(self, w_2d: torch.Tensor) -> torch.Tensor:
+    def _eta_per_unit_from_weight(self, w_2d: torch.Tensor, base_lr: float) -> torch.Tensor:
+        """
+        Per-unit learning rate:
+          eta_k = base_lr * (max(||w_k|| - 1, 0) + eps)^q
+        """
         r = torch.norm(w_2d, dim=1)  # [K]
         base = torch.clamp(r - 1.0, min=0.0)
         if self.q == 0.0:
-            return torch.full_like(r, self.lr)
-        return self.lr * (base + self.eps).pow(self.q)
+            return torch.full_like(r, base_lr)
+        return base_lr * (base + self.eps).pow(self.q)
 
     def _soft_wta(self, u: torch.Tensor) -> torch.Tensor:
         return F.softmax(u / self.tau, dim=1)
 
     def _winner_sign(self, y: torch.Tensor) -> torch.Tensor:
-        S = -torch.ones_like(y)
-        if y.dim() == 2:
-            idx = y.argmax(dim=1)
-            S[torch.arange(y.size(0), device=y.device), idx] = 1.0
-        elif y.dim() == 3:
-            idx = y.argmax(dim=1)
-            S.scatter_(1, idx.unsqueeze(1), 1.0)
+        S = y.new_full(y.shape, -1.0)
+        idx = y.argmax(dim=1, keepdim=True)
+        S.scatter_(1, idx, 1.0)
         return S
 
     @torch.no_grad()
-    def _update_linear_softhebb(self, layer: nn.Linear, x: torch.Tensor, u: torch.Tensor):
+    def _update_linear_softhebb(self, layer: nn.Linear, x: torch.Tensor, u: torch.Tensor, base_lr: float):
         # x: [B,D], u: [B,K]
         B = x.size(0)
         W = layer.weight  # [K,D]
 
         y = self._soft_wta(u)  # [B,K]
-        y_eff = y * self._winner_sign(y) if self.anti_hebb else y
+        if self.anti_hebb:
+            y.mul_(self._winner_sign(y))
+        y_eff = y
 
-        term1 = (y_eff.T @ x) / float(B)          # [K,D]
-        a = (y_eff * u).mean(dim=0)               # [K]
-        dW = term1 - a[:, None] * W               # [K,D]
+        term1 = (y_eff.T @ x) / float(B)  # [K,D]
+        a = (y_eff * u).mean(dim=0)  # [K]
+        dW = term1 - a[:, None] * W  # [K,D]
 
-        eta_k = self._eta_per_unit_from_weight(W)
+        eta_k = self._eta_per_unit_from_weight(W, base_lr=base_lr)
         layer.weight.add_(eta_k[:, None] * dW)
 
         if layer.bias is not None:
@@ -102,7 +127,7 @@ class SoftHebb(UpdateRule):
             layer.bias.add_(eta_k * db)
 
     @torch.no_grad()
-    def _update_conv2d_softhebb(self, layer: nn.Conv2d, x: torch.Tensor, u: torch.Tensor):
+    def _update_conv2d_softhebb(self, layer: nn.Conv2d, x: torch.Tensor, u: torch.Tensor, base_lr: float):
         # x: [B,Cin,H,W], u: [B,Cout,H',W']
         B = x.size(0)
         Cout = u.size(1)
@@ -127,7 +152,7 @@ class SoftHebb(UpdateRule):
         a = (y_eff * u_).mean(dim=(0, 2))
         dW_flat = term1 - a[:, None] * W_flat
 
-        eta_k = self._eta_per_unit_from_weight(W_flat)
+        eta_k = self._eta_per_unit_from_weight(W_flat, base_lr=base_lr)
         W_flat.add_(eta_k[:, None] * dW_flat)
         layer.weight.copy_(W_flat.view_as(layer.weight))
 
@@ -168,7 +193,6 @@ class SoftHebb(UpdateRule):
             self._head_optimizer = torch.optim.SGD(
                 head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
             )
-            
         elif self.head_optim == "ano":
             from ano_optimizer import Ano
             self._head_optimizer = Ano(
@@ -179,37 +203,60 @@ class SoftHebb(UpdateRule):
                 head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
             )
 
-    def _set_requires_grad_only(self, model: nn.Module, allow_param_ids: set[int]) -> Dict[int, bool]:
-        old: Dict[int, bool] = {}
-        for p in model.parameters():
-            old[id(p)] = p.requires_grad
-            p.requires_grad = (id(p) in allow_param_ids)
-        return old
+    # ============================================================
+    # One-time freeze (avoid per-step requires_grad toggling)
+    # ============================================================
 
-    def _restore_requires_grad(self, model: nn.Module, old: Dict[int, bool]) -> None:
-        for p in model.parameters():
-            p.requires_grad = old.get(id(p), p.requires_grad)
+    def _ensure_param_index(self, model: nn.Module) -> None:
+        if self._param_by_id is None:
+            self._param_by_id = {id(p): p for p in model.parameters()}
+            self._frozen_once = False
+            self._trainable_ids = set()
+
+    def _freeze_non_head_params_once(self, model: nn.Module, head_params: Sequence[nn.Parameter]) -> None:
+        self._ensure_param_index(model)
+
+        new_ids = {id(p) for p in head_params}
+
+        if not self._frozen_once:
+            for p in self._param_by_id.values():
+                p.requires_grad = False
+
+            for pid in new_ids:
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = True
+
+            self._trainable_ids = set(new_ids)
+            self._frozen_once = True
+            return
+
+        if new_ids != self._trainable_ids:
+            for pid in (self._trainable_ids - new_ids):
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = False
+
+            for pid in (new_ids - self._trainable_ids):
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = True
+
+            self._trainable_ids = set(new_ids)
 
     # ============================================================
     # Loss / stats helper
     # ============================================================
 
     def _loss_from_outputs(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, float]]:
-        """
-        Works for:
-          - standard supervised: out=logits tensor
-          - HF: out has .loss and/or .logits
-        """
         stats: Dict[str, float] = {}
 
-        # HF outputs case
         if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
             loss = out.loss
             if hasattr(out, "logits") and y is not None and torch.is_tensor(y):
                 stats["acc"] = maybe_accuracy_from_logits(out.logits, y)
             return loss, stats
 
-        # Otherwise, use task.loss
         logits = out.logits if hasattr(out, "logits") else out
         res = task.loss(logits, y)
 
@@ -247,54 +294,60 @@ class SoftHebb(UpdateRule):
         if not isinstance(blocks, list) or len(blocks) == 0:
             raise RuntimeError("SoftHebb expects model.get_blocks() to return a non-empty list.")
 
-        # --- 1) forward no_grad to get cache + block_inputs
-        with torch.no_grad():
+        # --- Move batch once
+        if isinstance(batch, Mapping):
+            b = to_device(batch, device)
+            y = b.get("labels", None)
+        else:
+            x, y = batch
+            x = to_device(x, device)
+            y = to_device(y, device)
+
+        # --- Heads-only optimizer + one-time freeze
+        head_params = self._collect_head_params(blocks)
+        self._ensure_head_optimizer(head_params)
+        self._freeze_non_head_params_once(model, head_params)
+
+        stats: Dict[str, float] = {}
+        loss_t: Optional[torch.Tensor] = None
+
+        can_do_bp = (self._head_optimizer is not None) and (y is not None)
+
+        if can_do_bp:
             if isinstance(batch, Mapping):
-                b = to_device(batch, device)
-                out_ng, cache = model(return_cache=True, **b)
-                y = b.get("labels", None)
+                out, cache = model(return_cache=True, **b)
             else:
-                x, y = batch
-                x = to_device(x, device)
-                y = to_device(y, device)
-                out_ng, cache = model(x, return_cache=True)
+                out, cache = model(x, return_cache=True)
+
+            loss, stats = self._loss_from_outputs(task, out, y)
+
+            self._head_optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            self._head_optimizer.step()
+
+            loss_t = loss.detach()
+        else:
+            with torch.inference_mode():
+                if isinstance(batch, Mapping):
+                    out, cache = model(return_cache=True, **b)
+                else:
+                    out, cache = model(x, return_cache=True)
+
+            if y is not None:
+                loss_t, stats = self._loss_from_outputs(task, out, y)
+            else:
+                loss_t = None
+                stats = {}
 
         if not isinstance(cache, Mapping) or "block_inputs" not in cache:
             raise RuntimeError("SoftHebb expects cache['block_inputs'] from model(..., return_cache=True).")
 
         block_inputs: Mapping[str, Any] = cache["block_inputs"]
 
-        # --- 2) heads-only backprop (if we have labels)
-        head_params = self._collect_head_params(blocks)
-        self._ensure_head_optimizer(head_params)
+        # --- SoftHebb updates with depth-adaptive LR (NEW)
+        hebb_lrs: List[float] = []
+        depth_idx = 0
 
-        loss_t: Optional[torch.Tensor] = None
-        stats: Dict[str, float] = {}
-
-        can_do_bp = (self._head_optimizer is not None) and (y is not None)
-        if can_do_bp:
-            allow_ids = set(id(p) for p in head_params)
-            old_req = self._set_requires_grad_only(model, allow_ids)
-
-            # recompute forward WITH grads (no cache needed)
-            if isinstance(batch, Mapping):
-                out_bp = model(**b)
-            else:
-                out_bp = model(x)
-
-            loss, stats = self._loss_from_outputs(task, out_bp, y)
-
-            self._head_optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            self._head_optimizer.step()
-
-            self._restore_requires_grad(model, old_req)
-            loss_t = loss.detach()
-        else:
-            # for logging only
-            loss_t, stats = self._loss_from_outputs(task, out_ng, y)
-
-        # --- 3) SoftHebb updates on non-head Linear/Conv2d blocks
         with torch.no_grad():
             for bspec in blocks:
                 if getattr(bspec, "is_output", False):
@@ -304,32 +357,39 @@ class SoftHebb(UpdateRule):
                 mod = getattr(bspec, "module", None)
                 if name is None or mod is None:
                     continue
-                if name not in block_inputs:
-                    continue
 
-                xin = block_inputs[name]
+                xin = block_inputs.get(name, None)
                 if not torch.is_tensor(xin):
                     continue
 
-                if isinstance(mod, nn.Linear):
-                    if xin.dim() != 2:
-                        continue
-                    u = mod(xin)
-                    if u.dim() == 2:
-                        self._update_linear_softhebb(mod, xin, u)
+                if "block_outputs" not in cache or name not in cache["block_outputs"]:
+                    continue
+                u = cache["block_outputs"][name]
+                if not torch.is_tensor(u):
+                    continue
 
-                elif isinstance(mod, nn.Conv2d):
-                    if xin.dim() != 4:
-                        continue
-                    u = mod(xin)
-                    if u.dim() == 4:
-                        self._update_conv2d_softhebb(mod, xin, u)
+                lr_here = self._depth_scaled_lr(depth_idx)
+
+                if isinstance(mod, nn.Linear):
+                    if xin.dim() == 2 and u.dim() == 2:
+                        self._update_linear_softhebb(mod, xin, u, base_lr=lr_here)
+                        hebb_lrs.append(lr_here)
+                        depth_idx += 1
+
+                elif isinstance(mod, ConvBlock):
+                    if xin.dim() == 4 and u.dim() == 4:
+                        self._update_conv2d_softhebb(mod.conv, xin, u, base_lr=lr_here)
+                        hebb_lrs.append(lr_here)
+                        depth_idx += 1
 
                 else:
-                    # not defined for generic blocks
                     continue
 
         out_stats = dict(stats)
         out_stats["loss"] = float(loss_t.item()) if loss_t is not None else 0.0
+        # optional debug stats (NEW)
+        out_stats["hebb_lr_min"] = float(min(hebb_lrs)) if hebb_lrs else 0.0
+        out_stats["hebb_lr_max"] = float(max(hebb_lrs)) if hebb_lrs else 0.0
+
         self.global_step += 1
         return out_stats

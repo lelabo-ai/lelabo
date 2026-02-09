@@ -52,24 +52,24 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     if args.dataset == "iris":
         train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_iris_loaders(
-            batch_size=args.batch, seed=args.seed, val_frac=args.val_frac
+            batch_size=args.batch, seed=args.seed, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
         )
 
     elif args.dataset == "breast_cancer":
         train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim, num_classes = make_breast_cancer_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=True, val_frac=args.val_frac
+            batch_size=args.batch, seed=args.seed, flatten=True, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
         )
 
     elif args.dataset == "mnist":
         flatten = (args.model == "mlp")
         train_loader, val_loader, test_loader, Xtr, ytr, Xte, yte, in_dim_or_shape, num_classes = make_mnist_loaders(
-            batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac
+            batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
         )
 
     elif args.dataset in ["cifar10", "cifar100"]:
         flatten = (args.model == "mlp")
         train_loader, val_loader, test_loader, in_dim_or_shape, num_classes = make_cifar_loaders(
-            dataset=args.dataset, batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac
+            dataset=args.dataset, batch_size=args.batch, seed=args.seed, flatten=flatten, val_frac=args.val_frac, input_noise_dataset=args.input_noise_dataset, noise_on_test=bool(args.noise_on_test > 0)
         )
 
     else:  # glue
@@ -94,6 +94,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
                 in_dim = in_dim_or_shape
             else:
                 in_dim = 3072
+
             model = MLPClassifier(in_dim=in_dim, hidden_dim=args.hidden, num_layers=args.layers, num_classes=num_classes)
 
         elif args.model == "cnn":
@@ -131,6 +132,14 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         from ...algorithms.update_rules.kp import KP
         learner = KP(learning_rate=args.lr, bp_lr=args.lr, bp_weight_decay=args.weight_decay)
 
+    elif args.algo == 'scl':
+        from ...algorithms.update_rules.scl import SoftContrastiveLearning
+        learner = SoftContrastiveLearning(local_lr=args.lr, head_lr=args.lr, local_weight_decay=args.weight_decay)
+        
+    elif args.algo == 'kp3':
+        from ...algorithms.update_rules.kp3 import KP3
+        learner = KP3(local_lr=args.lr, head_lr=args.lr, head_weight_decay=args.weight_decay)
+        
     elif args.algo == "softhebb":
         from ...algorithms.update_rules.softhebb import SoftHebb
         learner = SoftHebb(learning_rate=args.lr, head_lr=args.lr)

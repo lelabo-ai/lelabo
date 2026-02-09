@@ -12,6 +12,6 @@ base:
   weight-decay: 1e-2
 
 grid:
-  algo: [kp]
+  algo: [kp2]
   seed: [0, 1, 2]
   lr: [1e-3]

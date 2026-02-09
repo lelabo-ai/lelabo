@@ -2,62 +2,64 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .base import UpdateRule
-from .helpers import to_device, extract_loss_and_stats
-
+from ...core.batch import to_device
+from ...core.steps import maybe_accuracy_from_logits
+from ...models.convnet import ConvBlock
 
 class SoftHebb(UpdateRule):
     """
-    SoftHebb:
-      - Supervised: SoftHebb sur tout + (optionnel) update CE sur la head
-      - RL (PPO/DQN-like): BP uniquement sur les heads (actor/critic ou q_head),
-        puis SoftHebb sur le reste.
+    SoftHebb (block-based, minimal, no RL logic):
 
-    Fonctionne sur:
-      - MLP / QNet / ActorCritic (avec heads explicites si tu as suivi le ménage)
-      - CNN/ResNet (fallback hooks)
-      - HF dict batch: on fait SoftHebb sur les Linear/Conv2d 2D/4D capturés (souvent surtout head)
+    Requirements:
+      - model.get_blocks() -> list of BlockSpec-like objects, each has:
+          - name: str
+          - module: nn.Module
+          - is_output: bool
+      - model.forward(..., return_cache=True) -> (out, cache)
+      - cache["block_inputs"][block_name] exists for blocks you want to update
+
+    Policy:
+      - if block.is_output: head updated with BACKPROP (heads-only optimizer)
+      - else: SoftHebb update if module is nn.Linear or nn.Conv2d (no_grad)
     """
 
     def __init__(
         self,
-        learning_rate=0.05,
-        tau=1.0,
-        q=0.5,
-        anti_hebb=True,
-        # supervised head update (no autograd)
-        train_head=True,
-        head_lr=0.05,
-        # RL hybrid: BP on heads only
-        rl_head_backprop=True,
-        rl_head_optim="adamw",  # "adamw" | "sgd"
-        rl_head_weight_decay=0.0,
-        eps=1e-8,
+        learning_rate: float = 0.05,
+        tau: float = 1.0,
+        q: float = 0.5,
+        anti_hebb: bool = True,
+        # heads (backprop)
+        head_lr: float = 3e-4,
+        head_optim: str = "ano",  # "adamw" | "sgd" | "ano"
+        head_weight_decay: float = 0.0,
+        eps: float = 1e-8,
     ):
         super().__init__()
         self.lr = float(learning_rate)
         self.tau = float(tau)
         self.q = float(q)
         self.anti_hebb = bool(anti_hebb)
-
-        self.train_head = bool(train_head)
-        self.head_lr = float(head_lr)
-
-        self.rl_head_backprop = bool(rl_head_backprop)
-        self.rl_head_optim = str(rl_head_optim).lower()
-        self.rl_head_weight_decay = float(rl_head_weight_decay)
-
         self.eps = float(eps)
 
-        # lazily built head optimizer for RL
-        self._rl_head_optimizer: Optional[torch.optim.Optimizer] = None
-        self._rl_head_param_ids: Optional[Tuple[int, ...]] = None
+        self.head_lr = float(head_lr)
+        self.head_optim = str(head_optim).lower()
+        self.head_weight_decay = float(head_weight_decay)
+
+        self._head_optimizer: Optional[torch.optim.Optimizer] = None
+        self._head_param_ids: Optional[Tuple[int, ...]] = None
+
+        # one-time freeze / param index
+        self._param_by_id: Optional[Dict[int, nn.Parameter]] = None
+        self._frozen_once: bool = True
+        self._trainable_ids: set[int] = set()
 
     # ============================================================
     # SoftHebb core
@@ -74,13 +76,9 @@ class SoftHebb(UpdateRule):
         return F.softmax(u / self.tau, dim=1)
 
     def _winner_sign(self, y: torch.Tensor) -> torch.Tensor:
-        S = -torch.ones_like(y)
-        if y.dim() == 2:
-            idx = y.argmax(dim=1)
-            S[torch.arange(y.size(0), device=y.device), idx] = 1.0
-        elif y.dim() == 3:
-            idx = y.argmax(dim=1)
-            S.scatter_(1, idx.unsqueeze(1), 1.0)
+        S = y.new_full(y.shape, -1.0)
+        idx = y.argmax(dim=1, keepdim=True)  # [B,1] or [B,1,L]
+        S.scatter_(1, idx, 1.0)
         return S
 
     @torch.no_grad()
@@ -90,11 +88,13 @@ class SoftHebb(UpdateRule):
         W = layer.weight  # [K,D]
 
         y = self._soft_wta(u)  # [B,K]
-        y_eff = y * self._winner_sign(y) if self.anti_hebb else y
+        if self.anti_hebb:
+            y.mul_(self._winner_sign(y))
+        y_eff = y
 
-        term1 = (y_eff.T @ x) / float(B)          # [K,D]
-        a = (y_eff * u).mean(dim=0)               # [K]
-        dW = term1 - a[:, None] * W               # [K,D]
+        term1 = (y_eff.T @ x) / float(B)  # [K,D]
+        a = (y_eff * u).mean(dim=0)  # [K]
+        dW = term1 - a[:, None] * W  # [K,D]
 
         eta_k = self._eta_per_unit_from_weight(W)
         layer.weight.add_(eta_k[:, None] * dW)
@@ -139,302 +139,240 @@ class SoftHebb(UpdateRule):
             db = mean_y - a * layer.bias
             layer.bias.add_(eta_k * db)
 
-    @torch.no_grad()
-    def _update_head_supervised_ce(self, head: nn.Linear, a: torch.Tensor, logits: torch.Tensor, y: torch.Tensor):
-        """
-        Update CE head (Linear) sans autograd:
-          dlogits = (softmax(logits) - onehot) / B
-          W -= lr * dW
-        """
-        B = a.size(0)
-        probs = F.softmax(logits, dim=1)
-        onehot = torch.zeros_like(probs)
-        onehot.scatter_(1, y.view(-1, 1), 1.0)
-
-        dlogits = (probs - onehot) / float(B)
-        dW = dlogits.T @ a
-        head.weight.add_(-self.head_lr * dW)
-
-        if head.bias is not None:
-            db = dlogits.sum(dim=0)
-            head.bias.add_(-self.head_lr * db)
-
     # ============================================================
-    # Heads detection / RL heads-only optimizer
+    # Head optimizer (heads-only)
     # ============================================================
 
-    def _detect_heads(self, model: nn.Module, out: Any) -> Set[nn.Module]:
-        """
-        Retourne un set de modules considérés comme "heads" pour RL.
-        Priorité:
-          - actor_head/critic_head (ActorCriticDiscrete)
-          - q_head (QNet)
-        """
-        heads: Set[nn.Module] = set()
-
-        if isinstance(out, Mapping) and ("logits" in out) and ("value" in out):
-            # actor-critic
-            if hasattr(model, "actor_head") and isinstance(model.actor_head, nn.Linear):
-                heads.add(model.actor_head)
-            if hasattr(model, "critic_head") and isinstance(model.critic_head, nn.Linear):
-                heads.add(model.critic_head)
-            return heads
-
-        # DQN-style
-        if torch.is_tensor(out):
-            if hasattr(model, "q_head") and isinstance(model.q_head, nn.Linear):
-                heads.add(model.q_head)
-            return heads
-
-        return heads
-
-    def _detect_supervised_head(self, model: nn.Module, layer_cache: List[Dict[str, Any]], logits: torch.Tensor) -> Optional[nn.Linear]:
-        """
-        Pour supervised: essaye de trouver une head Linear stable.
-        Priorité:
-          - model.linears[-1]
-          - model.fc
-          - model.classifier
-          - sinon: dernière Linear capturée dont u.shape == logits.shape
-        """
-        if hasattr(model, "linears"):
-            try:
-                last = list(model.linears)[-1]
-                if isinstance(last, nn.Linear):
-                    return last
-            except Exception:
-                pass
-
-        for name in ("fc", "classifier"):
-            m = getattr(model, name, None)
-            if isinstance(m, nn.Linear):
-                return m
-
-        # fallback shape match in captured cache
-        for e in reversed(layer_cache):
-            mod = e["module"]
-            if isinstance(mod, nn.Linear) and e["u"].shape == logits.shape:
-                return mod
-        return None
-
-    def _ensure_rl_head_optimizer(self, head_modules: Set[nn.Module], lr: float):
-        params = []
+    def _collect_head_params(self, blocks) -> List[nn.Parameter]:
+        params: List[nn.Parameter] = []
         seen = set()
-        for m in head_modules:
-            for p in m.parameters(recurse=False):
+        for b in blocks:
+            if not getattr(b, "is_output", False):
+                continue
+            for p in b.module.parameters():
                 if id(p) not in seen:
                     params.append(p)
                     seen.add(id(p))
+        return params
 
-        if not params:
-            self._rl_head_optimizer = None
-            self._rl_head_param_ids = None
+    def _ensure_head_optimizer(self, head_params: Sequence[nn.Parameter]):
+        if not head_params:
+            self._head_optimizer = None
+            self._head_param_ids = None
             return
 
-        param_ids = tuple(sorted(id(p) for p in params))
-        if self._rl_head_optimizer is not None and self._rl_head_param_ids == param_ids:
+        param_ids = tuple(sorted(id(p) for p in head_params))
+        if self._head_optimizer is not None and self._head_param_ids == param_ids:
             return
 
-        self._rl_head_param_ids = param_ids
+        self._head_param_ids = param_ids
 
-        if self.rl_head_optim == "sgd":
-            self._rl_head_optimizer = torch.optim.SGD(params, lr=lr, weight_decay=self.rl_head_weight_decay)
+        if self.head_optim == "sgd":
+            self._head_optimizer = torch.optim.SGD(
+                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
+            )
+        elif self.head_optim == "ano":
+            from ano_optimizer import Ano
+
+            self._head_optimizer = Ano(
+                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
+            )
         else:
-            self._rl_head_optimizer = torch.optim.AdamW(params, lr=lr, weight_decay=self.rl_head_weight_decay)
-
-    def _set_requires_grad_except(self, model: nn.Module, allow_param_ids: Set[int]) -> Dict[int, bool]:
-        old: Dict[int, bool] = {}
-        for p in model.parameters():
-            old[id(p)] = p.requires_grad
-            p.requires_grad = (id(p) in allow_param_ids)
-        return old
-
-    def _restore_requires_grad(self, model: nn.Module, old: Dict[int, bool]):
-        for p in model.parameters():
-            p.requires_grad = old.get(id(p), p.requires_grad)
+            self._head_optimizer = torch.optim.AdamW(
+                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
+            )
 
     # ============================================================
-    # Capturing x/u (hooks) - fallback universal
+    # One-time freeze (avoid per-step requires_grad toggling)
     # ============================================================
 
-    def _capture_xu_hooks(self, model: nn.Module):
+    def _ensure_param_index(self, model: nn.Module) -> None:
+        if self._param_by_id is None:
+            self._param_by_id = {id(p): p for p in model.parameters()}
+            self._frozen_once = False
+            self._trainable_ids = set()
+
+    def _freeze_non_head_params_once(self, model: nn.Module, head_params: Sequence[nn.Parameter]) -> None:
         """
-        Capture Conv2d (4D) + Linear (2D) : (x,u) au niveau "pré-activation"
-        Retourne (layer_cache, hooks)
+        Permanently freezes all params except heads. Avoids O(#params) toggling every step.
+        If head params change later, only flips the delta.
         """
-        layer_cache: List[Dict[str, Any]] = []
-        hooks: List[Any] = []
+        self._ensure_param_index(model)
 
-        def hook_fn(module, inputs, output):
-            x = inputs[0]
-            u = output
-            if isinstance(module, nn.Conv2d) and x.dim() == 4 and u.dim() == 4:
-                layer_cache.append({"module": module, "x": x.detach(), "u": u.detach()})
-            elif isinstance(module, nn.Linear) and x.dim() == 2 and u.dim() == 2:
-                layer_cache.append({"module": module, "x": x.detach(), "u": u.detach()})
+        new_ids = {id(p) for p in head_params}
 
-        for m in model.modules():
-            if isinstance(m, (nn.Conv2d, nn.Linear)):
-                hooks.append(m.register_forward_hook(hook_fn))
+        if not self._frozen_once:
+            # Freeze everything once
+            for p in self._param_by_id.values():
+                p.requires_grad = False
 
-        return layer_cache, hooks
+            # Unfreeze heads
+            for pid in new_ids:
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = True
+
+            self._trainable_ids = set(new_ids)
+            self._frozen_once = True
+            return
+
+        # If head set changes, only update differences (cheap)
+        if new_ids != self._trainable_ids:
+            for pid in (self._trainable_ids - new_ids):
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = False
+
+            for pid in (new_ids - self._trainable_ids):
+                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                if p is not None:
+                    p.requires_grad = True
+
+            self._trainable_ids = set(new_ids)
 
     # ============================================================
-    # main API
+    # Loss / stats helper
     # ============================================================
 
-    def train_step(self, model, task, batch, device):
+    def _loss_from_outputs(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """
+        Works for:
+          - standard supervised: out=logits tensor
+          - HF: out has .loss and/or .logits
+        """
+        stats: Dict[str, float] = {}
+
+        # HF outputs case
+        if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
+            loss = out.loss
+            if hasattr(out, "logits") and y is not None and torch.is_tensor(y):
+                stats["acc"] = maybe_accuracy_from_logits(out.logits, y)
+            return loss, stats
+
+        # Otherwise, use task.loss
+        logits = out.logits if hasattr(out, "logits") else out
+        res = task.loss(logits, y)
+
+        if torch.is_tensor(res):
+            loss = res
+            if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
+                stats["acc"] = maybe_accuracy_from_logits(logits, y)
+            return loss, stats
+
+        if isinstance(res, tuple) and len(res) == 2 and torch.is_tensor(res[0]) and isinstance(res[1], Mapping):
+            loss = res[0]
+            stats.update({k: float(v) for k, v in res[1].items() if isinstance(v, (int, float))})
+            return loss, stats
+
+        if isinstance(res, Mapping) and "loss" in res:
+            loss = res["loss"]
+            if not torch.is_tensor(loss):
+                loss = torch.tensor(float(loss), device=logits.device if torch.is_tensor(logits) else None)
+            stats.update({k: float(v) for k, v in res.items() if k != "loss" and isinstance(v, (int, float))})
+            return loss, stats
+
+        raise TypeError(f"Unsupported loss return type from task.loss: {type(res)}")
+
+    # ============================================================
+    # main
+    # ============================================================
+
+    def train_step(self, model, task, batch, device) -> Dict[str, float]:
         model.train()
 
-        # -----------------------------
-        # CASE 1: HF dict batch (supervised)
-        # -----------------------------
+        if not hasattr(model, "get_blocks"):
+            raise RuntimeError("SoftHebb requires models to expose get_blocks() (no fallback).")
+
+        blocks = model.get_blocks()
+        if not isinstance(blocks, list) or len(blocks) == 0:
+            raise RuntimeError("SoftHebb expects model.get_blocks() to return a non-empty list.")
+
+        # --- Move batch once
         if isinstance(batch, Mapping):
             b = to_device(batch, device)
-
-            layer_cache, hooks = self._capture_xu_hooks(model)
-            with torch.no_grad():
-                outputs = model(**b)
-                logits = outputs.logits
-                y_true = b.get("labels", None)
-            for h in hooks:
-                h.remove()
-
-            # head detection
-            head = self._detect_supervised_head(model, layer_cache, logits)
-
-            # updates (pure no_grad)
-            with torch.no_grad():
-                for e in layer_cache:
-                    mod = e["module"]
-                    x_m, u_m = e["x"], e["u"]
-                    if isinstance(mod, nn.Conv2d):
-                        self._update_conv2d_softhebb(mod, x_m, u_m)
-                    elif isinstance(mod, nn.Linear):
-                        if (head is not None) and (mod is head) and self.train_head and (y_true is not None):
-                            self._update_head_supervised_ce(mod, x_m, logits, y_true)
-                        else:
-                            self._update_linear_softhebb(mod, x_m, u_m)
-
-            # stats
-            stats = {"loss": 0.0}
-            if y_true is not None:
-                loss = task.loss(logits, y_true)
-                stats["loss"] = float(loss.item())
-                # acc rapide si possible
-                if hasattr(outputs, "logits") and torch.is_tensor(y_true) and y_true.dtype in (torch.int64, torch.int32, torch.int16):
-                    preds = outputs.logits.argmax(dim=-1)
-                    stats["acc"] = float((preds == y_true).float().mean().item())
-
-            self.global_step += 1
-            return stats
-
-        # -----------------------------
-        # CASE 2: tuple batch (x,y) supervised OR RL (y dict)
-        # -----------------------------
-        x, y = batch
-        x = to_device(x, device)
-
-        is_rl = isinstance(y, Mapping)
-        y = to_device(y, device)
-
-        # ---- 1) capture caches with a no_grad forward
-        layer_cache, hooks = self._capture_xu_hooks(model)
-        with torch.no_grad():
-            out0 = model(x)
-        for h in hooks:
-            h.remove()
-
-        # -----------------------------
-        # RL path: BP on heads only + SoftHebb trunk
-        # -----------------------------
-        if is_rl:
-            if not self.rl_head_backprop:
-                raise NotImplementedError("SoftHebb: RL batch détecté mais rl_head_backprop=False.")
-
-            head_modules = self._detect_heads(model, out0)
-            if not head_modules:
-                raise RuntimeError(
-                    "SoftHebb RL: impossible de détecter les heads. "
-                    "Ajoute actor_head/critic_head (actor-critic) ou q_head (DQN) dans le modèle."
-                )
-
-            self._ensure_rl_head_optimizer(head_modules, lr=self.head_lr)
-            if self._rl_head_optimizer is None:
-                raise RuntimeError("SoftHebb RL: optimizer heads non initialisé.")
-
-            # freeze trunk params (sauve mémoire / évite grads inutiles)
-            allow_ids: Set[int] = set()
-            for m in head_modules:
-                for p in m.parameters(recurse=False):
-                    allow_ids.add(id(p))
-            old_req = self._set_requires_grad_except(model, allow_ids)
-
-            # forward + autograd (sans hooks) sur heads only
-            out = model(x)
-            loss_res = task.loss(out, y)
-            loss, extra = extract_loss_and_stats(loss_res)
-
-            self._rl_head_optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            self._rl_head_optimizer.step()
-
-            self._restore_requires_grad(model, old_req)
-
-            # SoftHebb trunk update (after optimizer step)
-            with torch.no_grad():
-                for e in layer_cache:
-                    mod = e["module"]
-                    if mod in head_modules:
-                        continue
-                    x_m, u_m = e["x"], e["u"]
-                    if isinstance(mod, nn.Conv2d):
-                        self._update_conv2d_softhebb(mod, x_m, u_m)
-                    elif isinstance(mod, nn.Linear):
-                        self._update_linear_softhebb(mod, x_m, u_m)
-
-            stats = {"loss": float(loss.item())}
-            stats.update(extra)
-            self.global_step += 1
-            return stats
-
-        # -----------------------------
-        # Supervised path: SoftHebb + optional CE head update
-        # -----------------------------
-        if isinstance(out0, Mapping):
-            # en supervised classique, ton modèle renvoie généralement un tensor logits,
-            # mais on supporte dict si tu veux
-            logits0 = out0.get("logits", None)
-            if logits0 is None or not torch.is_tensor(logits0):
-                raise ValueError("SoftHebb supervised: output dict sans 'logits' tensor.")
-            logits = logits0
+            y = b.get("labels", None)
         else:
-            logits = out0
+            x, y = batch
+            x = to_device(x, device)
+            y = to_device(y, device)
 
-        if not torch.is_tensor(y):
-            raise TypeError("SoftHebb supervised: y doit être un tensor (labels).")
+        # --- Heads-only optimizer + one-time freeze
+        head_params = self._collect_head_params(blocks)
+        self._ensure_head_optimizer(head_params)
+        self._freeze_non_head_params_once(model, head_params)
 
-        head = self._detect_supervised_head(model, layer_cache, logits)
+        stats: Dict[str, float] = {}
+        loss_t: Optional[torch.Tensor] = None
 
+        can_do_bp = (self._head_optimizer is not None) and (y is not None)
+
+        if can_do_bp:
+            # SINGLE forward: grads ON + cache ON (graph will only track heads since others are frozen)
+            if isinstance(batch, Mapping):
+                out, cache = model(return_cache=True, **b)
+            else:
+                out, cache = model(x, return_cache=True)
+
+            loss, stats = self._loss_from_outputs(task, out, y)
+
+            self._head_optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            self._head_optimizer.step()
+
+            loss_t = loss.detach()
+
+        else:
+            # No head BP: use inference_mode (slightly better than no_grad)
+            with torch.inference_mode():
+                if isinstance(batch, Mapping):
+                    out, cache = model(return_cache=True, **b)
+                else:
+                    out, cache = model(x, return_cache=True)
+
+            # If y is None, don't try to compute a supervised loss
+            if y is not None:
+                loss_t, stats = self._loss_from_outputs(task, out, y)
+            else:
+                loss_t = None
+                stats = {}
+
+        if not isinstance(cache, Mapping) or "block_inputs" not in cache:
+            raise RuntimeError("SoftHebb expects cache['block_inputs'] from model(..., return_cache=True).")
+
+        block_inputs: Mapping[str, Any] = cache["block_inputs"]
+        # --- SoftHebb updates (conv untouched)
         with torch.no_grad():
-            for e in layer_cache:
-                mod = e["module"]
-                x_m, u_m = e["x"], e["u"]
-                if isinstance(mod, nn.Conv2d):
-                    self._update_conv2d_softhebb(mod, x_m, u_m)
-                elif isinstance(mod, nn.Linear):
-                    if (head is not None) and (mod is head) and self.train_head:
-                        self._update_head_supervised_ce(mod, x_m, logits, y)
-                    else:
-                        self._update_linear_softhebb(mod, x_m, u_m)
+            for bspec in blocks:
+                if getattr(bspec, "is_output", False):
+                    continue
 
-        loss = task.loss(logits, y)
-        stats = {"loss": float(loss.item())}
-        if hasattr(task, "metrics"):
-            try:
-                stats.update(task.metrics(logits, y))
-            except Exception:
-                pass
+                name = getattr(bspec, "name", None)
+                mod = getattr(bspec, "module", None)
+                if name is None or mod is None:
+                    continue
 
+                xin = block_inputs.get(name, None)
+                if not torch.is_tensor(xin):
+                    continue
+
+                if "block_outputs" not in cache or name not in cache["block_outputs"]:
+                    continue
+                u = cache["block_outputs"][name]
+                if not torch.is_tensor(u):
+                    continue
+
+                if isinstance(mod, nn.Linear):
+                    if xin.dim() == 2 and u.dim() == 2:
+                        self._update_linear_softhebb(mod, xin, u)
+
+                elif isinstance(mod, ConvBlock):
+                    if xin.dim() == 4 and u.dim() == 4:
+                        self._update_conv2d_softhebb(mod.conv, xin, u)
+
+                else:
+                    continue
+
+        out_stats = dict(stats)
+        out_stats["loss"] = float(loss_t.item()) if loss_t is not None else 0.0
         self.global_step += 1
-        return stats
+        return out_stats

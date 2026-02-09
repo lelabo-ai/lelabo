@@ -12,9 +12,9 @@ base:
   rl-steps: 500_000
   rl-algo: ppo
   weight-decay: 0.0
-  optimizer: ano
+  optimizer: adamw
 
 grid:
-  algo: [bp, kp, dfa, fa, dni, softhebb, tp]
+  algo: [bp, softhebb]
   seed: [0, 1, 2]
   lr: [3e-4]

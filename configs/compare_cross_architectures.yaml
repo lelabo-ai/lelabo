@@ -1,0 +1,17 @@
+name: compare_cross_architectures
+display_keys: [algo, dataset, lr, model, seed]
+
+base:
+  dataset: cifar10
+  epochs: 100
+  batch: 128
+  device: cuda
+  robustness: none
+  verbose: 0
+  weight-decay: 1e-2
+
+grid:
+  algo: [bp, dni, dfa, softhebb, kp]
+  seed: [3, 4]
+  model: [cnn]
+  lr: [1e-3]

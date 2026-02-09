@@ -1,0 +1,21 @@
+name: scl
+display_keys: [algo, lr, seed, layers, hidden, input-noise-dataset, noise-on-test, optimizer]
+
+base:
+  dataset: mnist
+  model: mlp
+  epochs: 100
+  batch: 128
+  device: cuda
+  robustness: none
+  verbose: 0
+  weight-decay: 1e-2
+  optimizer: adamw
+
+grid:
+  algo: [scl]
+  seed: [0]
+  input-noise-training: [0.0]
+  lr: [1e-3]
+  hidden: [1024]
+  layers: [2, 8, 16]

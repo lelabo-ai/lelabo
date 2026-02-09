@@ -289,3 +289,103 @@ class PPOTask:
         delta_value = (float(self.cfg.vf_coef) / float(B)) * d_v  # [B,1]
 
         return {"logits": delta_logits, "value": delta_value}
+
+
+class SACCriticTask:
+    """Loss pour DoubleQCritic.
+    model_out: {"q1": [B], "q2": [B]}
+    y: {"target": [B]}
+    """
+    def __init__(self):
+        self._last: Dict[str, float] = {}
+
+    def loss(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> torch.Tensor:
+        q1 = model_out["q1"].view(-1)
+        q2 = model_out["q2"].view(-1)
+        target = y["target"].float().view(-1).to(q1.dtype)
+
+        q1_loss = F.mse_loss(q1, target)
+        q2_loss = F.mse_loss(q2, target)
+        loss = q1_loss + q2_loss
+
+        with torch.no_grad():
+            self._last = {
+                "critic_loss": float(loss.item()),
+                "q1_loss": float(q1_loss.item()),
+                "q2_loss": float(q2_loss.item()),
+                "q1_mean": float(q1.mean().item()),
+                "q2_mean": float(q2.mean().item()),
+                "target_mean": float(target.mean().item()),
+            }
+        return loss
+
+    def metrics(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> Dict[str, float]:
+        return dict(self._last)
+
+
+class SACActorTask:
+    """Loss actor SAC (reparam + tanh squash) avec un DoubleQCritic externe.
+    model_out: {"mu": [B,A], "log_std": [B,A]}
+    y: {"obs": [B,obs_dim]}
+    """
+    def __init__(
+        self,
+        critic,
+        action_scale: torch.Tensor,
+        action_bias: torch.Tensor,
+        *,
+        log_std_min: float = -5.0,
+        log_std_max: float = 2.0,
+        alpha: float = 0.2,
+    ):
+        self.critic = critic
+        self.action_scale = action_scale
+        self.action_bias = action_bias
+        self.log_std_min = float(log_std_min)
+        self.log_std_max = float(log_std_max)
+        self.alpha = float(alpha)
+
+        self._last: Dict[str, float] = {}
+        self.last_log_pi_mean: Optional[torch.Tensor] = None
+
+    def set_alpha(self, alpha: float) -> None:
+        self.alpha = float(alpha)
+
+    def loss(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> torch.Tensor:
+        obs = y["obs"]
+        mu = model_out["mu"]
+        log_std = model_out["log_std"]
+
+        log_std = torch.tanh(log_std)
+        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1.0)
+        std = log_std.exp()
+
+        eps = torch.randn_like(mu)
+        u = mu + std * eps
+        y_t = torch.tanh(u)
+        action = y_t * self.action_scale + self.action_bias
+
+        log_prob = -0.5 * (eps.pow(2) + 2.0 * log_std + torch.log(torch.tensor(2.0 * torch.pi, device=mu.device)))
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        log_det = torch.log(self.action_scale * (1.0 - y_t.pow(2)) + 1e-6).sum(dim=-1, keepdim=True)
+        log_pi = log_prob - log_det
+
+        q = self.critic(obs, action)
+        min_q = torch.min(q["q1"], q["q2"]).view(-1, 1)
+
+        loss = (self.alpha * log_pi - min_q).mean()
+
+        with torch.no_grad():
+            self.last_log_pi_mean = log_pi.mean().detach()
+            self._last = {
+                "actor_loss": float(loss.item()),
+                "entropy": float((-log_pi).mean().item()),
+                "log_pi": float(log_pi.mean().item()),
+                "q_pi": float(min_q.mean().item()),
+                "alpha": float(self.alpha),
+            }
+
+        return loss
+
+    def metrics(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> Dict[str, float]:
+        return dict(self._last)

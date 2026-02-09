@@ -1,0 +1,14 @@
+
+python -m scripts.launch_grid --config configs/demo.yaml --max-parallel 4
+
+python plots/plot_sweep_table.py --config configs/demo.yaml --metric eval.test.acc
+python plots/plot_sweep_table.py --config configs/demo.yaml --metric train.best_train_loss
+python plots/plot_sweep_table.py --config configs/demo.yaml --metric train.best_epoch_by_val
+
+python plots/plot_sweep.py --config configs/demo.yaml --mode sweep \
+--xvar layers --y eval.test.acc --hue algo \
+--where hidden=2048 --where lr=1e-3 \
+--out plots/demo_layers.png
+
+python -m lab.aux.profiler   --task classification   --dataset mnist  --algos bp,fa,softhebb,kp,dfa,dni   --batch 256 --iters 20 --warmup 3   --device cuda
+

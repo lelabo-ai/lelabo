@@ -23,15 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
 
     # General
-    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cartpole")
-    p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="mlp")
-    p.add_argument("--algo", choices=["bp", "lpl", "kp", "softhebb", "tp", "fa", "dfa", "dni"], default="kp")
+    p.add_argument("--dataset", choices=["breast_cancer", "iris", "mnist", "cifar10", "cifar100", "glue", "cartpole"], default="cifar10")
+    p.add_argument("--model", choices=["mlp", "cnn", "resnet18", "resnet34", "resnet50", "bert"], default="cnn")
+    p.add_argument("--algo", choices=["bp", "lpl", "kp", 'scl', 'kp3', "softhebb", "tp", "fa", "dfa", "dni"], default="bp")
 
-    p.add_argument("--hidden", type=int, default=256)
-    p.add_argument("--layers", type=int, default=2)
+    p.add_argument("--hidden", type=int, default=2048)
+    p.add_argument("--layers", type=int, default=3)
 
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=2)
@@ -41,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--weight-decay", type=float, default=0.01)
 
     p.add_argument("--input-noise-training", type=float, default=0.0, help="stddev gaussian noise on inputs during training")
+    p.add_argument("--input-noise-dataset", type=float, default=0.0, help="stddev gaussian noise on inputs in dataset (train+val+test)")
+    p.add_argument("--noise-on-test", type=int, choices=[0, 1], default=0,
+                   help="0/1 to add noise to test set if input-noise-dataset > 0")
 
     # Validation split (supervised classic datasets)
     p.add_argument("--val-frac", type=float, default=0.1, help="fraction of train set used as validation (0 disables)")
@@ -51,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(early_stop=True)
 
     p.add_argument("--early-monitor", type=str, default="val.acc")
-    p.add_argument("--early-patience", type=int, default=30)
+    p.add_argument("--early-patience", type=int, default=5)
     p.add_argument("--early-min-delta", type=float, default=0.0)
     p.add_argument("--early-warmup", type=int, default=5)
 

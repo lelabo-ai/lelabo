@@ -23,6 +23,8 @@ def make_activation(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
         return F.silu
     if name == "heaviside":
         return lambda x: (x >= 0).to(x.dtype)
+    elif name=='softmax':
+        return lambda x: F.softmax(x, dim=-1)
     raise ValueError(f"Unknown activation: {name}")
 
 
@@ -89,8 +91,11 @@ class MLPStack(nn.Module):
             return logits
 
         block_inputs = {}
+        block_outputs = {}
         for i in range(len(cache["inputs"])):
             name = f"layer{i}" if i < (len(cache["inputs"]) - 1) else "head"
             block_inputs[name] = cache["inputs"][i]
+            block_outputs[name] = cache["preacts"][i]
         cache["block_inputs"] = block_inputs
+        cache["block_outputs"] = block_outputs
         return logits, cache

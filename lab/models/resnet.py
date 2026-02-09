@@ -1,7 +1,7 @@
 # lab/models/resnet.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
 import torch.nn as nn
@@ -14,15 +14,17 @@ except Exception:  # pragma: no cover
 
 class ResNetForCIFAR(BlockModel):
     """
-    Torchvision ResNet adapté CIFAR + exposition blocks compatible SoftHebb.
+    Torchvision ResNet avec exposition de "blocks" au niveau des RESIDUAL BLOCKS
+    (BasicBlock / Bottleneck), pour avoir la même abstraction que ConvBlock.
 
-    Blocks:
-      - tous les nn.Conv2d du backbone (dans l'ordre d'itération de named_modules)
-      - + "fc" (Linear) marqué is_output=True
+    Blocks exposés :
+      - layer1.0, layer1.1, ..., layer4.k (modules torchvision BasicBlock/Bottleneck)
+      - + "head" (Linear) marqué is_output=True
 
     forward(return_cache=True):
       - retourne (logits, cache)
-      - cache["block_inputs"][block_name] = input tensor au module (capturé via hook)
+      - cache["block_inputs"][name] = input tensor AU BLOC
+      - cache["block_outputs"][name] = output tensor DU BLOC
     """
 
     def __init__(self, num_classes: int = 100, resnet_type: str = "resnet34", pretrained: bool = True):
@@ -50,10 +52,8 @@ class ResNetForCIFAR(BlockModel):
         # head
         num_ftrs = base.fc.in_features
         base.fc = nn.Linear(num_ftrs, self.num_classes)
-
         self.resnet = base
 
-        # Build blocks list once (Conv2d + fc)
         self._blocks: List[BlockSpec] = []
         self._block_modules: List[Tuple[str, nn.Module]] = []
         self._build_blocks()
@@ -62,17 +62,17 @@ class ResNetForCIFAR(BlockModel):
         blocks: List[BlockSpec] = []
         mods: List[Tuple[str, nn.Module]] = []
 
-        for name, m in self.resnet.named_modules():
-            # Skip container root (empty name)
-            if name == "":
-                continue
-            if isinstance(m, nn.Conv2d):
-                blocks.append(BlockSpec(name=name, module=m, rep="gap", is_output=False))
-                mods.append((name, m))
+        # Expose residual blocks (BasicBlock / Bottleneck)
+        for layer_name in ["layer1", "layer2", "layer3", "layer4"]:
+            layer = getattr(self.resnet, layer_name)
+            for i, blk in enumerate(layer):
+                name = f"{layer_name}.{i}"
+                blocks.append(BlockSpec(name=name, module=blk, rep="identity", is_output=False))
+                mods.append((name, blk))
 
-        # fc head (output)
-        blocks.append(BlockSpec(name="fc", module=self.resnet.fc, rep="identity", is_output=True))
-        mods.append(("fc", self.resnet.fc))
+        # Head (output)
+        blocks.append(BlockSpec(name="head", module=self.resnet.fc, rep="identity", is_output=True))
+        mods.append(("head", self.resnet.fc))
 
         self._blocks = blocks
         self._block_modules = mods
@@ -84,16 +84,17 @@ class ResNetForCIFAR(BlockModel):
         if not return_cache:
             return self.resnet(x)
 
-        cache: Dict[str, Any] = {"block_inputs": {}}
+        cache: Dict[str, Any] = {"block_inputs": {}, "block_outputs": {}}
         hooks = []
 
         def hook_fn(name: str):
             def _fn(module, inputs, output):
                 if inputs and torch.is_tensor(inputs[0]):
                     cache["block_inputs"][name] = inputs[0].detach()
+                if torch.is_tensor(output):
+                    cache["block_outputs"][name] = output.detach()
             return _fn
 
-        # Register hooks only on blocks we expose
         for name, m in self._block_modules:
             hooks.append(m.register_forward_hook(hook_fn(name)))
 

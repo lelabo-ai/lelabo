@@ -11,16 +11,22 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
+from ...models.convnet import ConvBlock
 
 
-class KP(UpdateRule):
+class SoftContrastiveLearning(UpdateRule):
     """
-    Hybrid rule:
+    Hybrid rule (local SupCon everywhere in the backbone):
+
       - Output blocks (bspec.is_output=True): updated with standard backprop (heads-only optimizer).
-      - Intermediate nn.Linear blocks: updated with *local* Supervised Contrastive Learning (SupCon)
-        using a per-block projection head + per-block optimizer, with gradients restricted to
-        (that block + its projection).
-      - Intermediate nn.Conv2d blocks: kept as SoftHebb (no_grad) as in your original code.
+
+      - Intermediate nn.Linear blocks: updated with local SupCon with a per-block frozen projection.
+
+      - Intermediate "feature blocks" (ConvBlock / nn.Conv2d / torchvision ResNet blocks):
+          * compute h = block(xin) -> expects [B, C, H, W]
+          * v = GAP(h) -> [B, C]
+          * z = proj(v) -> [B, D]
+          * SupCon loss -> local backward -> updates ONLY block params (proj frozen)
 
     Requirements:
       - model.get_blocks() -> list of BlockSpec-like objects, each has:
@@ -28,35 +34,30 @@ class KP(UpdateRule):
           - module: nn.Module
           - is_output: bool
       - model.forward(..., return_cache=True) -> (out, cache)
-      - cache["block_inputs"][block_name] exists for blocks you want to update
-      - cache["block_outputs"][block_name] exists (used for conv SoftHebb; linear SupCon recomputes forward)
+      - cache["block_inputs"][block_name] exists
     """
 
     def __init__(
         self,
-        learning_rate: float = 0.05,   # (used for SoftHebb conv update)
-        tau: float = 1.0,              # (used for SoftHebb WTA)
-        q: float = 0.5,
-        anti_hebb: bool = True,
         # heads (backprop)
         head_lr: float = 3e-4,
         head_optim: str = "ano",  # "adamw" | "sgd" | "ano"
         head_weight_decay: float = 0.0,
-        # local SupCon (per intermediate linear block)
+        # local SupCon (per intermediate block)
         supcon_tau: float = 0.1,
         local_lr: float = 3e-4,
         local_optim: str = "adamw",  # "adamw" | "sgd"
         local_weight_decay: float = 0.0,
+        # projection
         proj_dim: int = 128,
         proj_hidden_dim: Optional[int] = None,
+        # depth LR scheduler
+        depth_lr_gamma: float = 0.5,
+        depth_lr_min_factor: float = 0.01,
+        depth_lr_max_factor: float = 100.0,
         eps: float = 1e-8,
     ):
         super().__init__()
-        # --- SoftHebb bits (conv)
-        self.lr = float(learning_rate)
-        self.tau = float(tau)
-        self.q = float(q)
-        self.anti_hebb = bool(anti_hebb)
         self.eps = float(eps)
 
         # --- heads (global supervised)
@@ -74,12 +75,19 @@ class KP(UpdateRule):
         self.proj_dim = int(proj_dim)
         self.proj_hidden_dim = proj_hidden_dim
 
-        # projection heads per block (registered so they move with .to(...) if needed)
+        # --- depth LR scheduler params
+        self.depth_lr_gamma = float(depth_lr_gamma)
+        self.depth_lr_min_factor = float(depth_lr_min_factor)
+        self.depth_lr_max_factor = float(depth_lr_max_factor)
+
+        # projection heads per block
         self._proj_by_name = nn.ModuleDict()
-        # per-block local optimizers (Python dict is fine)
+
+        # per-block local optimizers
         self._local_opt_by_name: Dict[str, torch.optim.Optimizer] = {}
-        # remember which param ids were used to build each optimizer
         self._local_param_ids_by_name: Dict[str, Tuple[int, ...]] = {}
+        self._local_depth_by_name: Dict[str, int] = {}
+        self._local_lr_by_name: Dict[str, float] = {}
 
         # one-time freeze / param index (for heads)
         self._param_by_id: Optional[Dict[int, nn.Parameter]] = None
@@ -87,62 +95,7 @@ class KP(UpdateRule):
         self._trainable_ids: set[int] = set()
 
     # ============================================================
-    # SoftHebb core (conv kept)
-    # ============================================================
-
-    def _eta_per_unit_from_weight(self, w_2d: torch.Tensor) -> torch.Tensor:
-        r = torch.norm(w_2d, dim=1)  # [K]
-        base = torch.clamp(r - 1.0, min=0.0)
-        if self.q == 0.0:
-            return torch.full_like(r, self.lr)
-        return self.lr * (base + self.eps).pow(self.q)
-
-    def _soft_wta(self, u: torch.Tensor) -> torch.Tensor:
-        return F.softmax(u / self.tau, dim=1)
-
-    def _winner_sign(self, y: torch.Tensor) -> torch.Tensor:
-        S = y.new_full(y.shape, -1.0)
-        idx = y.argmax(dim=1, keepdim=True)
-        S.scatter_(1, idx, 1.0)
-        return S
-
-    @torch.no_grad()
-    def _update_conv2d_softhebb(self, layer: nn.Conv2d, x: torch.Tensor, u: torch.Tensor):
-        # x: [B,Cin,H,W], u: [B,Cout,H',W']
-        B = x.size(0)
-        Cout = u.size(1)
-
-        patches = F.unfold(
-            x,
-            kernel_size=layer.kernel_size,
-            dilation=layer.dilation,
-            padding=layer.padding,
-            stride=layer.stride,
-        )  # [B, D, L]
-
-        L = patches.size(2)
-        u_ = u.reshape(B, Cout, L)  # [B,Cout,L]
-
-        y = self._soft_wta(u_)
-        y_eff = y * self._winner_sign(y) if self.anti_hebb else y
-
-        W_flat = layer.weight.view(Cout, -1)  # [Cout,D]
-
-        term1 = torch.einsum("bkl,bdl->kd", y_eff, patches) / float(B * L)
-        a = (y_eff * u_).mean(dim=(0, 2))
-        dW_flat = term1 - a[:, None] * W_flat
-
-        eta_k = self._eta_per_unit_from_weight(W_flat)
-        W_flat.add_(eta_k[:, None] * dW_flat)
-        layer.weight.copy_(W_flat.view_as(layer.weight))
-
-        if layer.bias is not None:
-            mean_y = y_eff.mean(dim=(0, 2))
-            db = mean_y - a * layer.bias
-            layer.bias.add_(eta_k * db)
-
-    # ============================================================
-    # SupCon (local per Linear block)
+    # SupCon
     # ============================================================
 
     def supervised_contrastive_loss(
@@ -152,14 +105,11 @@ class KP(UpdateRule):
         tau: float = 0.1,
         eps: float = 1e-8,
     ) -> torch.Tensor:
-        """
-        Standard SupCon loss (Khosla et al.). Expects labels to be class ids.
-        """
         B = z.size(0)
         z = F.normalize(z, dim=1)
 
         sim = torch.matmul(z, z.T) / tau
-        sim = sim - sim.max(dim=1, keepdim=True)[0]  # stability
+        sim = sim - sim.max(dim=1, keepdim=True)[0]
 
         labels = labels.view(-1, 1)
         pos_mask = (labels == labels.T).float()
@@ -175,97 +125,162 @@ class KP(UpdateRule):
         for p in module.parameters():
             p.requires_grad = flag
 
+    # ============================================================
+    # Depth LR scheduler helpers
+    # ============================================================
+
+    def _depth_scaled_lr(self, depth: int) -> float:
+        factor = self.depth_lr_gamma ** int(depth)
+        factor = max(self.depth_lr_min_factor, min(self.depth_lr_max_factor, factor))
+        return float(self.local_lr * factor)
+
+    def _set_optimizer_lr(self, opt: torch.optim.Optimizer, lr: float) -> None:
+        for g in opt.param_groups:
+            g["lr"] = lr
+
+    # ============================================================
+    # Projection head
+    # ============================================================
+
+    def _key(self, name: str) -> str:
+        return name.replace(".", "__")
+
     def _make_projection(self, in_dim: int, device: torch.device) -> nn.Module:
-        """
-        SimCLR/SupCon-style projection head: MLP(in_dim -> hidden -> out_dim)
-        """
         out_dim = min(self.proj_dim, in_dim) if self.proj_dim > 0 else in_dim
         hidden = self.proj_hidden_dim if self.proj_hidden_dim is not None else in_dim
-
-        if out_dim == in_dim and hidden == in_dim:
-            # still keep a tiny MLP for stability, unless you explicitly want Identity
-            pass
 
         proj = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.ReLU(inplace=True),
             nn.Linear(hidden, out_dim),
-        )
-        return proj.to(device)
+        ).to(device)
+
+        # frozen params (Variant 1)
+        self._set_requires_grad(proj, False)
+        return proj
+
+    def _feature_dim_for_module(self, module: nn.Module) -> Optional[int]:
+        """
+        Donne la dimension "feature" sur laquelle on va faire GAP puis proj.
+        """
+        if isinstance(module, nn.Linear):
+            return int(module.out_features)
+
+        if isinstance(module, ConvBlock):
+            return int(module.conv.out_channels)
+
+        if isinstance(module, nn.Conv2d):
+            return int(module.out_channels)
+
+        # IMPORTANT: Bottleneck a aussi conv2, donc tester conv3 d'abord
+        if hasattr(module, "conv3") and isinstance(getattr(module, "conv3"), nn.Conv2d):
+            return int(module.conv3.out_channels)  # Bottleneck
+        if hasattr(module, "conv2") and isinstance(getattr(module, "conv2"), nn.Conv2d):
+            return int(module.conv2.out_channels)  # BasicBlock
+
+        return None
 
     def _ensure_local_supcon_modules(
         self,
         name: str,
-        layer: nn.Linear,
+        module: nn.Module,
         device: torch.device,
+        depth: int,
     ) -> Tuple[nn.Module, torch.optim.Optimizer]:
-        """
-        Creates (or reuses) a projection head + optimizer for this block.
-        Optimizer updates BOTH the layer and the projection head (local BP).
-        """
-        if name not in self._proj_by_name:
-            self._proj_by_name[name] = self._make_projection(layer.out_features, device)
+        feat_dim = self._feature_dim_for_module(module)
+        if feat_dim is None:
+            raise TypeError(f"Unsupported module for local SupCon: {type(module)}")
 
-        proj = self._proj_by_name[name]
+        k = self._key(name)
 
-        # Ensure optimizer exists and matches current params (in case model rebuilt)
-        params = list(layer.parameters()) + list(proj.parameters())
+        if k not in self._proj_by_name:
+            self._proj_by_name[k] = self._make_projection(feat_dim, device)
+        else:
+            self._proj_by_name[k] = self._proj_by_name[k].to(device)
+            self._set_requires_grad(self._proj_by_name[k], False)
+
+        proj = self._proj_by_name[k]
+
+        params = list(module.parameters())
         param_ids = tuple(sorted(id(p) for p in params))
-        if (
-            name in self._local_opt_by_name
-            and self._local_param_ids_by_name.get(name, None) == param_ids
-        ):
-            return proj, self._local_opt_by_name[name]
+
+        lr_here = self._depth_scaled_lr(depth)
+        self._local_depth_by_name[name] = int(depth)
+        self._local_lr_by_name[name] = float(lr_here)
+
+        if name in self._local_opt_by_name and self._local_param_ids_by_name.get(name, None) == param_ids:
+            opt = self._local_opt_by_name[name]
+            self._set_optimizer_lr(opt, lr_here)
+            return proj, opt
 
         self._local_param_ids_by_name[name] = param_ids
 
         if self.local_optim == "sgd":
-            opt = torch.optim.SGD(
-                params,
-                lr=self.local_lr,
-                weight_decay=self.local_weight_decay,
-                momentum=0.9,
-            )
+            opt = torch.optim.SGD(params, lr=lr_here, weight_decay=self.local_weight_decay, momentum=0.9)
         else:
-            opt = torch.optim.AdamW(
-                params,
-                lr=self.local_lr,
-                weight_decay=self.local_weight_decay,
-            )
+            opt = torch.optim.AdamW(params, lr=lr_here, weight_decay=self.local_weight_decay)
 
         self._local_opt_by_name[name] = opt
         return proj, opt
+
+    # ============================================================
+    # Local updates
+    # ============================================================
 
     def _local_supcon_update_linear(
         self,
         layer: nn.Linear,
         proj: nn.Module,
         opt: torch.optim.Optimizer,
-        xin: torch.Tensor,      # [B, Din]
-        labels: torch.Tensor,   # [B]
+        xin: torch.Tensor,     # [B, Din]
+        labels: torch.Tensor,  # [B]
     ) -> float:
-        """
-        Local SupCon update for ONE linear layer.
-        Important: we temporarily enable grads for this layer (it is frozen globally for head BP efficiency).
-        """
-        # Temporarily unfreeze this layer (heads-only freeze is kept for global forward)
         was_req = [p.requires_grad for p in layer.parameters()]
         self._set_requires_grad(layer, True)
+        self._set_requires_grad(proj, False)
 
-        # proj is owned by this UpdateRule, keep it trainable
-        self._set_requires_grad(proj, True)
-
-        # Local forward + SupCon
-        h = layer(xin)          # [B, Dh]
-        z = proj(h)             # [B, Dz]
+        h = layer(xin)
+        z = proj(h)
         loss = self.supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
 
-        # Restore layer requires_grad to previous state (usually False)
         for p, prev in zip(layer.parameters(), was_req):
+            p.requires_grad = prev
+
+        return float(loss.detach().item())
+
+    def _local_supcon_update_feature_block(
+        self,
+        block: nn.Module,
+        proj: nn.Module,
+        opt: torch.optim.Optimizer,
+        xin: torch.Tensor,     # [B, Cin, H, W]
+        labels: torch.Tensor,  # [B]
+    ) -> float:
+        """
+        Update générique pour n'importe quel bloc qui renvoie un tenseur 4D.
+        (ConvBlock, nn.Conv2d, BasicBlock, Bottleneck, etc.)
+        """
+        was_req = [p.requires_grad for p in block.parameters()]
+        self._set_requires_grad(block, True)
+        self._set_requires_grad(proj, False)
+
+        h = block(xin)
+        if not torch.is_tensor(h) or h.dim() != 4:
+            raise RuntimeError(f"Feature block must output 4D tensor, got {type(h)} {getattr(h,'shape',None)}")
+
+        v = h.mean(dim=(2, 3))
+        z = proj(v)
+        loss = self.supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
+
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+
+        for p, prev in zip(block.parameters(), was_req):
             p.requires_grad = prev
 
         return float(loss.detach().item())
@@ -299,22 +314,15 @@ class KP(UpdateRule):
         self._head_param_ids = param_ids
 
         if self.head_optim == "sgd":
-            self._head_optimizer = torch.optim.SGD(
-                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
-            )
+            self._head_optimizer = torch.optim.SGD(head_params, lr=self.head_lr, weight_decay=self.head_weight_decay)
         elif self.head_optim == "ano":
             from ano_optimizer import Ano
-
-            self._head_optimizer = Ano(
-                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
-            )
+            self._head_optimizer = Ano(head_params, lr=self.head_lr, weight_decay=self.head_weight_decay)
         else:
-            self._head_optimizer = torch.optim.AdamW(
-                head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
-            )
+            self._head_optimizer = torch.optim.AdamW(head_params, lr=self.head_lr, weight_decay=self.head_weight_decay)
 
     # ============================================================
-    # One-time freeze (avoid per-step requires_grad toggling) for heads
+    # One-time freeze for heads
     # ============================================================
 
     def _ensure_param_index(self, model: nn.Module) -> None:
@@ -324,41 +332,29 @@ class KP(UpdateRule):
             self._trainable_ids = set()
 
     def _freeze_non_head_params_once(self, model: nn.Module, head_params: Sequence[nn.Parameter]) -> None:
-        """
-        Permanently freezes all params except heads (to make head BP cheap).
-        Local SupCon will temporarily unfreeze one intermediate block at a time.
-        """
         self._ensure_param_index(model)
-
         new_ids = {id(p) for p in head_params}
 
         if not self._frozen_once:
-            # Freeze everything once
             for p in self._param_by_id.values():
                 p.requires_grad = False
-
-            # Unfreeze heads
             for pid in new_ids:
-                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                p = self._param_by_id.get(pid, None)
                 if p is not None:
                     p.requires_grad = True
-
             self._trainable_ids = set(new_ids)
             self._frozen_once = True
             return
 
-        # If head set changes, only update differences (cheap)
         if new_ids != self._trainable_ids:
             for pid in (self._trainable_ids - new_ids):
-                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                p = self._param_by_id.get(pid, None)
                 if p is not None:
                     p.requires_grad = False
-
             for pid in (new_ids - self._trainable_ids):
-                p = self._param_by_id.get(pid, None) if self._param_by_id is not None else None
+                p = self._param_by_id.get(pid, None)
                 if p is not None:
                     p.requires_grad = True
-
             self._trainable_ids = set(new_ids)
 
     # ============================================================
@@ -368,7 +364,6 @@ class KP(UpdateRule):
     def _loss_from_outputs(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, float]]:
         stats: Dict[str, float] = {}
 
-        # HF outputs case
         if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
             loss = out.loss
             if hasattr(out, "logits") and y is not None and torch.is_tensor(y):
@@ -406,11 +401,11 @@ class KP(UpdateRule):
         model.train()
 
         if not hasattr(model, "get_blocks"):
-            raise RuntimeError("KP requires models to expose get_blocks() (no fallback).")
+            raise RuntimeError("SoftContrastiveLearning requires models to expose get_blocks().")
 
         blocks = model.get_blocks()
         if not isinstance(blocks, list) or len(blocks) == 0:
-            raise RuntimeError("KP expects model.get_blocks() to return a non-empty list.")
+            raise RuntimeError("SoftContrastiveLearning expects model.get_blocks() to return a non-empty list.")
 
         # --- Move batch once
         if isinstance(batch, Mapping):
@@ -431,11 +426,10 @@ class KP(UpdateRule):
         stats: Dict[str, float] = {}
         loss_t: Optional[torch.Tensor] = None
 
-        # --- Forward for head (optional) + cache
+        # --- Forward (heads) + cache
         can_do_head_bp = (self._head_optimizer is not None) and (y is not None)
 
         if can_do_head_bp:
-            # grads ON; only heads have requires_grad=True (others frozen)
             if isinstance(batch, Mapping):
                 out, cache = model(return_cache=True, **b)
             else:
@@ -447,7 +441,6 @@ class KP(UpdateRule):
             self._head_optimizer.step()
             loss_t = loss.detach()
         else:
-            # no supervised head update; still need cache
             with torch.inference_mode():
                 if isinstance(batch, Mapping):
                     out, cache = model(return_cache=True, **b)
@@ -461,17 +454,21 @@ class KP(UpdateRule):
                 stats = {}
 
         if not isinstance(cache, Mapping) or "block_inputs" not in cache:
-            raise RuntimeError("KP expects cache['block_inputs'] from model(..., return_cache=True).")
+            raise RuntimeError("SoftContrastiveLearning expects cache['block_inputs'] from model(..., return_cache=True).")
 
         block_inputs: Mapping[str, Any] = cache["block_inputs"]
 
         # ============================================================
-        # Local updates for intermediate blocks
+        # Local SupCon updates for intermediate blocks
         # ============================================================
         local_supcon_losses: List[float] = []
+        depth_idx = 0
 
         for bspec in blocks:
             if getattr(bspec, "is_output", False):
+                continue
+
+            if y is None or (not torch.is_tensor(y)):
                 continue
 
             name = getattr(bspec, "name", None)
@@ -483,40 +480,30 @@ class KP(UpdateRule):
             if not torch.is_tensor(xin):
                 continue
 
-            # --- Linear blocks: local SupCon (needs labels)
+            # Linear blocks: xin expected [B, Din]
             if isinstance(mod, nn.Linear):
-                if y is None or (not torch.is_tensor(y)):
-                    continue
                 if xin.dim() != 2:
                     continue
-
-                # ensure projection + optimizer for this block
-                proj, opt = self._ensure_local_supcon_modules(name, mod, device=device)
-
-                # local update (enables grad only for this layer + proj)
+                proj, opt = self._ensure_local_supcon_modules(name, mod, device=device, depth=depth_idx)
                 loss_local = self._local_supcon_update_linear(mod, proj, opt, xin, y)
                 local_supcon_losses.append(loss_local)
-
-            # --- Conv blocks: keep your SoftHebb update (needs u from cache)
-            elif isinstance(mod, nn.Conv2d):
-                if xin.dim() != 4:
-                    continue
-                if "block_outputs" not in cache or name not in cache["block_outputs"]:
-                    continue
-                u = cache["block_outputs"][name]
-                if not torch.is_tensor(u) or u.dim() != 4:
-                    continue
-                self._update_conv2d_softhebb(mod, xin, u)
-
-            else:
+                depth_idx += 1
                 continue
+
+            # Feature blocks: xin expected [B, Cin, H, W]
+            if xin.dim() == 4:
+                proj, opt = self._ensure_local_supcon_modules(name, mod, device=device, depth=depth_idx)
+                loss_local = self._local_supcon_update_feature_block(mod, proj, opt, xin, y)
+                local_supcon_losses.append(loss_local)
+                depth_idx += 1
+                continue
+
+            # otherwise ignore
+            continue
 
         out_stats = dict(stats)
         out_stats["loss"] = float(loss_t.item()) if loss_t is not None else 0.0
-        if local_supcon_losses:
-            out_stats["supcon_loss"] = float(sum(local_supcon_losses) / len(local_supcon_losses))
-        else:
-            out_stats["supcon_loss"] = 0.0
+        out_stats["supcon_loss"] = float(sum(local_supcon_losses) / len(local_supcon_losses)) if local_supcon_losses else 0.0
 
         self.global_step += 1
         return out_stats

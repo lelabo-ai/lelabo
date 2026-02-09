@@ -115,7 +115,7 @@ def extract_run_row(summary: Dict[str, Any], metric_path: str, keys: List[str]) 
     if metric is None or not isinstance(metric, (int, float)):
         return None
 
-    row["_metric"] = float(metric)
+    row["_metric"] = float(metric)*100
     return row
 
 

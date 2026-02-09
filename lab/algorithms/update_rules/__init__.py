@@ -8,3 +8,6 @@ from .local_probe_blocks import *
 from .local_probe_mlp import *
 from .softhebb import *
 from .kp import *
+from .scl import *
+from .kp3 import *
+from .dni import *
