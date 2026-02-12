@@ -12,6 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "Adrien Kegreisz" }]
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest>=8", "pyyaml>=6"]
+
 [project.scripts]
 lelabo = "lab.cli.main:main"
 lelabo-profiler = "lab.aux.profiler:main"
