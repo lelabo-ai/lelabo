@@ -5,7 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import experiments.launchers.launch_grid as launch_grid
+from conftest import REPO_ROOT, load_module_from_path
+
+
+launch_grid = load_module_from_path(
+    "launch_grid_test_module",
+    REPO_ROOT / "experiments" / "launchers" / "launch_grid.py",
+)
 
 
 def test_resolve_config_path_supports_legacy_and_new_paths() -> None:
