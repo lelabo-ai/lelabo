@@ -31,7 +31,7 @@ def test_with_src_on_pythonpath_sets_required_env() -> None:
     py_paths = out["PYTHONPATH"].split(os.pathsep)
 
     assert py_paths[0] == src_path
-    assert out["XDG_CACHE_HOME"] == str((launch_grid.REPO_ROOT / ".cache").resolve())
+    assert out.get("XDG_CACHE_HOME") == str((launch_grid.REPO_ROOT / ".cache").resolve())
 
 
 def test_launcher_dry_run_writes_plan(tmp_path: Path) -> None:

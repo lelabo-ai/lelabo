@@ -162,6 +162,8 @@ def with_src_on_pythonpath(env: Dict[str, str]) -> Dict[str, str]:
     if src_path not in parts:
         parts.insert(0, src_path)
     out["PYTHONPATH"] = os.pathsep.join(parts)
+    # Keep caches at repo root rather than under src/ or random cwd.
+    out.setdefault("XDG_CACHE_HOME", str(REPO_ROOT / ".cache"))
     return out
 
 
