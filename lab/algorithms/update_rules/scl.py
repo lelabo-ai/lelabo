@@ -1,4 +1,4 @@
-# lab/algorithms/update_rules/softhebb.py
+# lab/algorithms/update_rules/scl.py
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -12,6 +12,7 @@ from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
 from ...models.convnet import ConvBlock
+from ...models.deep_softhebb import SoftHebbBlock
 
 
 class SoftContrastiveLearning(UpdateRule):
@@ -50,7 +51,7 @@ class SoftContrastiveLearning(UpdateRule):
         local_optim: str = "adamw",  # "adamw" | "sgd"
         local_weight_decay: float = 0.0,
         # projection
-        proj_dim: int = 128,
+        proj_dim: int = 256,
         proj_hidden_dim: Optional[int] = None,
         # depth LR scheduler
         depth_lr_gamma: float = 0.5,
@@ -226,6 +227,9 @@ class SoftContrastiveLearning(UpdateRule):
             return int(module.out_features)
 
         if isinstance(module, ConvBlock):
+            return int(module.conv.out_channels)
+        
+        if isinstance(module, SoftHebbBlock):
             return int(module.conv.out_channels)
 
         if isinstance(module, nn.Conv2d):
@@ -499,7 +503,7 @@ class SoftContrastiveLearning(UpdateRule):
     # main
     # ============================================================
 
-    def train_step(self, model, task, batch, device) -> Dict[str, float]:
+    def train_step(self, model, task, batch, device, ep) -> Dict[str, float]:
         model.train()
 
         if not hasattr(model, "get_blocks"):

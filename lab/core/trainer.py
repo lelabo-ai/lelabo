@@ -107,7 +107,7 @@ class Trainer:
                         x = x + torch.randn_like(x) * self.input_noise_training
                         batch = (x, y)
 
-                stats = self.learner.train_step(self.model, self.task, batch, self.device)
+                stats = self.learner.train_step(self.model, self.task, batch, self.device, ep)
 
                 loss = float(stats.get("loss", 0.0))
                 metric = float(stats.get("acc", stats.get("agg", 0.0)))
@@ -215,4 +215,6 @@ class Trainer:
             res = {"loss": float(total_loss / max(1, total_n)), "acc": float(total_acc / max(1, total_n)), "metric": float(total_acc / max(1, total_n))}
 
         self.log({"t": "eval", "split": split, **{k: float(v) for k, v in res.items() if isinstance(v, (int, float))}})
+        if self.verbose:
+            print(f"Eval {split or ''} | loss={res.get('loss', 0.0):.4f} | acc={res.get('acc', 0.0):.4f}")
         return res

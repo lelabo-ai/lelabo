@@ -51,7 +51,7 @@ def _make_cifar_dataset(
     flatten: bool = False,
     input_noise_dataset: float = 0.0,
     noise_on_test: bool = False,
-    augment: bool = True,
+    augment: bool = False,
     num_workers: int = 2,
     pin_memory: bool = True,
     **_: object,

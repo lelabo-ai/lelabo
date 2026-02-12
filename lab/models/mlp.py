@@ -29,9 +29,27 @@ def make_activation(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
         return F.silu
     if name == "heaviside":
         return lambda x: (x >= 0).to(x.dtype)
-    elif name=='softmax':
+    if name == "softmax":
         return lambda x: F.softmax(x, dim=-1)
+
+    if name in ("triangle", "tri"):
+        # Triangle(u) = ReLU(u - mean(u)) per sample over feature dim
+        def triangle(u: torch.Tensor) -> torch.Tensor:
+            # For MLP preacts: u is [B, D]
+            if u.dim() == 2:
+                mu = u.mean(dim=1, keepdim=True)
+                return F.relu(u - mu)
+            # If ever used on conv maps: [B, C, H, W] -> mean over channels
+            if u.dim() == 4:
+                mu = u.mean(dim=1, keepdim=True)
+                return F.relu(u - mu)
+            # Fallback: mean over last dim
+            mu = u.mean(dim=-1, keepdim=True)
+            return F.relu(u - mu)
+        return triangle
+
     raise ValueError(f"Unknown activation: {name}")
+
 
 
 @dataclass
@@ -76,7 +94,7 @@ def forward_mlp_with_cache(
 
 
 class MLPStack(nn.Module):
-    def __init__(self, dims: List[int], activation: str = "relu"):
+    def __init__(self, dims: List[int], activation: str = "tri"):
         super().__init__()
         if len(dims) < 2:
             raise ValueError("dims must contain at least input and output")

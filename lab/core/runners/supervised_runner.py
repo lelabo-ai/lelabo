@@ -177,5 +177,8 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     if robustness_block:
         summary["robustness"] = robustness_block
+    
+    if args.verbose > 0:
+        print("Summary:", summary)
 
     return summary

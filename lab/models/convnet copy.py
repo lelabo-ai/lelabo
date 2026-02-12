@@ -5,7 +5,6 @@ from typing import Iterable, Sequence
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 try:
     from .blocks import BlockModel, BlockSpec
@@ -55,33 +54,10 @@ class ConvBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, return_cache: bool = False):
         cache = None
-
-        pad_h = self.conv.padding[0]
-        pad_w = self.conv.padding[1]
-        if pad_h != 0 or pad_w != 0:
-            x_conv = F.pad(x, (pad_w, pad_w, pad_h, pad_h), mode="constant", value=0.0)
-        else:
-            x_conv = x
-
-        # now do the conv with padding=0 (since we already padded)
-        u = F.conv2d(
-            x_conv,
-            self.conv.weight,
-            self.conv.bias,
-            stride=self.conv.stride,
-            padding=0,
-            dilation=self.conv.dilation,
-            groups=self.conv.groups,
-        )
-
+        x = self.conv(x)
         if return_cache:
-            # IMPORTANT: keep backward behavior unchanged; detach copies
-            cache = {
-                "u": u.detach(),          # raw conv output
-                "x_conv": x_conv.detach() # exact conv input used (after padding)
-            }
-
-        x = self.bn(u)
+            cache = x.detach().clone()
+        x = self.bn(x)
         x = self.act(x)
         x = self.pool(x)
         return (x, cache) if return_cache else x

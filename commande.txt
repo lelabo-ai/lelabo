@@ -18,6 +18,8 @@ python -m lab.aux.profiler   --task classification   --dataset mnist  --algos bp
 
 python plots/plot_sweep.py --config configs/compare_mnist_noise2.yaml --mode sweep --xvar input-noise-training --y eval.test.acc --hue algo --where hidden=2048 --where layers=2 --out plots/noise.png
 
+python plots/plot_sweep.py --config configs/compare_mnist_noise.yaml --mode sweep --xvar input-noise-training --y eval.test.acc --hue algo --where hidden=2048 --where layers=2 --out plots/noise_tha.png --only-hues bp,kp
+
 (llm_py311) adrien@Ubuntu5090:~/Documents/Research/LeLabo$ python plots/plot_sweep_table.py --config configs/compare_cross_architectures.yaml --metric eval.test.acc
 
 Experiment : compare_cross_architectures

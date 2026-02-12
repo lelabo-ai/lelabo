@@ -17,7 +17,7 @@ from .scl import SoftContrastiveLearning
 from .softhebb import SoftHebb
 from .targetprop import TargetPropagation
 from .registry import UpdateRuleContext, register_update_rule
-
+from .kp2 import KP2
 
 _MISSING = object()
 
@@ -70,6 +70,9 @@ def build_kp(ctx: UpdateRuleContext):
 def build_scl(ctx: UpdateRuleContext):
     return SoftContrastiveLearning(local_lr=ctx.args.lr, head_lr=ctx.args.lr, local_weight_decay=ctx.args.weight_decay)
 
+@register_update_rule("kp2")
+def build_kp2(ctx: UpdateRuleContext):
+    return KP2(learning_rate=ctx.args.lr, head_lr=ctx.args.lr, head_weight_decay=ctx.args.weight_decay)
 
 @register_update_rule("kp3")
 def build_kp3(ctx: UpdateRuleContext):
@@ -78,7 +81,7 @@ def build_kp3(ctx: UpdateRuleContext):
 
 @register_update_rule("softhebb")
 def build_softhebb(ctx: UpdateRuleContext):
-    return SoftHebb(learning_rate=ctx.args.lr, head_lr=ctx.args.lr)
+    return SoftHebb(head_lr=ctx.args.lr)
 
 
 @register_update_rule("tp")

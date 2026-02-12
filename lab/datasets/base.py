@@ -54,6 +54,7 @@ def make_loader(
     seed: int,
     num_workers: int = 0,
     pin_memory: bool = True,
+    **loader_kwargs: Any,
 ) -> DataLoader:
     g = torch.Generator().manual_seed(int(seed)) if shuffle else None
     return DataLoader(
