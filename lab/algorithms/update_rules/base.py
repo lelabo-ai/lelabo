@@ -16,15 +16,15 @@ class UpdateRule(ABC):
     def __init__(self):
         self.global_step = 0
 
-    def on_train_start(self, model, task, device):
+    def on_train_start(self, model, task, device, state=None):
         pass
 
     @abstractmethod
-    def train_step(self, model, task, batch, device) -> dict:
+    def train_step(self, model, task, batch, device, state=None) -> dict:
         raise NotImplementedError
 
     @torch.no_grad()
-    def on_eval_start(self, model, task, device):
+    def on_eval_start(self, model, task, device, state=None):
         model.eval()
 
     def state_dict(self) -> Dict[str, Any]:
@@ -41,7 +41,7 @@ class AutogradUpdateRule(UpdateRule):
         self.optimizer = optimizer
         self.grad_clip = grad_clip
 
-    def train_step(self, model, task, batch, device, cache) -> Dict[str, float]:
+    def train_step(self, model, task, batch, device, state=None) -> Dict[str, float]:
         model.train()
         self.optimizer.zero_grad(set_to_none=True)
 

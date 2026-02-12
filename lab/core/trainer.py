@@ -5,11 +5,13 @@ import time
 from typing import Any, Dict, Optional
 
 import torch
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .callbacks import Callback
 from .utils.logger import RunLogger
 from .batch import infer_batch_size
 from .steps import compute_loss_and_stats
+from .state import TrainState
 
 try:
     from tqdm.auto import tqdm
@@ -28,6 +30,9 @@ class Trainer:
         verbose: bool = False,
         callbacks: Optional[list[Callback]] = None,
         logger: Optional[RunLogger] = None,
+        schedulers: Optional[list[Any]] = None,
+        scheduler_interval: str = "epoch",
+        scheduler_monitor: str = "val.loss",
     ):
         self.model = model.to(device)
         self.task = task
@@ -40,8 +45,12 @@ class Trainer:
         self.verbose = verbose
         self.logger = logger or RunLogger(run_dir=None)
         self.callbacks = callbacks or []
+        self.schedulers = schedulers or []
+        self.scheduler_interval = str(scheduler_interval).lower()
+        self.scheduler_monitor = str(scheduler_monitor)
         self.stop_training = False
         self.stop_reason = None
+        self.state: TrainState | None = None
 
     def log(self, record: Dict[str, Any]) -> None:
         self.logger.log(record)
@@ -49,6 +58,39 @@ class Trainer:
     def _maybe_sync_cuda(self) -> None:
         if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
+
+    def _pick_scheduler_metric(self, logs: Optional[Dict[str, float]]) -> Optional[float]:
+        if not logs:
+            return None
+        key = self.scheduler_monitor
+        if key and key in logs:
+            return float(logs[key])
+        for fallback in ("val.loss", "train.loss", "val.metric", "train.metric"):
+            if fallback in logs:
+                return float(logs[fallback])
+        return None
+
+    def _step_schedulers(self, *, interval: str, logs: Optional[Dict[str, float]] = None) -> None:
+        if not self.schedulers:
+            return
+        interval = str(interval).lower()
+        if interval == "batch":
+            for sched in self.schedulers:
+                if isinstance(sched, ReduceLROnPlateau):
+                    continue
+                sched.step()
+            return
+
+        if interval == "epoch":
+            metric = self._pick_scheduler_metric(logs)
+            for sched in self.schedulers:
+                if isinstance(sched, ReduceLROnPlateau):
+                    if metric is None:
+                        continue
+                    sched.step(metric)
+                else:
+                    sched.step()
+            return
 
     def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> Dict[str, Any]:
         best_val_metric = float("-inf")
@@ -61,10 +103,13 @@ class Trainer:
         final_val_metric = None
         final_val_loss = None
 
-        for cb in self.callbacks:
-            cb.on_train_start(self)
+        state = TrainState()
+        self.state = state
 
-        self.learner.on_train_start(self.model, self.task, self.device)
+        for cb in self.callbacks:
+            cb.on_train_start(self, state)
+
+        self.learner.on_train_start(self.model, self.task, self.device, state)
 
         total_loss_sum = 0.0
         total_metric_sum = 0.0
@@ -81,6 +126,8 @@ class Trainer:
 
         for ep in range(1, epochs + 1):
             last_epoch_ran = ep
+            state.epoch = int(ep)
+            state.batch_idx = 0
             self.model.train()
 
             self._maybe_sync_cuda()
@@ -91,12 +138,18 @@ class Trainer:
             ep_samples = 0
             ep_batches = 0
 
+            for cb in self.callbacks:
+                cb.on_epoch_start(self, state)
+
             iterator = train_loader
             use_bar = show_progress and (tqdm is not None)
             if use_bar:
                 iterator = tqdm(train_loader, desc=f"Epoch {ep}/{epochs}", leave=False)
 
-            for batch in iterator:
+            for batch_idx, batch in enumerate(iterator, start=1):
+                state.batch_idx = int(batch_idx)
+                for cb in self.callbacks:
+                    cb.on_batch_start(self, state)
                 bs = infer_batch_size(batch)
                 ep_samples += bs
 
@@ -107,7 +160,9 @@ class Trainer:
                         x = x + torch.randn_like(x) * self.input_noise_training
                         batch = (x, y)
 
-                stats = self.learner.train_step(self.model, self.task, batch, self.device, ep)
+                stats = self.learner.train_step(self.model, self.task, batch, self.device, state)
+                if not isinstance(stats, dict):
+                    stats = {}
 
                 loss = float(stats.get("loss", 0.0))
                 metric = float(stats.get("acc", stats.get("agg", 0.0)))
@@ -120,6 +175,14 @@ class Trainer:
                 if use_bar:
                     denom = max(1.0, float(ep_samples))
                     iterator.set_postfix(loss=(ep_loss_sum / denom), metric=(ep_metric_sum / denom))
+
+                if self.scheduler_interval in ("batch", "step"):
+                    self._step_schedulers(interval="batch")
+
+                for cb in self.callbacks:
+                    cb.on_batch_end(self, state, logs=stats)
+
+                state.bump_step(1)
 
             self._maybe_sync_cuda()
             ep_time = time.perf_counter() - ep_start
@@ -153,6 +216,9 @@ class Trainer:
                 logs["val.loss"] = vloss
                 logs["val.metric"] = vmetric
 
+                for cb in self.callbacks:
+                    cb.on_eval_end(self, val_res, state)
+
                 if vmetric > best_val_metric:
                     best_val_metric = vmetric
                     best_val_loss = vloss
@@ -162,7 +228,10 @@ class Trainer:
                 final_val_loss = vloss
 
             for cb in self.callbacks:
-                cb.on_epoch_end(self, ep, logs)
+                cb.on_epoch_end(self, ep, logs, state)
+
+            if self.scheduler_interval in ("epoch",):
+                self._step_schedulers(interval="epoch", logs=logs)
 
             if self.stop_training:
                 break
@@ -177,7 +246,7 @@ class Trainer:
         final_train_metric = float(total_metric_sum / max(1.0, float(total_samples)))
 
         for cb in self.callbacks:
-            cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)})
+            cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)}, state)
 
         return {
             "best_train_loss": float(best_train_loss),

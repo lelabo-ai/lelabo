@@ -503,7 +503,7 @@ class SoftContrastiveLearning(UpdateRule):
     # main
     # ============================================================
 
-    def train_step(self, model, task, batch, device, ep) -> Dict[str, float]:
+    def train_step(self, model, task, batch, device, state) -> Dict[str, float]:
         model.train()
 
         if not hasattr(model, "get_blocks"):

@@ -279,9 +279,12 @@ class SoftHebb(UpdateRule):
     # Main
     # ---------------------------
 
-    def train_step(self, model, task, batch, device, ep) -> Dict[str, float]:
+    def train_step(self, model, task, batch, device, state) -> Dict[str, float]:
+
         if not hasattr(model, "get_blocks"):
             raise RuntimeError("SoftHebbDemoConv requires model.get_blocks().")
+
+        ep = int(state.epoch) if state is not None else self._infer_epoch_if_needed()
 
         blocks = model.get_blocks()
         if not isinstance(blocks, list) or not blocks:

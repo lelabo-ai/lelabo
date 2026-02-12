@@ -8,13 +8,25 @@ import torch
 
 
 class Callback:
-    def on_train_start(self, trainer: Any) -> None:
+    def on_train_start(self, trainer: Any, state: Any | None = None) -> None:
         pass
 
-    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float]) -> None:
+    def on_epoch_start(self, trainer: Any, state: Any | None = None) -> None:
         pass
 
-    def on_train_end(self, trainer: Any, logs: Dict[str, float]) -> None:
+    def on_batch_start(self, trainer: Any, state: Any | None = None) -> None:
+        pass
+
+    def on_batch_end(self, trainer: Any, state: Any | None = None, logs: Dict[str, float] | None = None) -> None:
+        pass
+
+    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float], state: Any | None = None) -> None:
+        pass
+
+    def on_eval_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
+        pass
+
+    def on_train_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
         pass
 
 
@@ -41,7 +53,7 @@ class EarlyStopping(Callback):
             return value > (self.best + self.cfg.min_delta)
         return value < (self.best - self.cfg.min_delta)
 
-    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float]) -> None:
+    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float], state: Any | None = None) -> None:
         if epoch <= self.cfg.warmup_epochs:
             return
 
@@ -65,6 +77,6 @@ class EarlyStopping(Callback):
                     f"for {self.cfg.patience} epochs (best={self.best:.6f} at epoch {self.best_epoch})."
                 )
 
-    def on_train_end(self, trainer: Any, logs: Dict[str, float]) -> None:
+    def on_train_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
         if self.cfg.restore_best and self.best_state is not None:
             trainer.model.load_state_dict(self.best_state, strict=True)

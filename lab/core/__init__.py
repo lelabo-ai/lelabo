@@ -8,5 +8,6 @@ from .replay_buffer import *
 from .rl_trainer import *
 from .robustness import *
 from .steps import *
+from .state import *
 from .task import *
 from .trainer import *
