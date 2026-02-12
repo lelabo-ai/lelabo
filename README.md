@@ -51,22 +51,25 @@ This repository follows a few guiding principles:
 
 ## 🧩 High-level Structure
 
-The codebase is organized around a small set of core components:
+The repository is now split by responsibility:
 
-- **Models**  
-  Neural architectures (e.g. MLPs, CNNs, ResNets, etc.)
+- **`src/lab/`**  
+  Importable research code: models, datasets, algorithms, trainer/runner logic.
 
-- **Tasks**  
-  Datasets, losses, and evaluation logic
+- **`experiments/configs/`**  
+  YAML experiment definitions (grids, baselines, demos).
 
-- **Algorithms**  
-  Learning rules and optimization strategies
+- **`experiments/launchers/`**  
+  Orchestration scripts to run many jobs from config files.
 
-- **Trainer**  
-  Orchestration of training loops and experiment execution
+- **`tools/`**  
+  Utility scripts for post-processing and plotting.
 
-- **Experiments / Scripts**  
-  Entry points configuring and launching runs
+- **`outputs/`**  
+  Generated artifacts (`outputs/runs/`, `outputs/figures/`).
+
+- **`scripts/` and `plots/`**  
+  Backward-compatible wrappers pointing to the new locations.
 
 The structure is designed to make it easy to answer questions like:
 
@@ -79,12 +82,32 @@ The structure is designed to make it easy to answer questions like:
 This repository is intended for **personal research use**.
 
 Typical workflow:
-1. Define or modify a **model**
-2. Select a **task**
-3. Plug in a **learning algorithm**
-4. Run experiments and analyze behavior
+1. Define or modify a **model / algorithm** in `src/lab/`
+2. Create or update a sweep config in `experiments/configs/`
+3. Launch runs with `experiments/launchers/launch_grid.py`
+4. Analyze results with scripts in `tools/`
 
-Exact usage patterns may evolve as the project grows.
+Quick examples:
+
+```bash
+pip install -e .
+```
+
+```bash
+lelabo --help
+```
+
+```bash
+python experiments/launchers/launch_grid.py \
+  --config experiments/configs/demo.yaml \
+  --max-parallel 4
+```
+
+```bash
+python tools/plot_sweep_table.py \
+  --config experiments/configs/demo.yaml \
+  --metric eval.test.acc
+```
 
 ---
 

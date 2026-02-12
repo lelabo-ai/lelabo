@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lelabo"
+version = "0.1.0"
+description = "Modular research lab for learning algorithms."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Adrien Kegreisz" }]
+dependencies = []
+
+[project.scripts]
+lelabo = "lab.cli.main:main"
+lelabo-profiler = "lab.aux.profiler:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lab*"]

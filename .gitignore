@@ -209,4 +209,5 @@ __marimo__/
 .vscode
 
 results/
+outputs/runs/
 data/
