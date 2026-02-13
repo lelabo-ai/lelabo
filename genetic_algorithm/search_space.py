@@ -256,11 +256,15 @@ def _as_dimension(name: str, raw: Any) -> Dimension:
                 high=int(raw["max"]),
             )
         if kind in {"expression_tree", "expr_tree", "tree"}:
-            terminals = raw.get("terminals", ["x", "u", "y", "label", "mistake", "layer", "layer_ratio"])
+            terminals = raw.get(
+                "terminals",
+                ["x", "u", "y", "w", "weight", "label", "mistake", "layer", "layer_ratio"],
+            )
             unary_ops = raw.get(
                 "unary_ops",
                 [
                     "scale",
+                    "winner_flip",
                     "neg",
                     "abs",
                     "sign",
@@ -277,6 +281,15 @@ def _as_dimension(name: str, raw: Any) -> Dimension:
                     "outer_normalize",
                     "row_normalize",
                     "col_normalize",
+                    "sum",
+                    "batch_sum",
+                    "batch_mean",
+                    "feature_sum",
+                    "feature_mean",
+                    "row_sum",
+                    "col_sum",
+                    "row_mean",
+                    "col_mean",
                 ],
             )
             binary_ops = raw.get(
@@ -290,6 +303,7 @@ def _as_dimension(name: str, raw: Any) -> Dimension:
                     "min",
                     "outer",
                     "dot",
+                    "matmul",
                 ],
             )
             if not isinstance(terminals, list):

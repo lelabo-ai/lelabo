@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from .registry import UpdateRuleContext, register_update_rule
+
+
 import copy
 from dataclasses import dataclass
 from typing import Any
 
-from .bootstrap import ensure_lab_namespace
-
-ensure_lab_namespace()
 
 import torch
 import torch.nn.functional as F
 
 from lab.algorithms.update_rules.base import UpdateRule
 
+RULE_NAME = "ga_rule"
+GA_SCORE = 0.924999988079071
+GA_OBJECTIVE_VALUE = 0.924999988079071
+PARAMS = {'bias_expr': None, 'head_lr': 0.001, 'head_phase_epochs': 30, 'head_weight_decay': 0.0, 'local_lr': 0.011564248250792776, 'local_phase_epochs': 10, 'local_weight_decay': 0.0, 'normalize_update': False, 'update_bias': True, 'update_expr': {'t': 'binary', 'op': 'div', 'a': {'t': 'term', 'name': 'w'}, 'b': {'t': 'term', 'name': 'weight'}}}
+
+
+@register_update_rule(RULE_NAME)
+def build_generated_rule(ctx: UpdateRuleContext):
+    params = EvolvedRuleParams.from_genome(PARAMS)
+    return EvolvedMLPUpdateRule(params)
 
 _DEFAULT_EXPR: dict[str, Any] = {
     "t": "binary",
@@ -600,3 +610,4 @@ def _py_repr_dict(dct: dict[str, Any]) -> str:
         value = dct[key]
         items.append(f"{key!r}: {value!r}")
     return "{" + ", ".join(items) + "}"
+

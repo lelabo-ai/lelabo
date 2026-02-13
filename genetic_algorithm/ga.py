@@ -57,6 +57,7 @@ class GeneticSearch:
         evaluator: SupervisedEvaluator,
         settings: GASettings,
         seed: int,
+        initial_pool: list[dict[str, Any]] | None = None,
     ):
         self.search_space = search_space
         self.evaluator = evaluator
@@ -70,9 +71,10 @@ class GeneticSearch:
         self.parallel_backend = "none"
         self.memetic_enabled = bool(settings.memetic_enabled)
         self._parent_prune_cache: dict[str, tuple[dict[str, Any], EvaluationResult]] = {}
+        self.initial_pool: list[dict[str, Any]] = copy.deepcopy(initial_pool or [])
 
     def run(self) -> tuple[list[ScoredIndividual], list[GenerationLog]]:
-        population = [self.search_space.sample(self.rng) for _ in range(self.settings.population_size)]
+        population = self._build_initial_population()
         history: list[GenerationLog] = []
         archive: list[ScoredIndividual] = []
 
@@ -126,6 +128,46 @@ class GeneticSearch:
 
         archive.sort(key=lambda item: item.result.score, reverse=True)
         return archive, history
+
+    def _build_initial_population(self) -> list[dict[str, Any]]:
+        target = int(self.settings.population_size)
+        population: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        if bool(self.settings.initial_pool_enabled) and self.initial_pool:
+            max_items = int(self.settings.initial_pool_max_items)
+            for raw in self.initial_pool:
+                if len(population) >= target:
+                    break
+                if max_items > 0 and len(population) >= max_items:
+                    break
+                genome = self._materialize_pool_genome(raw)
+                fp = self.search_space.fingerprint(genome)
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                population.append(genome)
+
+        while len(population) < target:
+            genome = self.search_space.sample(self.rng)
+            fp = self.search_space.fingerprint(genome)
+            if fp in seen:
+                continue
+            seen.add(fp)
+            population.append(genome)
+        return population
+
+    def _materialize_pool_genome(self, raw: dict[str, Any]) -> dict[str, Any]:
+        genome = self.search_space.sample(self.rng)
+        merged = copy.deepcopy(genome)
+        for key, value in raw.items():
+            if key == "extra" and isinstance(value, dict):
+                extra = dict(merged.get("extra", {}) or {})
+                extra.update(copy.deepcopy(value))
+                merged["extra"] = extra
+                continue
+            merged[key] = copy.deepcopy(value)
+        return merged
 
     def _evaluate_population(
         self,

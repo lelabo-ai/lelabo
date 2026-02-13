@@ -57,6 +57,19 @@ python -m genetic_algorithm.run --config genetic_algorithm/configs/iris_ga.yaml 
 - `ga.memetic.enabled`: active la selection memetic (parents/enfants pruned)
 - `ga.memetic.score_tol`: marge d'acceptation score pour garder une version pruned
 - `ga.memetic.immigrant_rate`: quota d'individus full-random injectes par generation
+- `ga.initial_pool.enabled`: active un warm-start depuis un JSON de seeds
+- `ga.initial_pool.path`: chemin du JSON de pool (liste de genomes)
+- `ga.initial_pool.max_items`: limite d'entrees lues (0 = toutes)
+- `ga.initial_pool.strict`: fail hard si fichier/format invalide
+
+Exemple:
+
+```yaml
+ga:
+  initial_pool:
+    enabled: true
+    path: genetic_algorithm/pools/iris_seed_pool.json
+```
 
 ## Outputs
 

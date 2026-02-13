@@ -26,12 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     # General
     dataset_choices = sorted(set(get_dataset_names() + ["cartpole"]))
-    p.add_argument("--dataset", choices=dataset_choices, default="cifar10")
+    p.add_argument("--dataset", choices=dataset_choices, default="iris")
     p.add_argument("--model", choices=get_model_names(), default="cnn")
     p.add_argument("--algo", choices=get_update_rule_names(), default="kp2")
 
     p.add_argument("--hidden", type=int, default=2048)
-    p.add_argument("--layers", type=int, default=5)
+    p.add_argument("--layers", type=int, default=4)
 
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--epochs", type=int, default=50)

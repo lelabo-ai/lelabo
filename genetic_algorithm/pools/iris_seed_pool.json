@@ -1,0 +1,116 @@
+{
+  "pool": [
+    {
+      "local_lr": 0.001,
+      "local_weight_decay": 0.0,
+      "normalize_update": false,
+      "update_bias": false,
+      "update_expr": {
+        "t": "binary",
+        "op": "outer",
+        "a": {
+          "t": "term",
+          "name": "y"
+        },
+        "b": {
+          "t": "term",
+          "name": "x"
+        }
+      }
+    },
+    {
+      "local_lr": 0.001,
+      "local_weight_decay": 0.0,
+      "normalize_update": false,
+      "update_bias": false,
+      "update_expr": {
+        "t": "binary",
+        "op": "sub",
+        "a": {
+          "t": "binary",
+          "op": "outer",
+          "a": {
+            "t": "term",
+            "name": "y"
+          },
+          "b": {
+            "t": "term",
+            "name": "x"
+          }
+        },
+        "b": {
+          "t": "binary",
+          "op": "mul",
+          "a": {
+            "t": "unary",
+            "op": "square",
+            "a": {
+              "t": "term",
+              "name": "y"
+            }
+          },
+          "b": {
+            "t": "term",
+            "name": "w"
+          }
+        }
+      }
+    },
+    {
+      "local_lr": 0.001,
+      "local_weight_decay": 0.0,
+      "normalize_update": true,
+      "update_bias": false,
+      "update_expr": {
+        "t": "binary",
+        "op": "sub",
+        "a": {
+          "t": "binary",
+          "op": "outer",
+          "a": {
+            "t": "term",
+            "name": "x"
+          },
+          "b": {
+            "t": "unary",
+            "op": "winner_flip",
+            "c": 12.0,
+            "a": {
+              "t": "term",
+              "name": "u"
+            }
+          }
+        },
+        "b": {
+          "t": "binary",
+          "op": "mul",
+          "a": {
+            "t": "term",
+            "name": "w"
+          },
+          "b": {
+            "t": "unary",
+            "op": "batch_sum",
+            "a": {
+              "t": "binary",
+              "op": "mul",
+              "a": {
+                "t": "unary",
+                "op": "winner_flip",
+                "c": 12.0,
+                "a": {
+                  "t": "term",
+                  "name": "u"
+                }
+              },
+              "b": {
+                "t": "term",
+                "name": "u"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

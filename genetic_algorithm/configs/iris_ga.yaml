@@ -4,15 +4,15 @@ device: cpu
 output_dir: genetic_algorithm/outputs
 
 fixed:
-  dataset: iris
+  dataset: mnist
   model: mlp      # locked
-  hidden: 32     # locked
-  layers: 5       # locked
+  hidden: 1048     # locked
+  layers: 4       # locked
   val_frac: 0.2
   batch: 128
-  local_phase_epochs: 10
-  head_phase_epochs: 30
-  epochs: 40   # auto-forced to local_phase_epochs + head_phase_epochs
+  local_phase_epochs: 5
+  head_phase_epochs: 20
+  epochs: 25  # auto-forced to local_phase_epochs + head_phase_epochs
   verbose: 0
   robustness: none
   input_noise_training: 0.0
@@ -41,6 +41,11 @@ ga:
     enabled: true
     score_tol: 0.005
     immigrant_rate: 0.15
+  initial_pool:
+    enabled: false
+    path: genetic_algorithm/pools/iris_seed_pool.json
+    max_items: 0      # 0 = use all entries from the JSON file
+    strict: false     # true => fail if file/format is invalid
 
 search_space:
   # Hidden-layer local update parameters.
@@ -72,9 +77,10 @@ search_space:
     p_const: 0.2
     const_min: -2.0
     const_max: 2.0
-    terminals: [x, u, y, label, mistake, layer, layer_ratio, ones, zeros]
+    terminals: [x, u, y, w, weight, label, mistake, layer, layer_ratio, ones, zeros]
     unary_ops:
       - scale
+      - winner_flip
       - neg
       - abs
       - sign
@@ -96,6 +102,15 @@ search_space:
       - cos
       - clip
       - mean
+      - sum
+      - batch_sum
+      - batch_mean
+      - feature_sum
+      - feature_mean
+      - row_sum
+      - col_sum
+      - row_mean
+      - col_mean
     binary_ops:
       - add
       - sub
@@ -105,6 +120,7 @@ search_space:
       - min
       - outer
       - dot
+      - matmul
 
   normalize_update: [false, true]
   update_bias: [false, true]

@@ -11,6 +11,7 @@ from .kp import *
 from .scl import *
 from .kp3 import *
 from .dni import *
+from .ga_rules import *
 
 from .registry import UpdateRuleContext, build_update_rule, get_update_rule_names, register_update_rule
 

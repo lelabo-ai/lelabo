@@ -50,6 +50,10 @@ class GASettings:
     memetic_enabled: bool
     memetic_score_tol: float
     memetic_immigrant_rate: float
+    initial_pool_enabled: bool
+    initial_pool_path: str | None
+    initial_pool_max_items: int
+    initial_pool_strict: bool
 
 
 @dataclass(frozen=True)
@@ -150,6 +154,11 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         memetic_raw = {}
     if not isinstance(memetic_raw, dict):
         raise ValueError("ga.memetic must be a dict when provided.")
+    initial_pool_raw = ga_raw.get("initial_pool", {})
+    if initial_pool_raw is None:
+        initial_pool_raw = {}
+    if not isinstance(initial_pool_raw, dict):
+        raise ValueError("ga.initial_pool must be a dict when provided.")
     ga = GASettings(
         population_size=int(ga_raw.get("population_size", 12)),
         generations=int(ga_raw.get("generations", 8)),
@@ -167,6 +176,20 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         memetic_score_tol=float(ga_raw.get("memetic_score_tol", memetic_raw.get("score_tol", 0.005))),
         memetic_immigrant_rate=float(
             ga_raw.get("memetic_immigrant_rate", memetic_raw.get("immigrant_rate", 0.15))
+        ),
+        initial_pool_enabled=bool(
+            ga_raw.get("initial_pool_enabled", initial_pool_raw.get("enabled", False))
+        ),
+        initial_pool_path=(
+            str(ga_raw.get("initial_pool_path", initial_pool_raw.get("path")))
+            if ga_raw.get("initial_pool_path", initial_pool_raw.get("path")) is not None
+            else None
+        ),
+        initial_pool_max_items=int(
+            ga_raw.get("initial_pool_max_items", initial_pool_raw.get("max_items", 0))
+        ),
+        initial_pool_strict=bool(
+            ga_raw.get("initial_pool_strict", initial_pool_raw.get("strict", False))
         ),
     )
 
@@ -188,6 +211,8 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         raise ValueError("ga.memetic_score_tol must be >= 0")
     if not (0.0 <= ga.memetic_immigrant_rate <= 1.0):
         raise ValueError("ga.memetic_immigrant_rate must be in [0,1]")
+    if ga.initial_pool_max_items < 0:
+        raise ValueError("ga.initial_pool_max_items must be >= 0")
 
     return RuntimeConfig(
         name=str(raw.get("name", "genetic_search")),

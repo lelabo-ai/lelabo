@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from .bootstrap import ensure_src_on_path
 
@@ -55,6 +56,10 @@ def _override(cfg: RuntimeConfig, args: argparse.Namespace) -> RuntimeConfig:
         memetic_enabled=cfg.ga.memetic_enabled,
         memetic_score_tol=cfg.ga.memetic_score_tol,
         memetic_immigrant_rate=cfg.ga.memetic_immigrant_rate,
+        initial_pool_enabled=cfg.ga.initial_pool_enabled,
+        initial_pool_path=cfg.ga.initial_pool_path,
+        initial_pool_max_items=cfg.ga.initial_pool_max_items,
+        initial_pool_strict=cfg.ga.initial_pool_strict,
     )
     return RuntimeConfig(
         name=cfg.name,
@@ -109,11 +114,13 @@ def main() -> int:
         eval_repeats=cfg.ga.eval_repeats,
         eval_seed_stride=cfg.ga.eval_seed_stride,
     )
+    initial_pool = _load_initial_pool(cfg)
     engine = GeneticSearch(
         search_space=search_space,
         evaluator=evaluator,
         settings=cfg.ga,
         seed=cfg.seed,
+        initial_pool=initial_pool,
     )
 
     archive, history = engine.run()
@@ -134,6 +141,12 @@ def main() -> int:
         f"[GA] memetic_enabled={cfg.ga.memetic_enabled} "
         f"score_tol={cfg.ga.memetic_score_tol} "
         f"immigrant_rate={cfg.ga.memetic_immigrant_rate}"
+    )
+    print(
+        f"[GA] initial_pool_enabled={cfg.ga.initial_pool_enabled} "
+        f"path={cfg.ga.initial_pool_path!r} "
+        f"loaded={len(initial_pool)} "
+        f"max_items={cfg.ga.initial_pool_max_items}"
     )
     print(f"[GA] evaluations={engine.evaluation_count}")
     print(f"[GA] winners={len(winners)}")
@@ -159,6 +172,53 @@ def _unique_top_k(archive, *, k: int):
         out.append(item)
         if len(out) >= int(k):
             break
+    return out
+
+
+def _load_initial_pool(cfg: RuntimeConfig) -> list[dict[str, Any]]:
+    if not bool(cfg.ga.initial_pool_enabled):
+        return []
+
+    path_raw = cfg.ga.initial_pool_path
+    if not path_raw:
+        return []
+    path = Path(path_raw)
+    if not path.exists():
+        msg = f"Initial pool file not found: {path}"
+        if cfg.ga.initial_pool_strict:
+            raise FileNotFoundError(msg)
+        print(f"[GA] WARN {msg}")
+        return []
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    items: Any = data
+    if isinstance(data, dict):
+        if isinstance(data.get("pool"), list):
+            items = data["pool"]
+        elif isinstance(data.get("rules"), list):
+            items = data["rules"]
+        else:
+            items = []
+
+    if not isinstance(items, list):
+        msg = f"Invalid initial pool format in {path}: expected list or object with `pool`/`rules` list."
+        if cfg.ga.initial_pool_strict:
+            raise ValueError(msg)
+        print(f"[GA] WARN {msg}")
+        return []
+
+    out: list[dict[str, Any]] = []
+    max_items = int(cfg.ga.initial_pool_max_items)
+    for idx, raw in enumerate(items):
+        if max_items > 0 and len(out) >= max_items:
+            break
+        if isinstance(raw, dict):
+            out.append(raw)
+        else:
+            msg = f"Skipping invalid initial_pool item at index {idx}: expected object/dict."
+            if cfg.ga.initial_pool_strict:
+                raise ValueError(msg)
+            print(f"[GA] WARN {msg}")
     return out
 
 
