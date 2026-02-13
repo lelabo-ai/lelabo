@@ -1,0 +1,116 @@
+name: iris_ga_local_rule
+seed: 7
+device: cpu
+output_dir: genetic_algorithm/outputs
+
+fixed:
+  dataset: iris
+  model: mlp      # locked
+  hidden: 32     # locked
+  layers: 5       # locked
+  val_frac: 0.2
+  batch: 128
+  local_phase_epochs: 10
+  head_phase_epochs: 30
+  epochs: 40   # auto-forced to local_phase_epochs + head_phase_epochs
+  verbose: 0
+  robustness: none
+  input_noise_training: 0.0
+  input_noise_dataset: 0.0
+  noise_on_test: 0
+
+fitness:
+  objective: accuracy   # accuracy | loss
+  split: val            # train | val | test
+  final_splits: [train, test]
+
+ga:
+  population_size: 100
+  generations: 3
+  elite_size: 2
+  tournament_size: 3
+  mutation_rate: 0.25
+  crossover_rate: 0.7
+  top_k: 5
+  max_evals: max      # or "max" to disable budget limit
+  workers: 1        # 0=auto, 1=sequential
+  show_progress: true
+  eval_repeats: 5   # evaluate each individual on 5 different seeds, averaged
+  eval_seed_stride: 1
+  memetic:
+    enabled: true
+    score_tol: 0.005
+    immigrant_rate: 0.15
+
+search_space:
+  # Hidden-layer local update parameters.
+  local_lr:
+    type: log_uniform
+    min: 0.00001
+    max: 0.05
+  local_weight_decay:
+    type: log_uniform
+    min: 0.00001
+    max: 0.1
+
+  # Supervised head optimization (last weight matrix via backprop).
+  #head_lr:
+  #  type: log_uniform
+  #  min: 0.00001
+  #  max: 0.02
+  #head_weight_decay:
+  #  type: log_uniform
+  #  min: 0.0000001
+  #  max: 0.01
+
+  # Main gene: expression tree over x/u/y/label/mistake.
+  # Depth is explicitly bounded here.
+  update_expr:
+    type: expression_tree
+    min_depth: 1
+    max_depth: 3
+    p_const: 0.2
+    const_min: -2.0
+    const_max: 2.0
+    terminals: [x, u, y, label, mistake, layer, layer_ratio, ones, zeros]
+    unary_ops:
+      - scale
+      - neg
+      - abs
+      - sign
+      - square
+      - sqrt_abs
+      - log1p_abs
+      - relu
+      - tanh
+      - sigmoid
+      - softmax
+      - l2norm
+      - standardize
+      - normalize
+      - outer_normalize
+      - row_normalize
+      - col_normalize
+      - exp
+      - sin
+      - cos
+      - clip
+      - mean
+    binary_ops:
+      - add
+      - sub
+      - mul
+      - div
+      - max
+      - min
+      - outer
+      - dot
+
+  normalize_update: [false, true]
+  update_bias: [false, true]
+
+  # Training stochasticity still evolvable.
+  seed:
+    type: int_uniform
+    min: 0
+    max: 50

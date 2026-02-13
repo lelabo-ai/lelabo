@@ -46,6 +46,7 @@ class SoftHebb(UpdateRule):
 
     def __init__(
         self,
+        base_lr: float = 0.01,
         # demo-like per-block base learning rates (positive magnitudes)
         lr_conv1: float = 0.08,
         lr_conv2: float = 0.005,
@@ -61,7 +62,7 @@ class SoftHebb(UpdateRule):
         eps_norm: float = 1e-10,
     ):
         super().__init__()
-
+        self.base_lr = float(base_lr)
         self.lr_by_name = {
             "conv1": float(lr_conv1),
             "conv2": float(lr_conv2),
@@ -200,6 +201,99 @@ class SoftHebb(UpdateRule):
         self._head_scheduler = CustomStepLR(self._head_optimizer, nb_epochs=self.sup_epochs)
 
     # ---------------------------
+    # Demo SoftHebb conv and linear updates
+    # ---------------------------
+    @torch.no_grad()
+    def _lr_tensor_from_linear_weight(self, W: torch.Tensor, base_lr: float) -> torch.Tensor:
+        """
+        W: [out, in]
+        returns lr_t: [out, 1] so it broadcasts over in_features
+        """
+        w2d = W.view(W.shape[0], -1)  # [out, in]
+        norm_diff = torch.abs(torch.linalg.norm(w2d, dim=1, ord=2) - 1.0) + self.eps_norm
+        lr_vec = base_lr * (norm_diff ** self.power_lr)  # [out]
+        return lr_vec[:, None]  # [out, 1]
+
+
+    @torch.no_grad()
+    def _demo_softhebb_delta_linear(
+        self,
+        lin: nn.Linear,
+        x_in: torch.Tensor,
+        u: torch.Tensor,
+        *,
+        t_invert: float = 12.0,
+    ) -> torch.Tensor:
+        """
+        SoftHebb-style delta for a Linear layer.
+
+        x_in: [B, in_features]
+        u:    [B, out_features]  (pre-activations = lin(x_in))
+
+        Returns:
+        delta: [out_features, in_features] (normalized)
+        """
+        # Ensure 2D
+        if x_in.dim() != 2 or u.dim() != 2:
+            raise ValueError(f"Expected x_in and u to be 2D, got {x_in.shape}, {u.shape}")
+
+        B, in_f = x_in.shape
+        B2, out_f = u.shape
+        if B2 != B:
+            raise ValueError("Batch mismatch between x_in and u")
+
+        # Soft-WTA over output neurons for each sample
+        # flat_soft: [out, B] like your conv flattened version
+        flat_u = u.t().contiguous()  # [out, B]
+        flat_soft = torch.softmax(t_invert * flat_u, dim=0)  # soft competition across neurons
+        flat_soft = -flat_soft
+        win = torch.argmax(flat_u, dim=0)                    # [B]
+        idx = torch.arange(flat_u.size(1), device=flat_u.device)
+        flat_soft[win, idx] = -flat_soft[win, idx]           # flip winner sign
+        wta = flat_soft.t().contiguous()                     # [B, out]
+
+        # yx = wta^T x   -> [out, in]
+        yx = wta.t() @ x_in
+
+        # yu = sum_b (wta[b, o] * u[b, o]) -> [out]
+        yu = torch.sum(wta * u, dim=0)  # [out]
+
+        # delta = yx - yu[:,None] * W
+        delta = yx - yu[:, None] * lin.weight
+
+        # Normalize like conv
+        delta.div_(torch.abs(delta).amax() + 1e-30)
+        return delta
+
+
+    @torch.no_grad()
+    def _apply_linear_update(
+        self,
+        lin: nn.Linear,
+        name: str,
+        x_in: torch.Tensor,
+        u: torch.Tensor,
+        *,
+        t_invert: float = 12.0,
+    ):
+        """
+        Apply SoftHebb-style local update to an nn.Linear (non-head).
+        Expects:
+        x_in = block input
+        u    = pre-activation output (lin(x_in))
+        """
+
+        dW = self._demo_softhebb_delta_linear(lin, x_in, u, t_invert=t_invert)
+        lr_t = self._lr_tensor_from_linear_weight(lin.weight, self.base_lr)  # [out,1]
+        lin.weight.add_(lr_t * dW)
+
+        # Optional: also update bias (many Hebb setups skip bias)
+        # if lin.bias is not None:
+        #     # simple bias update aligned with "yu" term could be added, but leaving off is safer
+        #     pass
+
+
+    # ---------------------------
     # Demo SoftHebb conv update
     # ---------------------------
 
@@ -322,12 +416,21 @@ class SoftHebb(UpdateRule):
                         continue
                     name = getattr(bspec, "name", None)
                     mod = getattr(bspec, "module", None)
-                    if name is None or not isinstance(mod, SoftHebbBlock):
+                    if name is None:
                         continue
+                    
                     xin = cache["block_inputs"].get(name, None)
                     u = cache["block_outputs"].get(name, None)
-                    if torch.is_tensor(xin) and torch.is_tensor(u):
-                        self._apply_conv_update(mod, name, xin, u)
+    
+                    if isinstance(mod, SoftHebbBlock):
+                        if torch.is_tensor(xin) and torch.is_tensor(u):
+                            self._apply_conv_update(mod, name, xin, u)
+                            
+                    elif isinstance(mod, nn.Linear):
+                        if torch.is_tensor(xin) and torch.is_tensor(u):
+                            self._apply_linear_update(mod, name, xin, u)
+                    else:
+                        print(f"Skipping block (Not Implemented): {name}, module type: {type(mod)}")
 
             # optional stats: no supervised loss in unsup phase
             out_stats: Dict[str, float] = {"loss": 0.0}
