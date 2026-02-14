@@ -46,7 +46,9 @@ python -m genetic_algorithm.run --config genetic_algorithm/configs/iris_ga.yaml 
 - `fixed`: params fixes (dataset, epochs, batch, etc.)
 - `fixed.local_phase_epochs` / `fixed.head_phase_epochs`: duree des 2 phases
 - `search_space`: genes de la regle locale (expression tree + lrs)
-- `fitness.objective`: `accuracy` ou `loss`
+- `fitness.objective`: `accuracy`, `loss`, `bp_cosine_epoch` ou `bp_sign_match_epoch`
+- `bp_cosine_epoch`: moyenne simple des cosines batch-par-batch (updates GA hidden vs direction BP `-grad`) puis moyenne par epoch local
+- `bp_sign_match_epoch`: moyenne simple, batch par batch, du pourcentage de composantes ou `sign(ΔW_GA) == sign(ΔW_BP)`
 - `fitness.split`: split de fitness (`train|val|test`, recommande `val`)
 - `ga.top_k`: nombre de rules exportees
 - `ga.max_evals`: budget global optionnel (`max`/`none` = pas de limite)
@@ -54,9 +56,9 @@ python -m genetic_algorithm.run --config genetic_algorithm/configs/iris_ga.yaml 
 - `ga.show_progress`: active tqdm
 - `ga.eval_repeats`: nombre d'evals par individu (moyenne des scores)
 - `ga.eval_seed_stride`: increment entre seeds de repetition
-- `ga.memetic.enabled`: active la selection memetic (parents/enfants pruned)
-- `ga.memetic.score_tol`: marge d'acceptation score pour garder une version pruned
-- `ga.memetic.immigrant_rate`: quota d'individus full-random injectes par generation
+- `ga.memetic.enabled`: flag legacy (pruning per-generation desactive; conserve pour compatibilite)
+- `ga.memetic.score_tol`: parametre legacy (non utilise pendant la selection RTR classique)
+- `ga.memetic.immigrant_rate`: quota d'individus full-random injectes par generation (branche classique)
 - `ga.initial_pool.enabled`: active un warm-start depuis un JSON de seeds
 - `ga.initial_pool.path`: chemin du JSON de pool (liste de genomes)
 - `ga.initial_pool.max_items`: limite d'entrees lues (0 = toutes)

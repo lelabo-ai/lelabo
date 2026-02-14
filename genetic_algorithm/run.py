@@ -138,9 +138,10 @@ def main() -> int:
     print(f"[GA] workers={engine.workers} backend={engine.parallel_backend}")
     print(f"[GA] eval_repeats={cfg.ga.eval_repeats} seed_stride={cfg.ga.eval_seed_stride}")
     print(
-        f"[GA] memetic_enabled={cfg.ga.memetic_enabled} "
-        f"score_tol={cfg.ga.memetic_score_tol} "
-        f"immigrant_rate={cfg.ga.memetic_immigrant_rate}"
+        "[GA] selection=classic_rtr "
+        f"prune_per_generation=false "
+        f"immigrant_rate={cfg.ga.memetic_immigrant_rate} "
+        f"(legacy_memetic_enabled={cfg.ga.memetic_enabled})"
     )
     print(
         f"[GA] initial_pool_enabled={cfg.ga.initial_pool_enabled} "

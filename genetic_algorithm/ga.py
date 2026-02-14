@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import random
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
@@ -69,8 +70,6 @@ class GeneticSearch:
         self.workers = self._resolve_workers(settings.workers)
         self.show_progress = bool(settings.show_progress)
         self.parallel_backend = "none"
-        self.memetic_enabled = bool(settings.memetic_enabled)
-        self._parent_prune_cache: dict[str, tuple[dict[str, Any], EvaluationResult]] = {}
         self.initial_pool: list[dict[str, Any]] = copy.deepcopy(initial_pool or [])
 
     def run(self) -> tuple[list[ScoredIndividual], list[GenerationLog]]:
@@ -273,18 +272,35 @@ class GeneticSearch:
                 progress.close()
 
     def _next_population(self, scored: list[ScoredIndividual]) -> list[dict[str, Any]]:
-        if self.memetic_enabled:
-            return self._next_population_memetic(scored)
         return self._next_population_classic(scored)
 
     def _next_population_classic(self, scored: list[ScoredIndividual]) -> list[dict[str, Any]]:
         scored = sorted(scored, key=lambda item: item.result.score, reverse=True)
-        next_pop: list[dict[str, Any]] = []
+        pop_size = int(self.settings.population_size)
+        if pop_size <= 0:
+            return []
+        base = scored[:pop_size]
+        if not base:
+            return []
 
-        elites = scored[: self.settings.elite_size]
-        next_pop.extend(copy.deepcopy(item.genome) for item in elites)
+        next_pop = [self._canonicalize_genome(item.genome) for item in base]
+        next_results: list[EvaluationResult] = [item.result for item in base]
+        elite_size = max(0, min(int(self.settings.elite_size), len(next_pop)))
+        occupied: set[str] = {self.search_space.fingerprint(g) for g in next_pop}
 
-        while len(next_pop) < self.settings.population_size:
+        immigrant_rate = float(self.settings.memetic_immigrant_rate)
+        immigrant_slots = int(round(len(next_pop) * immigrant_rate))
+        immigrant_slots = max(0, min(len(next_pop) - elite_size, immigrant_slots))
+        self._inject_random_immigrants(
+            population=next_pop,
+            results=next_results,
+            occupied=occupied,
+            elite_size=elite_size,
+            immigrant_slots=immigrant_slots,
+        )
+        child_slots = max(0, len(next_pop) - elite_size - immigrant_slots)
+
+        for _ in range(child_slots):
             p1 = self._select_tournament(scored).genome
             p2 = self._select_tournament(scored).genome
             child = self.search_space.crossover(
@@ -298,90 +314,102 @@ class GeneticSearch:
                 mutation_rate=self.settings.mutation_rate,
                 rng=self.rng,
             )
-            next_pop.append(child)
-        return next_pop
-
-    def _next_population_memetic(self, scored: list[ScoredIndividual]) -> list[dict[str, Any]]:
-        scored = sorted(scored, key=lambda item: item.result.score, reverse=True)
-        next_pop: list[dict[str, Any]] = []
-        pop_size = int(self.settings.population_size)
-        score_tol = float(self.settings.memetic_score_tol)
-
-        elites = scored[: self.settings.elite_size]
-        for elite in elites:
-            pruned_genome, _ = self._pruned_parent(elite, score_tol=score_tol)
-            next_pop.append(copy.deepcopy(pruned_genome))
-
-        immigrant_rate = float(self.settings.memetic_immigrant_rate)
-        immigrant_slots = int(round(pop_size * immigrant_rate))
-        immigrant_slots = max(0, min(pop_size - len(next_pop), immigrant_slots))
-        child_slots = max(0, pop_size - len(next_pop) - immigrant_slots)
-
-        while len(next_pop) < (len(elites) + child_slots):
-            p1 = self._select_tournament(scored)
-            p2 = self._select_tournament(scored)
-            p1_genome, p1_result = self._pruned_parent(p1, score_tol=score_tol)
-            p2_genome, p2_result = self._pruned_parent(p2, score_tol=score_tol)
-
-            child = self.search_space.crossover(
-                p1_genome,
-                p2_genome,
-                crossover_rate=self.settings.crossover_rate,
-                rng=self.rng,
-            )
-            child = self.search_space.mutate(
-                child,
-                mutation_rate=self.settings.mutation_rate,
-                rng=self.rng,
-            )
-            child = self._canonical_prune_genome(child)
+            child = self._canonicalize_genome(child)
             child_result = self._evaluate_cached_genome(child)
-
             if child_result is None:
-                next_pop.append(copy.deepcopy(child))
+                break
+            if not child_result.ok:
                 continue
 
-            parent_ref = max(float(p1_result.score), float(p2_result.score))
-            if float(child_result.score) + score_tol < parent_ref:
-                # Reject weak child and inject full-random genome.
-                next_pop.append(self.search_space.sample(self.rng))
-            else:
-                next_pop.append(copy.deepcopy(child))
+            replace_idx = self._pick_rtr_replacement_index(
+                child=child,
+                population=next_pop,
+                elite_size=elite_size,
+            )
+            if replace_idx is None:
+                break
 
-        for _ in range(immigrant_slots):
-            next_pop.append(self.search_space.sample(self.rng))
+            incumbent_result = next_results[replace_idx]
+            if float(child_result.score) < float(incumbent_result.score):
+                continue
 
-        while len(next_pop) < pop_size:
-            next_pop.append(self.search_space.sample(self.rng))
-        return next_pop[:pop_size]
+            child_fp = self.search_space.fingerprint(child)
+            incumbent_fp = self.search_space.fingerprint(next_pop[replace_idx])
+            if child_fp != incumbent_fp and child_fp in occupied:
+                continue
 
-    def _pruned_parent(self, item: ScoredIndividual, *, score_tol: float) -> tuple[dict[str, Any], EvaluationResult]:
-        base_fp = self.search_space.fingerprint(item.genome)
-        cached = self._parent_prune_cache.get(base_fp)
-        if cached is not None:
-            g, r = cached
-            return copy.deepcopy(g), r
+            occupied.discard(incumbent_fp)
+            next_pop[replace_idx] = copy.deepcopy(child)
+            next_results[replace_idx] = child_result
+            occupied.add(child_fp)
 
-        base_genome = copy.deepcopy(item.genome)
-        base_result = item.result
-        pruned_genome = self._canonical_prune_genome(base_genome)
-        pruned_fp = self.search_space.fingerprint(pruned_genome)
+        return [copy.deepcopy(g) for g in next_pop[:pop_size]]
 
-        if pruned_fp == base_fp:
-            chosen = (base_genome, base_result)
-        else:
-            pruned_result = self._evaluate_cached_genome(pruned_genome)
-            if pruned_result is None:
-                chosen = (base_genome, base_result)
-            elif pruned_result.ok and (float(pruned_result.score) + score_tol >= float(base_result.score)):
-                chosen = (pruned_genome, pruned_result)
-            else:
-                chosen = (base_genome, base_result)
+    def _inject_random_immigrants(
+        self,
+        *,
+        population: list[dict[str, Any]],
+        results: list[EvaluationResult],
+        occupied: set[str],
+        elite_size: int,
+        immigrant_slots: int,
+    ) -> None:
+        if immigrant_slots <= 0:
+            return
+        if elite_size >= len(population):
+            return
 
-        self._parent_prune_cache[base_fp] = (copy.deepcopy(chosen[0]), chosen[1])
-        return copy.deepcopy(chosen[0]), chosen[1]
+        candidate_indices = list(range(elite_size, len(population)))
+        self.rng.shuffle(candidate_indices)
+        for idx in candidate_indices[:immigrant_slots]:
+            immigrant = self._canonicalize_genome(self.search_space.sample(self.rng))
+            imm_fp = self.search_space.fingerprint(immigrant)
+            for _ in range(8):
+                if imm_fp not in occupied:
+                    break
+                immigrant = self._canonicalize_genome(self.search_space.sample(self.rng))
+                imm_fp = self.search_space.fingerprint(immigrant)
 
-    def _canonical_prune_genome(self, genome: dict[str, Any]) -> dict[str, Any]:
+            immigrant_result = self._evaluate_cached_genome(immigrant)
+            if immigrant_result is None:
+                immigrant_result = _failed_evaluation(
+                    immigrant,
+                    "Budget reached before evaluating random immigrant.",
+                )
+
+            old_fp = self.search_space.fingerprint(population[idx])
+            occupied.discard(old_fp)
+            population[idx] = copy.deepcopy(immigrant)
+            results[idx] = immigrant_result
+            occupied.add(imm_fp)
+
+    def _pick_rtr_replacement_index(
+        self,
+        *,
+        child: dict[str, Any],
+        population: list[dict[str, Any]],
+        elite_size: int,
+    ) -> int | None:
+        if elite_size >= len(population):
+            return None
+        indices = list(range(elite_size, len(population)))
+        if not indices:
+            return None
+
+        window = max(2, int(self.settings.tournament_size) * 2)
+        window = min(window, len(indices))
+        sampled = self.rng.sample(indices, k=window) if window < len(indices) else indices
+
+        best_idx: int | None = None
+        best_dist = float("inf")
+        for idx in sampled:
+            dist = self._genome_distance(child, population[idx])
+            if dist < best_dist:
+                best_dist = dist
+                best_idx = idx
+        return best_idx
+
+    def _canonicalize_genome(self, genome: dict[str, Any]) -> dict[str, Any]:
         out = copy.deepcopy(genome)
         expr = out.get("update_expr")
         if isinstance(expr, dict):
@@ -401,6 +429,96 @@ class GeneticSearch:
         self._cache[fp] = result
         self.evaluation_count += 1
         return result
+
+    def _genome_distance(self, left: dict[str, Any], right: dict[str, Any]) -> float:
+        keys = sorted(set(left.keys()) | set(right.keys()))
+        if not keys:
+            return 0.0
+        total = 0.0
+        for key in keys:
+            lv = left.get(key)
+            rv = right.get(key)
+            if key in {"update_expr", "bias_expr"}:
+                total += self._expr_distance(lv, rv)
+            else:
+                total += self._value_distance(lv, rv)
+        return float(total / len(keys))
+
+    def _expr_distance(self, left: Any, right: Any) -> float:
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return self._value_distance(left, right)
+        lc = self._expr_token_counts(left)
+        rc = self._expr_token_counts(right)
+        if not lc and not rc:
+            return 0.0
+        union = lc | rc
+        inter = lc & rc
+        denom = float(sum(union.values()))
+        if denom <= 0.0:
+            return 0.0
+        return 1.0 - (float(sum(inter.values())) / denom)
+
+    def _expr_token_counts(self, node: Any) -> Counter[str]:
+        out: Counter[str] = Counter()
+        if not isinstance(node, dict):
+            out["none"] += 1
+            return out
+
+        t = str(node.get("t", "")).lower()
+        if t == "term":
+            out[f"term:{str(node.get('name', 'zeros')).lower()}"] += 1
+            return out
+        if t == "const":
+            try:
+                bucket = round(float(node.get("v", 0.0)), 2)
+            except Exception:
+                bucket = 0.0
+            out[f"const:{bucket}"] += 1
+            return out
+        if t == "unary":
+            out[f"u:{str(node.get('op', 'unknown')).lower()}"] += 1
+            out += self._expr_token_counts(node.get("a"))
+            return out
+        if t == "binary":
+            out[f"b:{str(node.get('op', 'unknown')).lower()}"] += 1
+            out += self._expr_token_counts(node.get("a"))
+            out += self._expr_token_counts(node.get("b"))
+            return out
+
+        out[f"unknown:{t}"] += 1
+        return out
+
+    @classmethod
+    def _value_distance(cls, left: Any, right: Any) -> float:
+        if left is None and right is None:
+            return 0.0
+        if isinstance(left, bool) and isinstance(right, bool):
+            return 0.0 if left == right else 1.0
+        if isinstance(left, (int, float)) and not isinstance(left, bool):
+            if isinstance(right, (int, float)) and not isinstance(right, bool):
+                denom = max(1.0, abs(float(left)), abs(float(right)))
+                return min(1.0, abs(float(left) - float(right)) / denom)
+        if isinstance(left, str) and isinstance(right, str):
+            return 0.0 if left == right else 1.0
+        if isinstance(left, dict) and isinstance(right, dict):
+            keys = sorted(set(left.keys()) | set(right.keys()))
+            if not keys:
+                return 0.0
+            total = 0.0
+            for key in keys:
+                total += cls._value_distance(left.get(key), right.get(key))
+            return float(total / len(keys))
+        if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+            n = max(len(left), len(right))
+            if n == 0:
+                return 0.0
+            total = 0.0
+            for i in range(n):
+                lv = left[i] if i < len(left) else None
+                rv = right[i] if i < len(right) else None
+                total += cls._value_distance(lv, rv)
+            return float(total / n)
+        return 0.0 if left == right else 1.0
 
     def _select_tournament(self, scored: list[ScoredIndividual]) -> ScoredIndividual:
         k = max(1, min(self.settings.tournament_size, len(scored)))

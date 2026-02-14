@@ -16,7 +16,63 @@ from lab.algorithms.update_rules.base import UpdateRule
 RULE_NAME = "ga_rule"
 GA_SCORE = 0.924999988079071
 GA_OBJECTIVE_VALUE = 0.924999988079071
-PARAMS = {'bias_expr': None, 'head_lr': 0.001, 'head_phase_epochs': 30, 'head_weight_decay': 0.0, 'local_lr': 0.011564248250792776, 'local_phase_epochs': 10, 'local_weight_decay': 0.0, 'normalize_update': False, 'update_bias': True, 'update_expr': {'t': 'binary', 'op': 'div', 'a': {'t': 'term', 'name': 'w'}, 'b': {'t': 'term', 'name': 'weight'}}}
+PARAMS = {
+      "local_lr": 0.001,
+      "local_weight_decay": 0.0,
+      "normalize_update": True,
+      "update_bias": False,
+      "update_expr": {
+        "t": "binary",
+        "op": "sub",
+        "a": {
+          "t": "binary",
+          "op": "outer",
+          "a": {
+            "t": "term",
+            "name": "x"
+          },
+          "b": {
+            "t": "unary",
+            "op": "winner_flip",
+            "c": 12.0,
+            "a": {
+              "t": "term",
+              "name": "u"
+            }
+          }
+        },
+        "b": {
+          "t": "binary",
+          "op": "mul",
+          "a": {
+            "t": "term",
+            "name": "w"
+          },
+          "b": {
+            "t": "unary",
+            "op": "batch_sum",
+            "a": {
+              "t": "binary",
+              "op": "mul",
+              "a": {
+                "t": "unary",
+                "op": "winner_flip",
+                "c": 12.0,
+                "a": {
+                  "t": "term",
+                  "name": "u"
+                }
+              },
+              "b": {
+                "t": "term",
+                "name": "u"
+              }
+            }
+          }
+        }
+      }
+    }
+PARAMS = {'bias_expr': None, 'head_lr': 0.001, 'head_phase_epochs': 25, 'head_weight_decay': 0.0, 'local_lr': 0.014857153320302694, 'local_phase_epochs': 5, 'local_weight_decay': 0.0, 'normalize_update': False, 'update_bias': False, 'update_expr': {'t': 'unary', 'op': 'row_normalize', 'a': {'t': 'term', 'name': 'weight'}}}
 
 
 @register_update_rule(RULE_NAME)

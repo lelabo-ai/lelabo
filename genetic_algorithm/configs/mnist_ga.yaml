@@ -1,18 +1,18 @@
-name: iris_ga_local_rule
+name: mnist_ga_sign
 seed: 7
 device: cpu
 output_dir: genetic_algorithm/outputs
 
 fixed:
   dataset: mnist
-  model: mlp      # locked
-  hidden: 1048     # locked
-  layers: 4       # locked
+  model: mlp
+  hidden: 64
+  layers: 5
   val_frac: 0.2
   batch: 128
-  local_phase_epochs: 5
-  head_phase_epochs: 20
-  epochs: 25  # auto-forced to local_phase_epochs + head_phase_epochs
+  local_phase_epochs: 1
+  head_phase_epochs: 0
+  epochs: 1  # auto-forced to local_phase_epochs + head_phase_epochs
   verbose: 0
   robustness: none
   input_noise_training: 0.0
@@ -20,29 +20,29 @@ fixed:
   noise_on_test: 0
 
 fitness:
-  objective: accuracy   # accuracy | loss
+  objective: bp_sign_match_epoch   # accuracy | loss | bp_cosine_epoch | bp_sign_match_epoch
   split: val            # train | val | test
   final_splits: [train, test]
 
 ga:
-  population_size: 100
+  population_size: 5000
   generations: 3
-  elite_size: 2
+  elite_size: 100
   tournament_size: 3
   mutation_rate: 0.25
   crossover_rate: 0.7
-  top_k: 5
+  top_k: 10
   max_evals: max      # or "max" to disable budget limit
   workers: 1        # 0=auto, 1=sequential
   show_progress: true
-  eval_repeats: 5   # evaluate each individual on 5 different seeds, averaged
+  eval_repeats: 3   # evaluate each individual on 5 different seeds, averaged
   eval_seed_stride: 1
   memetic:
     enabled: true
     score_tol: 0.005
-    immigrant_rate: 0.15
+    immigrant_rate: 0.3
   initial_pool:
-    enabled: false
+    enabled: true
     path: genetic_algorithm/pools/iris_seed_pool.json
     max_items: 0      # 0 = use all entries from the JSON file
     strict: false     # true => fail if file/format is invalid
@@ -73,7 +73,7 @@ search_space:
   update_expr:
     type: expression_tree
     min_depth: 1
-    max_depth: 3
+    max_depth: 20
     p_const: 0.2
     const_min: -2.0
     const_max: 2.0
@@ -124,9 +124,3 @@ search_space:
 
   normalize_update: [false, true]
   update_bias: [false, true]
-
-  # Training stochasticity still evolvable.
-  seed:
-    type: int_uniform
-    min: 0
-    max: 50

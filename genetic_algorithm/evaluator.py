@@ -30,7 +30,7 @@ _DATASET_MODULES: dict[str, str] = {
     "cifar100": "lab.datasets.vision.cifar",
 }
 
-_LOCKED_ARCH = {"model": "mlp", "hidden": 256, "layers": 5}
+_LOCKED_ARCH = {"model": "mlp"}
 
 
 @dataclass
@@ -76,8 +76,8 @@ class SupervisedEvaluator:
         self.eval_repeats = int(eval_repeats)
         self.eval_seed_stride = int(eval_seed_stride)
 
-        if self.objective not in {"accuracy", "loss"}:
-            raise ValueError("objective must be accuracy or loss")
+        if self.objective not in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch"}:
+            raise ValueError("objective must be accuracy, loss, bp_cosine_epoch, or bp_sign_match_epoch")
         if self.fitness_split not in {"train", "val", "test"}:
             raise ValueError("fitness_split must be train, val, or test")
         if self.eval_repeats < 1:
@@ -194,7 +194,10 @@ class SupervisedEvaluator:
             args = _Args(args_payload)
             model = build_model(model_name, mctx, args)
             task = ClassificationTask(num_classes=int(bundle.num_classes))
-            learner = EvolvedMLPUpdateRule(rule_params)
+            learner = EvolvedMLPUpdateRule(
+                rule_params,
+                track_bp_alignment=(self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch"}),
+            )
 
             trainer = Trainer(
                 model=model,
@@ -212,6 +215,9 @@ class SupervisedEvaluator:
                 show_progress=False,
                 val_loader=bundle.val_loader,
             )
+            if self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch"}:
+                train_summary = dict(train_summary)
+                train_summary["bp_alignment"] = learner.alignment_summary()
 
             metrics: dict[str, dict[str, float]] = {}
             metrics["train"] = _coerce_eval_dict(trainer.evaluate(bundle.train_loader, split="train"))
@@ -230,6 +236,7 @@ class SupervisedEvaluator:
             objective_value, score = _extract_objective(
                 metrics[self.fitness_split],
                 objective=self.objective,
+                train_summary=train_summary,
             )
 
             return {
@@ -276,7 +283,12 @@ def _average_nested_metrics(rows: list[dict[str, dict[str, float]]]) -> dict[str
     return out
 
 
-def _extract_objective(metrics: dict[str, float], *, objective: str) -> tuple[float, float]:
+def _extract_objective(
+    metrics: dict[str, float],
+    *,
+    objective: str,
+    train_summary: dict[str, Any] | None = None,
+) -> tuple[float, float]:
     objective = objective.lower()
     if objective == "accuracy":
         acc = metrics.get("acc", metrics.get("metric"))
@@ -289,6 +301,26 @@ def _extract_objective(metrics: dict[str, float], *, objective: str) -> tuple[fl
             raise ValueError(f"No loss metric in evaluation output: {sorted(metrics)}")
         loss = float(metrics["loss"])
         return loss, -loss
+
+    if objective == "bp_cosine_epoch":
+        align = (train_summary or {}).get("bp_alignment", {})
+        if not isinstance(align, dict):
+            raise ValueError("No bp_alignment payload available in train summary for objective bp_cosine_epoch")
+        value = align.get("bp_cosine_epoch_mean")
+        if value is None:
+            raise ValueError("No bp_cosine_epoch_mean available in train summary for objective bp_cosine_epoch")
+        out = float(value)
+        return out, out
+
+    if objective == "bp_sign_match_epoch":
+        align = (train_summary or {}).get("bp_alignment", {})
+        if not isinstance(align, dict):
+            raise ValueError("No bp_alignment payload available in train summary for objective bp_sign_match_epoch")
+        value = align.get("bp_sign_match_epoch_mean")
+        if value is None:
+            raise ValueError("No bp_sign_match_epoch_mean available in train summary for objective bp_sign_match_epoch")
+        out = float(value)
+        return out, out
 
     raise ValueError(f"Unsupported objective `{objective}`")
 

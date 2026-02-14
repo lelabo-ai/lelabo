@@ -143,8 +143,10 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         split=str(fitness_raw.get("split", "val")).strip().lower(),
         final_splits=_as_tuple_of_str(fitness_raw.get("final_splits"), default=("train", "test")),
     )
-    if fitness.objective not in {"accuracy", "loss"}:
-        raise ValueError("fitness.objective must be one of: accuracy, loss")
+    if fitness.objective not in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch"}:
+        raise ValueError(
+            "fitness.objective must be one of: accuracy, loss, bp_cosine_epoch, bp_sign_match_epoch"
+        )
     if fitness.split not in {"train", "val", "test"}:
         raise ValueError("fitness.split must be one of: train, val, test")
 

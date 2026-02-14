@@ -19,7 +19,7 @@ from genetic_algorithm.search_space import SearchSpace
 def test_load_runtime_config_and_search_space_sampling() -> None:
     cfg = load_runtime_config("genetic_algorithm/configs/iris_ga.yaml")
     assert cfg.name == "iris_ga_local_rule"
-    assert cfg.fitness.objective in {"accuracy", "loss"}
+    assert cfg.fitness.objective in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch"}
     assert cfg.fixed["model"] == "mlp"
     assert int(cfg.fixed["hidden"]) > 0
     assert int(cfg.fixed["layers"]) >= 1
