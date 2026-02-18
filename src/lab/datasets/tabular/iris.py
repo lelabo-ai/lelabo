@@ -51,9 +51,33 @@ def make_iris_dataset(
     val_ds = TensorDataset(Xtrv[va_idx], ytrv[va_idx]) if va_idx.numel() > 0 else None
     test_ds = TensorDataset(Xte, yte)
 
-    train_loader = make_loader(train_ds, batch_size=batch_size, shuffle=True, seed=seed, num_workers=num_workers, pin_memory=pin_memory)
-    val_loader = make_loader(val_ds, batch_size=batch_size, shuffle=False, seed=seed, num_workers=num_workers, pin_memory=pin_memory) if val_ds is not None else None
-    test_loader = make_loader(test_ds, batch_size=batch_size, shuffle=False, seed=seed, num_workers=num_workers, pin_memory=pin_memory)
+    train_loader = make_loader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        seed=seed,
+        seed_scope="iris.train",
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+    val_loader = make_loader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        seed=seed,
+        seed_scope="iris.val",
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    ) if val_ds is not None else None
+    test_loader = make_loader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        seed=seed,
+        seed_scope="iris.test",
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
     num_classes = int(ytrv.max().item() + 1)
     in_dim = int(Xtrv.shape[1])

@@ -71,22 +71,6 @@ def _find_classifier_head(hf_model: nn.Module) -> nn.Module:
 
 
 class HFSequenceClassifier(BlockModel):
-    """
-    Wrapper générique HF (AutoModelForSequenceClassification) avec exposition des blocks.
-
-    - forward(**batch) : comportement HF standard (outputs HF)
-    - forward(**batch, return_cache=True) :
-        -> (outputs, cache) où cache contient:
-           cache["hidden_states"] (tuple) si dispo
-           cache["block_inputs"][<block_name>] (tensor) (best-effort)
-           cache["head_input"] (tensor) (best-effort)
-
-    Remarques:
-      - On appelle HF avec output_hidden_states=True quand return_cache=True.
-      - Les "block_inputs" pour encoder.layer{i} viennent de hidden_states[i].
-      - Pour "embeddings", on met input_ids (ou ids-like) car l'entrée n'est pas un tensor continu.
-    """
-
     def __init__(self, model_name: str, num_labels: int, *, trust_remote_code: bool = False):
         super().__init__()
         _require_transformers()

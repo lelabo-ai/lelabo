@@ -46,9 +46,10 @@ python -m genetic_algorithm.run --config genetic_algorithm/configs/iris_ga.yaml 
 - `fixed`: params fixes (dataset, epochs, batch, etc.)
 - `fixed.local_phase_epochs` / `fixed.head_phase_epochs`: duree des 2 phases
 - `search_space`: genes de la regle locale (expression tree + lrs)
-- `fitness.objective`: `accuracy`, `loss`, `bp_cosine_epoch` ou `bp_sign_match_epoch`
+- `fitness.objective`: `accuracy`, `loss`, `bp_cosine_epoch`, `bp_sign_match_epoch` ou `bp_update_gap_epoch`
 - `bp_cosine_epoch`: moyenne simple des cosines batch-par-batch (updates GA hidden vs direction BP `-grad`) puis moyenne par epoch local
 - `bp_sign_match_epoch`: moyenne simple, batch par batch, du pourcentage de composantes ou `sign(ΔW_GA) == sign(ΔW_BP)`
+- `bp_update_gap_epoch`: moyenne simple du ratio `||ΔW_GA - ΔW_BP||_2 / (||ΔW_BP||_2 + eps)` (a minimiser; le GA maximise `-gap`)
 - `fitness.split`: split de fitness (`train|val|test`, recommande `val`)
 - `ga.top_k`: nombre de rules exportees
 - `ga.max_evals`: budget global optionnel (`max`/`none` = pas de limite)

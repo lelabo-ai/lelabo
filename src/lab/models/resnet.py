@@ -30,20 +30,6 @@ def build_resnet50(ctx: ModelContext, args):
 
 
 class ResNet(BlockModel):
-    """
-    Torchvision ResNet avec exposition de "blocks" au niveau des RESIDUAL BLOCKS
-    (BasicBlock / Bottleneck), pour avoir la même abstraction que ConvBlock.
-
-    Blocks exposés :
-      - layer1.0, layer1.1, ..., layer4.k (modules torchvision BasicBlock/Bottleneck)
-      - + "head" (Linear) marqué is_output=True
-
-    forward(return_cache=True):
-      - retourne (logits, cache)
-      - cache["block_inputs"][name] = input tensor AU BLOC
-      - cache["block_outputs"][name] = output tensor DU BLOC
-    """
-
     def __init__(self, num_classes: int = 100, resnet_type: str = "resnet34", pretrained: bool = True):
         super().__init__()
 

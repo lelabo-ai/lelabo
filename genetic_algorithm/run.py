@@ -60,6 +60,8 @@ def _override(cfg: RuntimeConfig, args: argparse.Namespace) -> RuntimeConfig:
         initial_pool_path=cfg.ga.initial_pool_path,
         initial_pool_max_items=cfg.ga.initial_pool_max_items,
         initial_pool_strict=cfg.ga.initial_pool_strict,
+        force_sign_root=cfg.ga.force_sign_root,
+        effective_local_backprop=cfg.ga.effective_local_backprop,
     )
     return RuntimeConfig(
         name=cfg.name,
@@ -113,6 +115,7 @@ def main() -> int:
         device=cfg.device,
         eval_repeats=cfg.ga.eval_repeats,
         eval_seed_stride=cfg.ga.eval_seed_stride,
+        effective_local_backprop=cfg.ga.effective_local_backprop,
     )
     initial_pool = _load_initial_pool(cfg)
     engine = GeneticSearch(
@@ -148,6 +151,10 @@ def main() -> int:
         f"path={cfg.ga.initial_pool_path!r} "
         f"loaded={len(initial_pool)} "
         f"max_items={cfg.ga.initial_pool_max_items}"
+    )
+    print(
+        f"[GA] force_sign_root={cfg.ga.force_sign_root} "
+        f"effective_local_backprop={cfg.ga.effective_local_backprop}"
     )
     print(f"[GA] evaluations={engine.evaluation_count}")
     print(f"[GA] winners={len(winners)}")

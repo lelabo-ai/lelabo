@@ -33,6 +33,7 @@ class Trainer:
         schedulers: Optional[list[Any]] = None,
         scheduler_interval: str = "epoch",
         scheduler_monitor: str = "val.loss",
+        metric_probes: Optional[list[Any]] = None,
     ):
         self.model = model.to(device)
         self.task = task
@@ -48,6 +49,7 @@ class Trainer:
         self.schedulers = schedulers or []
         self.scheduler_interval = str(scheduler_interval).lower()
         self.scheduler_monitor = str(scheduler_monitor)
+        self.metric_probes = metric_probes or []
         self.stop_training = False
         self.stop_reason = None
         self.state: TrainState | None = None
@@ -110,6 +112,8 @@ class Trainer:
             cb.on_train_start(self, state)
 
         self.learner.on_train_start(self.model, self.task, self.device, state)
+        for probe in self.metric_probes:
+            probe.on_train_start(self, state)
 
         total_loss_sum = 0.0
         total_metric_sum = 0.0
@@ -118,6 +122,7 @@ class Trainer:
 
         epoch_times: list[float] = []
         epoch_samples_per_sec: list[float] = []
+        last_epoch_custom_metrics: dict[str, float] = {}
 
         self._maybe_sync_cuda()
         train_start = time.perf_counter()
@@ -140,6 +145,8 @@ class Trainer:
 
             for cb in self.callbacks:
                 cb.on_epoch_start(self, state)
+            for probe in self.metric_probes:
+                probe.on_epoch_start(self, ep, state)
 
             iterator = train_loader
             use_bar = show_progress and (tqdm is not None)
@@ -163,6 +170,8 @@ class Trainer:
                 stats = self.learner.train_step(self.model, self.task, batch, self.device, state)
                 if not isinstance(stats, dict):
                     stats = {}
+                for probe in self.metric_probes:
+                    probe.on_batch_end(self, stats, int(max(1, bs)), state)
 
                 loss = float(stats.get("loss", 0.0))
                 metric = float(stats.get("acc", stats.get("agg", 0.0)))
@@ -204,9 +213,23 @@ class Trainer:
             total_samples += ep_samples
             total_batches += ep_batches
 
-            self.log({"t": "train", "epoch": ep, "loss": float(mean_loss), "metric": float(mean_metric)})
+            epoch_custom_metrics: dict[str, float] = {}
+            for probe in self.metric_probes:
+                out = probe.on_epoch_end(self, ep, state)
+                if not isinstance(out, dict):
+                    continue
+                for key, value in out.items():
+                    if isinstance(value, (int, float)):
+                        epoch_custom_metrics[str(key)] = float(value)
+            last_epoch_custom_metrics = dict(epoch_custom_metrics)
+
+            train_record: Dict[str, Any] = {"t": "train", "epoch": ep, "loss": float(mean_loss), "metric": float(mean_metric)}
+            train_record.update(epoch_custom_metrics)
+            self.log(train_record)
 
             logs: Dict[str, float] = {"train.loss": float(mean_loss), "train.metric": float(mean_metric)}
+            for key, value in epoch_custom_metrics.items():
+                logs[f"train.{key}"] = float(value)
 
             if val_loader is not None:
                 val_res = self.evaluate(val_loader, split="val")
@@ -237,7 +260,11 @@ class Trainer:
                 break
 
             if self.verbose:
-                print(f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_metric={mean_metric:.4f}")
+                extra = ""
+                if epoch_custom_metrics:
+                    parts = [f"{k}={v:.4f}" for k, v in sorted(epoch_custom_metrics.items())]
+                    extra = " | " + " | ".join(parts)
+                print(f"Epoch {ep}/{epochs} | train_loss={mean_loss:.4f} | train_metric={mean_metric:.4f}{extra}")
 
         self._maybe_sync_cuda()
         total_time = time.perf_counter() - train_start
@@ -245,10 +272,21 @@ class Trainer:
         final_train_loss = float(total_loss_sum / max(1.0, float(total_samples)))
         final_train_metric = float(total_metric_sum / max(1.0, float(total_samples)))
 
+        final_custom_metrics: dict[str, float] = {}
+        for probe in self.metric_probes:
+            out = probe.on_train_end(self, state)
+            if not isinstance(out, dict):
+                continue
+            for key, value in out.items():
+                if isinstance(value, (int, float)):
+                    final_custom_metrics[str(key)] = float(value)
+        if not final_custom_metrics and last_epoch_custom_metrics:
+            final_custom_metrics = dict(last_epoch_custom_metrics)
+
         for cb in self.callbacks:
             cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)}, state)
 
-        return {
+        result = {
             "best_train_loss": float(best_train_loss),
             "best_train_metric": float(best_train_metric),
             "final_train_loss": final_train_loss,
@@ -260,6 +298,9 @@ class Trainer:
             "best_epoch_by_val": None if val_loader is None else best_epoch_by_val,
             "total_train_time_sec": float(total_time),
         }
+        if final_custom_metrics:
+            result["final_custom_metrics"] = final_custom_metrics
+        return result
 
     @torch.no_grad()
     def evaluate(self, loader, split: Optional[str] = None) -> Dict[str, Any]:

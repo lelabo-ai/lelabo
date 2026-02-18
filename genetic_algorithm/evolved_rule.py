@@ -80,16 +80,19 @@ class EvolvedMLPUpdateRule(UpdateRule):
         *,
         track_bp_alignment: bool = False,
         bp_alignment_eps: float = 1e-12,
+        effective_local_backprop: bool = False,
     ):
         super().__init__()
         self.params = params
         self.track_bp_alignment = bool(track_bp_alignment)
         self.bp_alignment_eps = float(bp_alignment_eps)
+        self.effective_local_backprop = bool(effective_local_backprop)
         self._hidden_layers: list[torch.nn.Linear] = []
         self._head_layer: torch.nn.Linear | None = None
         self._head_optimizer: torch.optim.Optimizer | None = None
         self._bp_cosine_by_epoch: dict[int, list[float]] = {}
         self._bp_sign_match_by_epoch: dict[int, list[float]] = {}
+        self._bp_update_gap_by_epoch: dict[int, list[float]] = {}
 
     def on_train_start(self, model, task, device, state=None):
         if not hasattr(model, "linears"):
@@ -116,6 +119,7 @@ class EvolvedMLPUpdateRule(UpdateRule):
         )
         self._bp_cosine_by_epoch = {}
         self._bp_sign_match_by_epoch = {}
+        self._bp_update_gap_by_epoch = {}
 
     def train_step(self, model, task, batch, device, state=None) -> dict:
         if self._head_optimizer is None or self._head_layer is None:
@@ -138,6 +142,13 @@ class EvolvedMLPUpdateRule(UpdateRule):
                     x=x,
                     labels=labels,
                     epoch=epoch,
+                )
+            elif self.effective_local_backprop:
+                logits, loss, mistake_scalar = self._local_step_with_effective_backprop(
+                    model=model,
+                    task=task,
+                    x=x,
+                    labels=labels,
                 )
             else:
                 with torch.no_grad():
@@ -171,7 +182,11 @@ class EvolvedMLPUpdateRule(UpdateRule):
         return metrics
 
     def alignment_summary(self) -> dict[str, Any]:
-        if not self._bp_cosine_by_epoch and not self._bp_sign_match_by_epoch:
+        if (
+            not self._bp_cosine_by_epoch
+            and not self._bp_sign_match_by_epoch
+            and not self._bp_update_gap_by_epoch
+        ):
             return {}
         out: dict[str, Any] = {}
         self._merge_epoch_stats(
@@ -183,6 +198,11 @@ class EvolvedMLPUpdateRule(UpdateRule):
             out=out,
             values_by_epoch=self._bp_sign_match_by_epoch,
             prefix="bp_sign_match",
+        )
+        self._merge_epoch_stats(
+            out=out,
+            values_by_epoch=self._bp_update_gap_by_epoch,
+            prefix="bp_update_gap",
         )
         return out
 
@@ -245,8 +265,12 @@ class EvolvedMLPUpdateRule(UpdateRule):
                     labels=labels,
                     mistake_scalar=mistake_scalar,
                 )
-                self._apply_local_hidden_updates(updates)
                 ga_updates = [dw for (dw, _) in updates]
+                if self.effective_local_backprop:
+                    bp_pack = [(dw.detach(), None) for dw in bp_updates]
+                    self._apply_local_hidden_updates(bp_pack)
+                else:
+                    self._apply_local_hidden_updates(updates)
                 cosine = _cosine_from_update_lists(
                     ga_updates,
                     bp_updates,
@@ -257,9 +281,41 @@ class EvolvedMLPUpdateRule(UpdateRule):
                     bp_updates,
                     eps=self.bp_alignment_eps,
                 )
+                update_gap = _relative_l2_gap_from_update_lists(
+                    ga_updates,
+                    bp_updates,
+                    eps=self.bp_alignment_eps,
+                )
                 self._bp_cosine_by_epoch.setdefault(int(epoch), []).append(float(cosine))
                 self._bp_sign_match_by_epoch.setdefault(int(epoch), []).append(float(sign_match))
+                self._bp_update_gap_by_epoch.setdefault(int(epoch), []).append(float(update_gap))
 
+            return logits.detach(), loss.detach(), mistake_scalar
+        finally:
+            self._set_hidden_requires_grad(False)
+
+    def _local_step_with_effective_backprop(self, *, model, task, x, labels):
+        self._set_hidden_requires_grad(True)
+        try:
+            logits = model(x, return_cache=False)
+            loss = task.loss(logits, labels)
+            bp_grads = torch.autograd.grad(
+                loss,
+                [layer.weight for layer in self._hidden_layers],
+                retain_graph=False,
+                create_graph=False,
+                allow_unused=True,
+            )
+            with torch.no_grad():
+                preds = logits.argmax(dim=1)
+                mistake_scalar = (preds != labels).float().unsqueeze(1)
+                bp_updates: list[tuple[torch.Tensor, torch.Tensor | None]] = []
+                for layer, grad in zip(self._hidden_layers, bp_grads):
+                    if grad is None:
+                        bp_updates.append((torch.zeros_like(layer.weight), None))
+                    else:
+                        bp_updates.append(((-grad).detach(), None))
+                self._apply_local_hidden_updates(bp_updates)
             return logits.detach(), loss.detach(), mistake_scalar
         finally:
             self._set_hidden_requires_grad(False)
@@ -737,6 +793,39 @@ def _sign_match_ratio_from_update_lists(
     *,
     eps: float,
 ) -> float:
+    if len(ga_updates) != len(bp_updates):
+        return 0.0
+
+    same_total = 0.0
+    count_total = 0
+    for ga_raw, bp_raw in zip(ga_updates, bp_updates):
+        if (not torch.is_tensor(ga_raw)) or (not torch.is_tensor(bp_raw)):
+            return 0.0
+        bp = bp_raw.detach()
+        ga = ga_raw.detach()
+        if bp.numel() == 0:
+            continue
+        try:
+            ga = _broadcast_to_shape(ga, target_shape=tuple(int(s) for s in bp.shape))
+        except RuntimeError:
+            return 0.0
+
+        ga_sign = _sign_with_eps(ga, eps=float(eps))
+        bp_sign = _sign_with_eps(bp, eps=float(eps))
+        same_total += float((ga_sign == bp_sign).float().sum().item())
+        count_total += int(bp_sign.numel())
+
+    if count_total <= 0:
+        return 0.0
+    return float(same_total / float(count_total))
+
+
+def _relative_l2_gap_from_update_lists(
+    ga_updates: list[torch.Tensor],
+    bp_updates: list[torch.Tensor],
+    *,
+    eps: float,
+) -> float:
     ga_flat = _flatten_update_list(ga_updates)
     bp_flat = _flatten_update_list(bp_updates)
     if ga_flat.numel() == 0 or bp_flat.numel() == 0:
@@ -749,10 +838,20 @@ def _sign_match_ratio_from_update_lists(
         ga_flat = ga_flat[:n]
         bp_flat = bp_flat[:n]
 
-    ga_sign = _sign_with_eps(ga_flat, eps=float(eps))
-    bp_sign = _sign_with_eps(bp_flat, eps=float(eps))
-    same = (ga_sign == bp_sign).float()
-    return float(same.mean().item()) if same.numel() > 0 else 0.0
+    diff_norm = float((ga_flat - bp_flat).norm().item())
+    bp_norm = float(bp_flat.norm().item())
+    if bp_norm <= float(eps):
+        return 0.0 if diff_norm <= float(eps) else float(diff_norm)
+    return float(diff_norm / (bp_norm + float(eps)))
+
+
+def _broadcast_to_shape(x: torch.Tensor, *, target_shape: tuple[int, ...]) -> torch.Tensor:
+    if tuple(int(s) for s in x.shape) == target_shape:
+        return x
+    y = x
+    while y.dim() < len(target_shape):
+        y = y.unsqueeze(0)
+    return y.expand(*target_shape)
 
 
 def _sign_with_eps(x: torch.Tensor, *, eps: float) -> torch.Tensor:

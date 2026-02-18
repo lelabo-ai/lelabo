@@ -37,6 +37,7 @@ def test_with_noise(
     device: str = "cpu",
     trials: int = 5,
     batch_size: int = 2048,
+    seed: int | None = None,
 ):
     """
     Test accuracy under different noise models.
@@ -57,13 +58,24 @@ def test_with_noise(
     params = list(model.parameters())
     saved = None
 
-    for _ in range(trials):
+    base_seed = None if seed is None else int(seed)
+
+    for i in range(trials):
+        g = None
+        if base_seed is not None:
+            try:
+                g = torch.Generator(device=x.device).manual_seed(base_seed + i)
+            except TypeError:
+                g = torch.Generator().manual_seed(base_seed + i)
+
         if mode == "input_noise":
-            x_pert = x + sigma * torch.randn_like(x)
+            noise = torch.randn(x.shape, dtype=x.dtype, device=x.device, generator=g)
+            x_pert = x + sigma * noise
             acc = _accuracy_on_tensors(model, x_pert, y, device=device, batch_size=batch_size)
 
         elif mode == "relative_input_noise":
-            x_pert = x + sigma * torch.abs(x) * torch.randn_like(x)
+            noise = torch.randn(x.shape, dtype=x.dtype, device=x.device, generator=g)
+            x_pert = x + sigma * torch.abs(x) * noise
             acc = _accuracy_on_tensors(model, x_pert, y, device=device, batch_size=batch_size)
 
         else:  # weight_noise
@@ -72,7 +84,8 @@ def test_with_noise(
 
             # perturb in-place
             for p in params:
-                p.data.add_(sigma * torch.randn_like(p))
+                noise = torch.randn(p.shape, dtype=p.dtype, device=p.device, generator=g)
+                p.data.add_(sigma * noise)
 
             acc = _accuracy_on_tensors(model, x, y, device=device, batch_size=batch_size)
 

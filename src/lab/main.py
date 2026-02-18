@@ -4,7 +4,10 @@ from pathlib import Path
 
 import torch
 
-from .core.utils import RunLogger, seed_everything, make_env, make_vec_env, make_optimizer
+from .seed import derive_seed, seed_everything
+from .core.utils.logger import RunLogger
+from .core.utils.envs import make_env, make_vec_env
+from .core.utils.optim import make_optimizer
 
 # RL
 from .core.runners.rl_runner import RLRunner
@@ -14,6 +17,7 @@ from .algorithms.update_rules import UpdateRuleContext, build_update_rule, get_u
 from .algorithms.rl.dqn import DQN, DQNConfig
 from .algorithms.rl.ppo import PPO, PPOAlgoConfig
 from .core.task import PPOConfig
+from .metrics import get_metric_names
 
 # Supervised
 from .core.runners.supervised_runner import run_supervised
@@ -29,6 +33,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dataset", choices=dataset_choices, default="iris")
     p.add_argument("--model", choices=get_model_names(), default="cnn")
     p.add_argument("--algo", choices=get_update_rule_names(), default="kp2")
+    available_metrics = get_metric_names()
+    p.add_argument(
+        "--metrics",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated optional training metrics. "
+            f"Available: {', '.join(available_metrics) if available_metrics else '(none)'}"
+        ),
+    )
+    p.add_argument(
+        "--bp-alignment-every",
+        type=int,
+        default=1,
+        help="Compute BP-alignment diagnostics every N local batches when requested metrics need it.",
+    )
+    p.add_argument(
+        "--bp-alignment-eps",
+        type=float,
+        default=1e-12,
+        help="Numerical epsilon for BP-alignment diagnostics.",
+    )
 
     p.add_argument("--hidden", type=int, default=2048)
     p.add_argument("--layers", type=int, default=4)
@@ -38,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batch", type=int, default=64)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=2)
+    p.add_argument(
+        "--determinism",
+        type=str,
+        default="relaxed",
+        choices=["off", "relaxed", "strict"],
+        help="Determinism policy: off, relaxed, strict.",
+    )
     p.add_argument("--verbose", type=int, default=1)
 
     p.add_argument("--optimizer", type=str, default="adamw", choices=["adamw", "sgd", "sgd+momentum", "ano"])
@@ -135,10 +168,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_rl(args, logger: RunLogger):
     device = args.device
+    train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
+    eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
 
     if args.rl_algo == "dqn":
-        env = make_env(args.env, seed=args.seed)
-        eval_env = make_env(args.env, seed=args.seed + 10_000)
+        env = make_env(args.env, seed=train_env_seed)
+        eval_env = make_env(args.env, seed=eval_env_seed)
 
         obs_dim = int(env.observation_space.shape[0])
         n_actions = int(env.action_space.n)
@@ -176,8 +211,9 @@ def run_rl(args, logger: RunLogger):
         return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     if args.rl_algo == "ppo":
-        envs = make_vec_env(args.env, seed=args.seed, num_envs=args.ppo_num_envs)
-        eval_env = make_env(args.env, seed=args.seed + 10_000)
+        vec_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "vec_env")
+        envs = make_vec_env(args.env, seed=vec_env_seed, num_envs=args.ppo_num_envs)
+        eval_env = make_env(args.env, seed=eval_env_seed)
 
         obs_dim = int(envs.single_observation_space.shape[0])
         n_actions = int(envs.single_action_space.n)
@@ -229,11 +265,19 @@ def run_rl(args, logger: RunLogger):
 def main():
     args = build_parser().parse_args()
 
-    seed_everything(args.seed)
+    seed_state = seed_everything(args.seed, mode=args.determinism)
 
     run_dir = Path(args.run_dir) if args.run_dir else None
     logger = RunLogger(run_dir=run_dir)
     logger.write_meta(vars(args))
+    logger.log(
+        {
+            "t": "seed",
+            "seed": int(seed_state.seed),
+            "determinism": str(seed_state.mode),
+            "deterministic_algorithms": bool(seed_state.deterministic_algorithms),
+        }
+    )
 
     if args.dataset == "cartpole":
         rl_summary = run_rl(args, logger)

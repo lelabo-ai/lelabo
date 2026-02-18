@@ -54,6 +54,8 @@ class GASettings:
     initial_pool_path: str | None
     initial_pool_max_items: int
     initial_pool_strict: bool
+    force_sign_root: bool
+    effective_local_backprop: bool
 
 
 @dataclass(frozen=True)
@@ -143,9 +145,9 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         split=str(fitness_raw.get("split", "val")).strip().lower(),
         final_splits=_as_tuple_of_str(fitness_raw.get("final_splits"), default=("train", "test")),
     )
-    if fitness.objective not in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch"}:
+    if fitness.objective not in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch", "bp_update_gap_epoch"}:
         raise ValueError(
-            "fitness.objective must be one of: accuracy, loss, bp_cosine_epoch, bp_sign_match_epoch"
+            "fitness.objective must be one of: accuracy, loss, bp_cosine_epoch, bp_sign_match_epoch, bp_update_gap_epoch"
         )
     if fitness.split not in {"train", "val", "test"}:
         raise ValueError("fitness.split must be one of: train, val, test")
@@ -193,6 +195,8 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         initial_pool_strict=bool(
             ga_raw.get("initial_pool_strict", initial_pool_raw.get("strict", False))
         ),
+        force_sign_root=bool(ga_raw.get("force_sign_root", False)),
+        effective_local_backprop=bool(ga_raw.get("effective_local_backprop", False)),
     )
 
     if ga.population_size < 2:

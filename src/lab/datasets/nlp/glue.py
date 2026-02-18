@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import torch
-from torch.utils.data import DataLoader
 from datasets import load_dataset
 from transformers import AutoTokenizer, DataCollatorWithPadding
 
-from ..base import DataBundle
+from ..base import DataBundle, make_loader
 from ..registry import register_dataset
 
 GLUE_KEYS = {
@@ -76,13 +75,12 @@ def make_glue_dataset(
         out["labels"] = labels
         return out
 
-    g = torch.Generator().manual_seed(int(seed))
-
-    train_loader = DataLoader(
+    train_loader = make_loader(
         encoded["train"],
         batch_size=batch_size,
         shuffle=True,
-        generator=g,
+        seed=seed,
+        seed_scope=f"glue.{task_name}.train",
         collate_fn=collate_fn,
         num_workers=num_workers,
         pin_memory=pin_memory,
@@ -91,19 +89,23 @@ def make_glue_dataset(
     val_loaders = {}
     if task_name == "mnli":
         for split in ["validation_matched", "validation_mismatched"]:
-            val_loaders[split] = DataLoader(
+            val_loaders[split] = make_loader(
                 encoded[split],
                 batch_size=batch_size,
                 shuffle=False,
+                seed=seed,
+                seed_scope=f"glue.{task_name}.{split}",
                 collate_fn=collate_fn,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
             )
     else:
-        val_loaders["validation"] = DataLoader(
+        val_loaders["validation"] = make_loader(
             encoded["validation"],
             batch_size=batch_size,
             shuffle=False,
+            seed=seed,
+            seed_scope=f"glue.{task_name}.validation",
             collate_fn=collate_fn,
             num_workers=num_workers,
             pin_memory=pin_memory,

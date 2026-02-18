@@ -320,6 +320,7 @@ def _make_ssdd_dataset(
         batch_size=batch_size,
         shuffle=True,
         seed=seed,
+        seed_scope="ssdd.train",
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
@@ -328,6 +329,7 @@ def _make_ssdd_dataset(
         batch_size=batch_size,
         shuffle=False,
         seed=seed,
+        seed_scope="ssdd.val",
         num_workers=num_workers,
         pin_memory=pin_memory,
     ) if val_ds is not None else None
@@ -336,6 +338,7 @@ def _make_ssdd_dataset(
         batch_size=batch_size,
         shuffle=False,
         seed=seed,
+        seed_scope="ssdd.test",
         num_workers=num_workers,
         pin_memory=pin_memory,
     )

@@ -79,16 +79,16 @@ def make_mnist_dataset(
     test_ds = _maybe_subset(test_full, test_max, seed=seed + 3)
 
     train_loader = make_loader(
-        train_ds, batch_size=batch_size, shuffle=True, seed=seed,
+        train_ds, batch_size=batch_size, shuffle=True, seed=seed, seed_scope="mnist.train",
         num_workers=num_workers, pin_memory=pin_memory
     )
     val_loader = (
-        make_loader(val_ds, batch_size=batch_size, shuffle=False, seed=seed,
+        make_loader(val_ds, batch_size=batch_size, shuffle=False, seed=seed, seed_scope="mnist.val",
                     num_workers=num_workers, pin_memory=pin_memory)
         if val_ds is not None else None
     )
     test_loader = make_loader(
-        test_ds, batch_size=batch_size, shuffle=False, seed=seed,
+        test_ds, batch_size=batch_size, shuffle=False, seed=seed, seed_scope="mnist.test",
         num_workers=num_workers, pin_memory=pin_memory
     )
 

@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import torch
 from torch.utils.data import DataLoader, Dataset
+from lab.seed import make_dataloader_seeding
 
 
 @dataclass
@@ -52,16 +53,21 @@ def make_loader(
     batch_size: int,
     shuffle: bool,
     seed: int,
+    seed_scope: str = "default",
     num_workers: int = 0,
     pin_memory: bool = True,
     **loader_kwargs: Any,
 ) -> DataLoader:
-    g = torch.Generator().manual_seed(int(seed)) if shuffle else None
+    g, worker_init_fn, _ = make_dataloader_seeding(seed, scope=seed_scope)
+    g = loader_kwargs.pop("generator", g)
+    worker_init_fn = loader_kwargs.pop("worker_init_fn", worker_init_fn)
     return DataLoader(
         ds,
         batch_size=batch_size,
         shuffle=shuffle,
         generator=g,
         num_workers=num_workers,
+        worker_init_fn=worker_init_fn,
         pin_memory=pin_memory,
+        **loader_kwargs,
     )

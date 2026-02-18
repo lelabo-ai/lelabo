@@ -43,6 +43,7 @@ def _evaluate_genome_payload(payload: dict[str, Any]) -> tuple[str, EvaluationRe
         device=payload["device"],
         eval_repeats=payload["eval_repeats"],
         eval_seed_stride=payload["eval_seed_stride"],
+        effective_local_backprop=payload.get("effective_local_backprop", False),
     )
     fp = str(payload["fp"])
     genome = payload["genome"]
@@ -66,6 +67,7 @@ class GeneticSearch:
         self.rng = random.Random(int(seed))
         self._cache: dict[str, EvaluationResult] = {}
         self.evaluation_count = 0
+        self.force_sign_root = bool(settings.force_sign_root)
 
         self.workers = self._resolve_workers(settings.workers)
         self.show_progress = bool(settings.show_progress)
@@ -148,7 +150,7 @@ class GeneticSearch:
                 population.append(genome)
 
         while len(population) < target:
-            genome = self.search_space.sample(self.rng)
+            genome = self._canonicalize_genome(self.search_space.sample(self.rng))
             fp = self.search_space.fingerprint(genome)
             if fp in seen:
                 continue
@@ -166,7 +168,7 @@ class GeneticSearch:
                 merged["extra"] = extra
                 continue
             merged[key] = copy.deepcopy(value)
-        return merged
+        return self._canonicalize_genome(merged)
 
     def _evaluate_population(
         self,
@@ -179,18 +181,19 @@ class GeneticSearch:
         pending: dict[str, dict[str, Any]] = {}
 
         for genome in population:
-            fp = self.search_space.fingerprint(genome)
+            canon = self._canonicalize_genome(genome)
+            fp = self.search_space.fingerprint(canon)
 
             if fp in self._cache:
-                considered.append((fp, copy.deepcopy(genome)))
+                considered.append((fp, copy.deepcopy(canon)))
                 continue
 
             if fp not in pending and self._budget_reached(extra_new=len(pending) + 1):
                 break
 
-            considered.append((fp, copy.deepcopy(genome)))
+            considered.append((fp, copy.deepcopy(canon)))
             if fp not in pending:
-                pending[fp] = copy.deepcopy(genome)
+                pending[fp] = copy.deepcopy(canon)
 
         new_eval_count = 0
         if pending:
@@ -251,6 +254,7 @@ class GeneticSearch:
                     "device": self.evaluator.device,
                     "eval_repeats": self.evaluator.eval_repeats,
                     "eval_seed_stride": self.evaluator.eval_seed_stride,
+                    "effective_local_backprop": self.evaluator.effective_local_backprop,
                 }
                 fut = executor.submit(_evaluate_genome_payload, payload)
                 futures[fut] = (fp, genome)
@@ -413,12 +417,18 @@ class GeneticSearch:
         out = copy.deepcopy(genome)
         expr = out.get("update_expr")
         if isinstance(expr, dict):
-            out["update_expr"] = simplify_expr_tree(expr)
+            expr = simplify_expr_tree(expr)
+            if self.force_sign_root:
+                expr = _ensure_sign_root_expr(expr)
+            out["update_expr"] = expr
+        elif self.force_sign_root:
+            out["update_expr"] = _ensure_sign_root_expr({"t": "term", "name": "zeros"})
         if not bool(out.get("update_bias", True)):
             out["bias_expr"] = None
         return out
 
     def _evaluate_cached_genome(self, genome: dict[str, Any]) -> EvaluationResult | None:
+        genome = self._canonicalize_genome(genome)
         fp = self.search_space.fingerprint(genome)
         cached = self._cache.get(fp)
         if cached is not None:
@@ -554,3 +564,11 @@ def _failed_evaluation(genome: dict[str, Any], error: str) -> EvaluationResult:
         error=error,
         traceback=None,
     )
+
+
+def _ensure_sign_root_expr(expr: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(expr, dict):
+        return {"t": "unary", "op": "sign", "a": {"t": "term", "name": "zeros"}}
+    if str(expr.get("t", "")).lower() == "unary" and str(expr.get("op", "")).lower() == "sign":
+        return copy.deepcopy(expr)
+    return {"t": "unary", "op": "sign", "a": copy.deepcopy(expr)}

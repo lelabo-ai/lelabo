@@ -22,6 +22,8 @@ from ..glue_task import GLUETask
 from ...models.registry import build_model, ModelContext
 
 from ...algorithms.update_rules import UpdateRuleContext, build_update_rule
+from ...metrics import MetricContext, build_metric, get_metric_names, parse_metric_names
+from ...seed import derive_seed
 
 from ..callbacks import EarlyStopping, EarlyStoppingConfig
 
@@ -34,6 +36,14 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     is_regression = False
 
     val_loader = None
+    requested_metrics = parse_metric_names(getattr(args, "metrics", ""))
+    available_metrics = set(get_metric_names())
+    unknown_metrics = [name for name in requested_metrics if name not in available_metrics]
+    if unknown_metrics:
+        raise ValueError(
+            f"Unknown metric(s): {unknown_metrics}. "
+            f"Available: {sorted(available_metrics)}"
+        )
 
     callbacks = []
     if bool(args.early_stop):
@@ -47,10 +57,11 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         )))
 
     flatten = (args.model == "mlp")
+    dataset_seed = derive_seed(args.seed, "supervised", "dataset", args.dataset)
     dataset_kwargs = dict(
         name=args.dataset,
         batch_size=args.batch,
-        seed=args.seed,
+        seed=dataset_seed,
         val_frac=args.val_frac,
         flatten=flatten,
         input_noise_dataset=args.input_noise_dataset,
@@ -125,6 +136,11 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             **sched_kwargs,
         )
 
+    rule_extra = {
+        "requested_metrics": requested_metrics,
+        "bp_alignment_every": max(1, int(getattr(args, "bp_alignment_every", 1))),
+        "bp_alignment_eps": float(getattr(args, "bp_alignment_eps", 1e-12)),
+    }
     ctx = UpdateRuleContext(
         args=args,
         model=model,
@@ -132,8 +148,17 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         optimizer=optimizer,
         mode="supervised",
         dataset=args.dataset,
+        extra=rule_extra,
     )
     learner = build_update_rule(args.algo, ctx)
+    metric_ctx = MetricContext(
+        args=args,
+        mode="supervised",
+        dataset=args.dataset,
+        algo=args.algo,
+        extra=rule_extra,
+    )
+    metric_probes = [build_metric(name, metric_ctx) for name in requested_metrics]
 
     trainer = Trainer(
         model=model,
@@ -147,6 +172,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         schedulers=[scheduler] if scheduler is not None else None,
         scheduler_interval=getattr(args, "lr_scheduler_interval", "epoch"),
         scheduler_monitor=getattr(args, "lr_scheduler_monitor", "val.loss"),
+        metric_probes=metric_probes,
     )
 
     summary: Dict[str, Any] = {"args": vars(args)}
@@ -187,6 +213,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
                     mode=mode,
                     device=args.device,
                     trials=args.noise_trials,
+                    seed=derive_seed(args.seed, "robustness", mode, s),
                 )
                 rows.append({"sigma": float(s), "mean_acc": float(mean_acc), "ci95": float(ci95)})
             robustness_block[mode] = {"trials": int(args.noise_trials), "results": rows}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -13,5 +14,6 @@ def load_module_from_path(module_name: str, path: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load module spec from {path}")
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod

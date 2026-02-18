@@ -1,15 +1,15 @@
 name: mnist_ga_sign
-seed: 7
+seed: 1
 device: cpu
 output_dir: genetic_algorithm/outputs
 
 fixed:
-  dataset: mnist
+  dataset: iris
   model: mlp
-  hidden: 64
-  layers: 5
+  hidden: 32
+  layers: 4
   val_frac: 0.2
-  batch: 128
+  batch: 1
   local_phase_epochs: 1
   head_phase_epochs: 0
   epochs: 1  # auto-forced to local_phase_epochs + head_phase_epochs
@@ -20,29 +20,31 @@ fixed:
   noise_on_test: 0
 
 fitness:
-  objective: bp_sign_match_epoch   # accuracy | loss | bp_cosine_epoch | bp_sign_match_epoch
+  objective: bp_update_gap_epoch   # accuracy | loss | bp_cosine_epoch | bp_sign_match_epoch | bp_update_gap_epoch
   split: val            # train | val | test
   final_splits: [train, test]
 
 ga:
-  population_size: 5000
+  population_size: 4000
   generations: 3
-  elite_size: 100
+  elite_size: 200
   tournament_size: 3
   mutation_rate: 0.25
   crossover_rate: 0.7
-  top_k: 10
+  top_k: 5
   max_evals: max      # or "max" to disable budget limit
   workers: 1        # 0=auto, 1=sequential
   show_progress: true
   eval_repeats: 3   # evaluate each individual on 5 different seeds, averaged
   eval_seed_stride: 1
+  force_sign_root: true         # true => enforce update_expr = sign(<inner_expr>) during GA search
+  effective_local_backprop: true  # true => apply BP updates effectively on hidden layers (GA expr still scored vs BP)
   memetic:
     enabled: true
     score_tol: 0.005
-    immigrant_rate: 0.3
+    immigrant_rate: 0.2
   initial_pool:
-    enabled: true
+    enabled: false
     path: genetic_algorithm/pools/iris_seed_pool.json
     max_items: 0      # 0 = use all entries from the JSON file
     strict: false     # true => fail if file/format is invalid

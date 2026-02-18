@@ -68,6 +68,7 @@ class SupervisedEvaluator:
         device: str,
         eval_repeats: int = 1,
         eval_seed_stride: int = 1,
+        effective_local_backprop: bool = False,
     ):
         self.fixed_params = dict(fixed_params)
         self.objective = str(objective).lower()
@@ -75,9 +76,18 @@ class SupervisedEvaluator:
         self.device = str(device)
         self.eval_repeats = int(eval_repeats)
         self.eval_seed_stride = int(eval_seed_stride)
+        self.effective_local_backprop = bool(effective_local_backprop)
 
-        if self.objective not in {"accuracy", "loss", "bp_cosine_epoch", "bp_sign_match_epoch"}:
-            raise ValueError("objective must be accuracy, loss, bp_cosine_epoch, or bp_sign_match_epoch")
+        if self.objective not in {
+            "accuracy",
+            "loss",
+            "bp_cosine_epoch",
+            "bp_sign_match_epoch",
+            "bp_update_gap_epoch",
+        }:
+            raise ValueError(
+                "objective must be accuracy, loss, bp_cosine_epoch, bp_sign_match_epoch, or bp_update_gap_epoch"
+            )
         if self.fitness_split not in {"train", "val", "test"}:
             raise ValueError("fitness_split must be train, val, or test")
         if self.eval_repeats < 1:
@@ -196,7 +206,11 @@ class SupervisedEvaluator:
             task = ClassificationTask(num_classes=int(bundle.num_classes))
             learner = EvolvedMLPUpdateRule(
                 rule_params,
-                track_bp_alignment=(self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch"}),
+                track_bp_alignment=(
+                    self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch", "bp_update_gap_epoch"}
+                ),
+                # For update-gap objective, keep hidden-weight trajectory on BP updates.
+                effective_local_backprop=(self.effective_local_backprop or self.objective == "bp_update_gap_epoch"),
             )
 
             trainer = Trainer(
@@ -215,7 +229,7 @@ class SupervisedEvaluator:
                 show_progress=False,
                 val_loader=bundle.val_loader,
             )
-            if self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch"}:
+            if self.objective in {"bp_cosine_epoch", "bp_sign_match_epoch", "bp_update_gap_epoch"}:
                 train_summary = dict(train_summary)
                 train_summary["bp_alignment"] = learner.alignment_summary()
 
@@ -321,6 +335,16 @@ def _extract_objective(
             raise ValueError("No bp_sign_match_epoch_mean available in train summary for objective bp_sign_match_epoch")
         out = float(value)
         return out, out
+
+    if objective == "bp_update_gap_epoch":
+        align = (train_summary or {}).get("bp_alignment", {})
+        if not isinstance(align, dict):
+            raise ValueError("No bp_alignment payload available in train summary for objective bp_update_gap_epoch")
+        value = align.get("bp_update_gap_epoch_mean")
+        if value is None:
+            raise ValueError("No bp_update_gap_epoch_mean available in train summary for objective bp_update_gap_epoch")
+        out = float(value)
+        return out, -out
 
     raise ValueError(f"Unsupported objective `{objective}`")
 
