@@ -87,6 +87,16 @@ Typical workflow:
 3. Launch runs with `experiments/launchers/launch_grid.py`
 4. Analyze results with scripts in `tools/`
 
+Capsule workflow (share/install/rerun experiments):
+1. `lelabo capsule pack --from <run_dir> --out outputs/exports/capsules/my_run.tar.gz`
+2. `lelabo capsule install outputs/exports/capsules/my_run.tar.gz --name my_baseline`
+3. `lelabo capsule list`
+4. `lelabo capsule show my_baseline`
+5. `lelabo capsule rerun my_baseline --env current`
+
+By default, installed capsules are stored under `.lelabo/capsules/` and can be overridden with
+`--capsules-dir` or `LELABO_CAPSULES_DIR`.
+
 Quick examples:
 
 ```bash

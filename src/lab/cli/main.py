@@ -90,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
+    if argv and argv[0] == "capsule":
+        from .capsule import main as _capsule_main
+
+        return _capsule_main(argv[1:])
+
     if argv and argv[0] == "test":
         return _run_rule_audit_cli(argv[1:])
 
