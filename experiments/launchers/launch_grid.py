@@ -210,7 +210,10 @@ def main():
 
         run_dirname = build_run_dirname(merged, display_keys)
         job_dir = out_root / run_dirname
-        cmd = [args.python, "-m", args.entry] + to_cli_args(merged) + ["--run-dir", str(job_dir)]
+        cmd = [args.python, "-m", args.entry]
+        if args.entry == "lab.cli.main":
+            cmd.append("train")
+        cmd += to_cli_args(merged) + ["--run-dir", str(job_dir)]
 
 
         jobs.append(

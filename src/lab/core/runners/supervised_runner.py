@@ -16,7 +16,6 @@ from ..robustness import test_with_noise
 
 # GLUE
 from transformers import AutoModelForSequenceClassification
-from ..glue_task import GLUETask
 
 # models
 from ...models.registry import build_model, ModelContext

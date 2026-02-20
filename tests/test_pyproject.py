@@ -13,7 +13,7 @@ def test_pyproject_declares_src_layout_and_cli_scripts() -> None:
 
     scripts = pyproject["project"]["scripts"]
     assert scripts["lelabo"] == "lab.cli.main:main"
-    assert scripts["lelabo-profiler"] == "lab.aux.profiler:main"
+    assert "lelabo-profiler" not in scripts
 
 
 def test_pyproject_has_test_optional_dependencies() -> None:

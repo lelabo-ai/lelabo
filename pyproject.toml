@@ -17,7 +17,6 @@ test = ["pytest>=8", "pyyaml>=6"]
 
 [project.scripts]
 lelabo = "lab.cli.main:main"
-lelabo-profiler = "lab.aux.profiler:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

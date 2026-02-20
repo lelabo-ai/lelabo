@@ -108,6 +108,10 @@ lelabo --help
 ```
 
 ```bash
+lelabo train --help
+```
+
+```bash
 python experiments/launchers/launch_grid.py \
   --config experiments/configs/demo.yaml \
   --max-parallel 4

@@ -1,108 +1,98 @@
 from __future__ import annotations
 
-import argparse
-import os
-import subprocess
 import sys
+from typing import Sequence
+
+from ._common import coerce_system_exit_code, is_help_token
+from .commands.audit import main as run_audit_command
+from .commands.capsule import main as run_capsule_command
+from .commands.train import main as run_train_command
 
 
-def _run_rule_audit_cli(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="lelabo test",
-        description="Run warn-only local update-rule audit.",
-    )
-    parser.add_argument(
-        "rule",
-        nargs="?",
-        help="Update rule to audit (e.g. bp, kp3, dni). Ignored with --all.",
-    )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Audit all registered update rules.",
-    )
-    parser.add_argument(
-        "--modes",
-        default="supervised,rl",
-        help="Comma-separated modes to audit. Default: supervised,rl",
-    )
-    parser.add_argument(
-        "--model",
-        default="auto",
-        help=(
-            "Supervised model(s) for the audit. "
-            "Use auto/all (default set), one model (mlp/cnn/transformer/deephebb), "
-            "or a comma-separated list."
-        ),
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=1,
-        help="Number of audit epochs to run. Default: 1",
-    )
-    parser.add_argument(
-        "--steps-per-epoch",
-        type=int,
-        default=1,
-        help="Number of train_step calls per epoch. Default: 1",
-    )
-    parser.add_argument(
-        "--no-quiet",
-        action="store_true",
-        help="Disable pytest -q to show full output.",
-    )
-    parser.add_argument(
-        "--show-warnings",
-        action="store_true",
-        help="Show all warnings during audit execution.",
-    )
-    args, unknown = parser.parse_known_args(argv)
+def _run_command(fn, argv: Sequence[str]) -> int:
+    try:
+        return int(fn(list(argv)))
+    except SystemExit as exc:
+        return coerce_system_exit_code(exc.code)
 
-    if not args.all and not args.rule:
-        parser.error("Provide a rule name (e.g. 'lelabo test bp') or use '--all'.")
 
-    env = os.environ.copy()
-    env["LELABO_RULE_AUDIT"] = "1"
-    env["LELABO_RULE_AUDIT_MODES"] = args.modes
-    env["LELABO_RULE_AUDIT_MODEL"] = args.model
-    env["LELABO_RULE_AUDIT_EPOCHS"] = str(max(1, int(args.epochs)))
-    env["LELABO_RULE_AUDIT_STEPS_PER_EPOCH"] = str(max(1, int(args.steps_per_epoch)))
-    if not args.all:
-        env["LELABO_RULE_AUDIT_ALGOS"] = str(args.rule).strip()
+def _run_train_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_train_command, argv)
 
-    cmd = [sys.executable, "-m", "pytest"]
-    if not args.no_quiet:
-        cmd.append("-q")
-    cmd.extend(["-m", "heavy", "tests/test_update_rules_research_audit.py"])
-    if args.show_warnings:
-        cmd.extend(["-W", "default"])
 
-    extra = unknown
-    if extra and extra[0] == "--":
-        extra = extra[1:]
-    cmd.extend(extra)
+def _run_audit_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_audit_command, argv)
 
-    return subprocess.call(cmd, env=env)
+
+def _run_capsule_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_capsule_command, argv)
+
+
+ROOT_HELP = """\
+LeLabo command-line interface.
+
+Usage:
+  lelabo <command> [args]
+
+Commands:
+  train      Run supervised/RL training
+  audit      Run update-rule audit tests
+  capsule    Pack/install/list/show/rerun experiment capsules
+
+Help:
+  lelabo -h
+  lelabo train -h
+  lelabo audit -h
+  lelabo capsule -h
+
+Examples:
+  lelabo train --dataset iris --model mlp --algo bp
+  lelabo audit --all --modes supervised,rl
+  lelabo capsule pack --from outputs/runs/demo/run1
+"""
+
+
+def _print_root_help() -> None:
+    print(ROOT_HELP)
 
 
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    if argv and argv[0] == "capsule":
-        from .capsule import main as _capsule_main
+    if not argv:
+        _print_root_help()
+        return 0
 
-        return _capsule_main(argv[1:])
+    cmd = str(argv[0]).strip().lower()
+    rest = list(argv[1:])
 
-    if argv and argv[0] == "test":
-        return _run_rule_audit_cli(argv[1:])
+    if is_help_token(cmd):
+        _print_root_help()
+        return 0
 
-    from ..main import main as _train_main
+    if cmd == "train":
+        if rest and is_help_token(rest[0]):
+            return _run_train_cli(["-h"])
+        return _run_train_cli(rest)
 
-    sys.argv = [sys.argv[0], *argv]
-    _train_main()
-    return 0
+    if cmd == "audit":
+        if rest and is_help_token(rest[0]):
+            return _run_audit_cli(["-h"])
+        return _run_audit_cli(rest)
+
+    if cmd == "capsule":
+        if not rest or is_help_token(rest[0]):
+            return _run_capsule_cli(["--help"])
+        return _run_capsule_cli(rest)
+
+    raise SystemExit(
+        "Unknown command: "
+        f"{cmd}\n\n"
+        "Use one of: train, audit, capsule.\n"
+        "Run `lelabo --help` for usage."
+    )
+    return 2
 
 
 if __name__ == "__main__":

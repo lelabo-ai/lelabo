@@ -1,32 +1,35 @@
 # lab/main.py
 import argparse
+import warnings
 from pathlib import Path
 
 import torch
 
 from .seed import derive_seed, seed_everything
 from .core.utils.logger import RunLogger
-from .core.utils.envs import make_env, make_vec_env
-from .core.utils.optim import make_optimizer
-
-# RL
-from .core.runners.rl_runner import RLRunner
-from .models.qnet import QNet
-from .models.actor_critic import ActorCriticDiscrete
-from .algorithms.update_rules import UpdateRuleContext, build_update_rule, get_update_rule_names
-from .algorithms.rl.dqn import DQN, DQNConfig
-from .algorithms.rl.ppo import PPO, PPOAlgoConfig
-from .core.task import PPOConfig
+# parser choices
+from .algorithms.update_rules import get_update_rule_names
 from .metrics import get_metric_names
-
-# Supervised
-from .core.runners.supervised_runner import run_supervised
 
 from .models import get_model_names
 from .datasets import get_dataset_names
 
+
+def _default_device() -> str:
+    # Help/arg parsing should not emit CUDA driver warnings.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="CUDA initialization:.*")
+        try:
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            return "cpu"
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(
+        prog="lelabo train",
+        description="Run a LeLabo experiment (supervised or RL).",
+    )
 
     # General
     dataset_choices = sorted(set(get_dataset_names() + ["cartpole"]))
@@ -62,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--batch", type=int, default=64)
-    p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--device", type=str, default=_default_device())
     p.add_argument("--seed", type=int, default=2)
     p.add_argument(
         "--determinism",
@@ -167,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_rl(args, logger: RunLogger):
+    from .algorithms.rl.dqn import DQN, DQNConfig
+    from .algorithms.rl.ppo import PPO, PPOAlgoConfig
+    from .algorithms.update_rules import UpdateRuleContext, build_update_rule
+    from .core.runners.rl_runner import RLRunner
+    from .core.task import PPOConfig
+    from .core.utils.envs import make_env, make_vec_env
+    from .core.utils.optim import make_optimizer
+    from .models.actor_critic import ActorCriticDiscrete
+    from .models.qnet import QNet
+
     device = args.device
     train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
     eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
@@ -284,6 +297,8 @@ def main():
         summary = {"args": vars(args), "rl": {"algo": args.rl_algo, **rl_summary}}
         logger.write_summary(summary)
         return
+
+    from .core.runners.supervised_runner import run_supervised
 
     summary = run_supervised(args, logger)
     logger.write_summary(summary)
