@@ -212,5 +212,7 @@ results/
 outputs/runs/
 data/
 
-genetic_algorithm/outputs/*
-!genetic_algorithm/outputs/.gitkeep
+#genetic_algorithm/outputs/*
+#!genetic_algorithm/outputs/.gitkeep
+genetic_algorithm
+ga/
