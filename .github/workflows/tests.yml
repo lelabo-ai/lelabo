@@ -16,14 +16,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Package (Editable)
-        run: python -m pip install -e . --no-build-isolation
+      - name: Install Package (Editable + Test Deps)
+        run: python -m pip install -e ".[test]" --no-build-isolation
 
       - name: Install Torch (CPU)
         run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-
-      - name: Install Test Dependencies
-        run: python -m pip install pytest pyyaml
 
       - name: Run Tests
         run: pytest -q -m "not heavy"
