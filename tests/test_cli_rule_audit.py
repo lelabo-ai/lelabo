@@ -11,6 +11,7 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 cli_main = importlib.import_module("lab.cli.main")
 audit_cli = importlib.import_module("lab.cli.commands.audit")
+api_audit = importlib.import_module("lab.api.audit")
 
 
 def test_lelabo_audit_rule_invokes_pytest_with_expected_env(monkeypatch) -> None:
@@ -20,7 +21,7 @@ def test_lelabo_audit_rule_invokes_pytest_with_expected_env(monkeypatch) -> None
         calls.append((cmd, env))
         return 0
 
-    monkeypatch.setattr(audit_cli.subprocess, "call", _fake_call)
+    monkeypatch.setattr(api_audit.subprocess, "call", _fake_call)
 
     rc = audit_cli.main(["bp"])
     assert rc == 0
@@ -48,7 +49,7 @@ def test_lelabo_audit_all_does_not_force_specific_algo(monkeypatch) -> None:
         calls.append((cmd, env))
         return 0
 
-    monkeypatch.setattr(audit_cli.subprocess, "call", _fake_call)
+    monkeypatch.setattr(api_audit.subprocess, "call", _fake_call)
 
     rc = audit_cli.main(["--all", "--modes", "supervised"])
     assert rc == 0
@@ -68,7 +69,7 @@ def test_lelabo_audit_accepts_model_and_epoch_options(monkeypatch) -> None:
         calls.append((cmd, env))
         return 0
 
-    monkeypatch.setattr(audit_cli.subprocess, "call", _fake_call)
+    monkeypatch.setattr(api_audit.subprocess, "call", _fake_call)
 
     rc = audit_cli.main(["softhebb", "--model", "deephebb", "--epochs", "3", "--steps-per-epoch", "2"])
     assert rc == 0
@@ -89,7 +90,7 @@ def test_lelabo_audit_show_warnings_and_extra_pytest_args(monkeypatch) -> None:
         calls.append((cmd, env))
         return 0
 
-    monkeypatch.setattr(audit_cli.subprocess, "call", _fake_call)
+    monkeypatch.setattr(api_audit.subprocess, "call", _fake_call)
 
     rc = audit_cli.main(["bp", "--show-warnings", "--", "-s"])
     assert rc == 0
@@ -108,7 +109,7 @@ def test_lelabo_audit_accepts_multiple_models(monkeypatch) -> None:
         calls.append((cmd, env))
         return 0
 
-    monkeypatch.setattr(audit_cli.subprocess, "call", _fake_call)
+    monkeypatch.setattr(api_audit.subprocess, "call", _fake_call)
 
     rc = audit_cli.main(["bp", "--model", "mlp,cnn,transformer", "--epochs", "2"])
     assert rc == 0
@@ -148,9 +149,9 @@ def test_train_dispatch_forwards_arguments(monkeypatch) -> None:
         return 0
 
     monkeypatch.setattr(cli_main, "_run_train_cli", _fake_run_train)
-    rc = cli_main.main(["train", "--dataset", "iris", "--seed", "7"])
+    rc = cli_main.main(["train", "--source", "iris", "--seed", "7"])
     assert rc == 0
-    assert seen["argv"] == ["--dataset", "iris", "--seed", "7"]
+    assert seen["argv"] == ["--source", "iris", "--seed", "7"]
 
 
 def test_train_help_is_dispatched_to_train_cli(monkeypatch) -> None:

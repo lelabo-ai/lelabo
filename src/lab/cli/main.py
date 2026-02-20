@@ -46,7 +46,7 @@ Help:
   lelabo capsule -h
 
 Examples:
-  lelabo train --dataset iris --model mlp --algo bp
+  lelabo train --source iris --model mlp --algo bp
   lelabo audit --all --modes supervised,rl
   lelabo capsule pack --from outputs/runs/demo/run1
 """

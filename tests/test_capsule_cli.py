@@ -8,7 +8,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-capsule_cli = importlib.import_module("lab.cli.capsule")
+capsule_cli = importlib.import_module("lab.cli.commands.capsule")
 
 
 def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:

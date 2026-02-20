@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from ...capsule.install import install_capsule
-from ...capsule.pack import pack_capsule
-from ...capsule.registry import get_capsule, list_capsules
-from ...capsule.rerun import rerun_capsule
+from ...api.capsule import install_capsule
+from ...api.capsule import list_capsules
+from ...api.capsule import pack_capsule
+from ...api.capsule import rerun_capsule
+from ...api.capsule import show_capsule
 
 
 CAPSULE_HELP = """\
@@ -84,9 +85,10 @@ def _cmd_show(argv: list[str]) -> int:
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     args = parser.parse_args(argv)
 
-    row = get_capsule(args.id_or_alias, Path(args.capsules_dir) if args.capsules_dir else None)
-    if row is None:
-        raise SystemExit(f"Unknown capsule '{args.id_or_alias}'")
+    try:
+        row = show_capsule(args.id_or_alias, Path(args.capsules_dir) if args.capsules_dir else None)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     print(json.dumps(row, indent=2, ensure_ascii=False))
     return 0
 
@@ -137,4 +139,3 @@ def main(argv: Sequence[str]) -> int:
         "Use one of: pack, install, list, show, rerun.\n"
         "Run `lelabo capsule -h` for usage."
     )
-

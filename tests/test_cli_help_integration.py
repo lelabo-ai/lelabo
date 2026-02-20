@@ -14,10 +14,23 @@ def test_train_help_displays_train_parser_usage() -> None:
     assert proc.returncode == 0
     assert "usage: lelabo train" in proc.stdout
     assert "Run a LeLabo experiment" in proc.stdout
-
+    assert "--source SOURCE" in proc.stdout
+    assert "--task {auto,supervised,rl}" in proc.stdout
 
 def test_audit_help_displays_audit_parser_usage() -> None:
     proc = _run_cli_help("audit", "-h")
     assert proc.returncode == 0
     assert "usage: lelabo audit" in proc.stdout
     assert "Run warn-only local update-rule audit" in proc.stdout
+
+
+def test_train_requires_source_flag() -> None:
+    proc = _run_cli_help("train")
+    assert proc.returncode != 0
+    assert "--source" in proc.stderr
+
+
+def test_train_rejects_legacy_dataset_flag() -> None:
+    proc = _run_cli_help("train", "--source", "iris", "--dataset", "mnist")
+    assert proc.returncode != 0
+    assert "unrecognized arguments: --dataset mnist" in proc.stderr

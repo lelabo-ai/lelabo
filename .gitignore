@@ -209,8 +209,9 @@ __marimo__/
 .vscode
 
 results/
-outputs/runs/
+outputs/
 data/
+
 
 #genetic_algorithm/outputs/*
 #!genetic_algorithm/outputs/.gitkeep
