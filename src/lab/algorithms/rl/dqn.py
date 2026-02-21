@@ -8,6 +8,7 @@ import copy
 import numpy as np
 import torch
 
+from .contract import list_contract_keys, resolve_dataclass_overrides
 from ...core.replay_buffer import ReplayBuffer
 from ...core.task import DQNTask
 
@@ -23,6 +24,27 @@ class DQNConfig:
     eps_start: float = 1.0
     eps_end: float = 0.05
     eps_decay_steps: int = 50_000
+
+
+_DQN_CONFIG_ALIASES = {
+    "rl_batch_size": "batch_size",
+}
+
+
+def get_config_contract() -> tuple[str, ...]:
+    """Return accepted override keys for DQN config resolution."""
+    return list_contract_keys(DQNConfig(), aliases=_DQN_CONFIG_ALIASES)
+
+
+def resolve_config_overrides(overrides: dict[str, str]) -> DQNConfig:
+    """Build DQN config from string overrides validated against DQN contract."""
+    return resolve_dataclass_overrides(
+        DQNConfig(),
+        overrides,
+        aliases=_DQN_CONFIG_ALIASES,
+        allow_none_float_paths=set(),
+        algo_label="DQN",
+    )
 
 
 class DQN:

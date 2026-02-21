@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.distributions.categorical import Categorical
 
+from .contract import list_contract_keys, resolve_dataclass_overrides
 from ...core.task import PPOConfig, PPOTask
 
 
@@ -20,6 +21,38 @@ class PPOAlgoConfig:
     update_epochs: int = 4
     num_minibatches: int = 4
     ppo: PPOConfig = field(default_factory=PPOConfig)
+
+
+_PPO_CONFIG_ALIASES = {
+    "ppo_num_envs": "num_envs",
+    "ppo_num_steps": "num_steps",
+    "ppo_update_epochs": "update_epochs",
+    "ppo_num_minibatches": "num_minibatches",
+    "clip_coef": "ppo.clip_coef",
+    "ent_coef": "ppo.ent_coef",
+    "vf_coef": "ppo.vf_coef",
+    "norm_adv": "ppo.norm_adv",
+    "clip_vloss": "ppo.clip_vloss",
+    "target_kl": "ppo.target_kl",
+}
+
+_PPO_ALLOW_NONE_FLOAT_PATHS = {"ppo.target_kl"}
+
+
+def get_config_contract() -> tuple[str, ...]:
+    """Return accepted override keys for PPO config resolution."""
+    return list_contract_keys(PPOAlgoConfig(), aliases=_PPO_CONFIG_ALIASES)
+
+
+def resolve_config_overrides(overrides: dict[str, str]) -> PPOAlgoConfig:
+    """Build PPO config from string overrides validated against PPO contract."""
+    return resolve_dataclass_overrides(
+        PPOAlgoConfig(),
+        overrides,
+        aliases=_PPO_CONFIG_ALIASES,
+        allow_none_float_paths=_PPO_ALLOW_NONE_FLOAT_PATHS,
+        algo_label="PPO",
+    )
 
 
 class PPO:

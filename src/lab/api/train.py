@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import re
+import sys
 import warnings
 from pathlib import Path
 from typing import Any, Sequence
@@ -13,7 +13,8 @@ from ..core.utils.logger import RunLogger
 from ..algorithms.update_rules import get_update_rule_names
 from ..metrics import get_metric_names
 from ..models import get_model_names
-from ..datasets import get_dataset_names
+from .train_resolver import _resolve_task, collect_provided_flags, resolve_train_args
+from .train_validator import validate_train_args
 
 
 def _default_device() -> str:
@@ -122,30 +123,19 @@ def build_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--early-patience", type=int, default=5)
     parser.add_argument("--early-min-delta", type=float, default=0.0)
     parser.add_argument("--early-warmup", type=int, default=5)
+    parser.add_argument("--rl-algo", type=str, default="ppo", choices=["dqn", "ppo"])
     parser.add_argument("--rl-steps", type=int, default=500_000)
     parser.add_argument("--rl-eval-episodes", type=int, default=10)
-    parser.add_argument("--rl-algo", type=str, default="ppo", choices=["dqn", "ppo"])
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--buffer-size", type=int, default=100_000)
-    parser.add_argument("--learning-starts", type=int, default=1000)
-    parser.add_argument("--train-freq", type=int, default=1)
-    parser.add_argument("--target-update-freq", type=int, default=1000)
-    parser.add_argument("--eps-start", type=float, default=1.0)
-    parser.add_argument("--eps-end", type=float, default=0.05)
-    parser.add_argument("--eps-decay-steps", type=int, default=50_000)
-    parser.add_argument("--rl-batch-size", type=int, default=256)
-    parser.add_argument("--ppo-num-envs", type=int, default=8)
-    parser.add_argument("--ppo-num-steps", type=int, default=128)
-    parser.add_argument("--ppo-update-epochs", type=int, default=4)
-    parser.add_argument("--ppo-num-minibatches", type=int, default=4)
-    parser.add_argument("--gae-lambda", type=float, default=0.95)
-    parser.add_argument("--clip-coef", type=float, default=0.2)
-    parser.add_argument("--ent-coef", type=float, default=0.01)
-    parser.add_argument("--vf-coef", type=float, default=0.5)
-    parser.add_argument("--norm-adv", type=int, default=1)
-    parser.add_argument("--clip-vloss", type=int, default=1)
-    parser.add_argument("--target-kl", type=float, default=None)
-    parser.add_argument("--max-grad-norm", type=float, default=0.5)
+    parser.add_argument(
+        "--rl-param",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "RL algo config override. Repeatable. "
+            "Examples: --rl-param gamma=0.97 --rl-param num_steps=256"
+        ),
+    )
     parser.add_argument("--robustness", type=str, default="input_noise", choices=["none", "input_noise", "relative_input_noise", "weight_noise", "all"])
     parser.add_argument("--noise-trials", type=int, default=30)
     parser.add_argument(
@@ -162,55 +152,9 @@ def build_train_parser() -> argparse.ArgumentParser:
 
 
 def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    args = build_train_parser().parse_args(list(argv) if argv is not None else None)
-    return _resolve_source(args)
-
-
-def _looks_like_env_id(source: str) -> bool:
-    return bool(re.search(r"-v[0-9]+$", source.strip()))
-
-
-def _resolve_task(args: argparse.Namespace, dataset_names: set[str]) -> str:
-    requested = str(getattr(args, "task", "auto")).strip().lower()
-    if requested in {"supervised", "rl"}:
-        return requested
-
-    source = str(getattr(args, "source", "")).strip()
-    if source.lower() in {name.lower() for name in dataset_names}:
-        return "supervised"
-    if _looks_like_env_id(source):
-        return "rl"
-
-    raise ValueError(
-        f"Cannot infer task from source '{source}'. "
-        "Use a known dataset name, a Gym env id like 'CartPole-v1', "
-        "or force '--task supervised|rl'."
-    )
-
-
-def _resolve_source(args: argparse.Namespace) -> argparse.Namespace:
-    source = str(getattr(args, "source", "")).strip()
-    if not source:
-        raise ValueError("--source cannot be empty.")
-
-    dataset_names = set(get_dataset_names())
-    dataset_by_lower = {name.lower(): name for name in dataset_names}
-    task = _resolve_task(args, dataset_names=dataset_names)
-    args.task = task
-
-    if task == "supervised":
-        dataset = dataset_by_lower.get(source.lower())
-        if dataset is None:
-            raise ValueError(
-                f"Unknown supervised dataset source '{source}'. "
-                f"Available datasets: {sorted(dataset_names)}"
-            )
-        args.dataset = dataset
-        args.env = None
-        return args
-
-    args.env = source
-    args.dataset = f"env:{source}"
+    raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
+    args = build_train_parser().parse_args(raw_argv)
+    args._provided_flags = collect_provided_flags(raw_argv)
     return args
 
 
@@ -246,7 +190,9 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def run_train(args: argparse.Namespace) -> dict[str, Any]:
-    return run_experiment(_resolve_source(args))
+    resolved = resolve_train_args(args)
+    validate_train_args(resolved)
+    return run_experiment(resolved)
 
 
 def run_train_from_argv(argv: Sequence[str] | None = None) -> dict[str, Any]:
@@ -254,5 +200,8 @@ def run_train_from_argv(argv: Sequence[str] | None = None) -> dict[str, Any]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    run_train_from_argv(argv)
+    try:
+        run_train_from_argv(argv)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     return 0

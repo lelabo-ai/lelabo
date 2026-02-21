@@ -3,21 +3,23 @@ from __future__ import annotations
 from argparse import Namespace
 from typing import Any
 
-from ..algorithms.rl.dqn import DQN, DQNConfig
-from ..algorithms.rl.ppo import PPO, PPOAlgoConfig
+from ..algorithms.rl.dqn import DQN
+from ..algorithms.rl.ppo import PPO
 from ..algorithms.update_rules import UpdateRuleContext, build_update_rule
 from ..core.runners.rl_runner import RLRunner
-from ..core.task import PPOConfig
 from ..core.utils.envs import make_env, make_vec_env
 from ..core.utils.logger import RunLogger
 from ..core.utils.optim import make_optimizer
 from ..models.actor_critic import ActorCriticDiscrete
 from ..models.qnet import QNet
 from ..seed import derive_seed
+from .train_rl_config import build_rl_algo_config, parse_rl_param_overrides
 
 
 def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
     device = args.device
+    raw_rl_params = list(getattr(args, "rl_param", []) or [])
+    rl_overrides = parse_rl_param_overrides(raw_rl_params)
     train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
     eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
 
@@ -42,17 +44,7 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         )
         learner = build_update_rule("bp", ctx)
 
-        cfg = DQNConfig(
-            gamma=args.gamma,
-            batch_size=args.rl_batch_size,
-            buffer_size=args.buffer_size,
-            learning_starts=args.learning_starts,
-            train_freq=args.train_freq,
-            target_update_freq=args.target_update_freq,
-            eps_start=args.eps_start,
-            eps_end=args.eps_end,
-            eps_decay_steps=args.eps_decay_steps,
-        )
+        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
 
         algo = DQN(q_net=qnet, learner=learner, cfg=cfg)
         algo.setup(obs_dim=obs_dim, n_actions=n_actions)
@@ -61,8 +53,9 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     if args.rl_algo == "ppo":
+        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
         vec_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "vec_env")
-        envs = make_vec_env(args.env, seed=vec_env_seed, num_envs=args.ppo_num_envs)
+        envs = make_vec_env(args.env, seed=vec_env_seed, num_envs=cfg.num_envs)
         eval_env = make_env(args.env, seed=eval_env_seed)
 
         obs_dim = int(envs.single_observation_space.shape[0])
@@ -82,24 +75,6 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         )
         learner = build_update_rule(args.algo, ctx)
 
-        loss_cfg = PPOConfig(
-            clip_coef=args.clip_coef,
-            ent_coef=args.ent_coef,
-            vf_coef=args.vf_coef,
-            norm_adv=bool(args.norm_adv),
-            clip_vloss=bool(args.clip_vloss),
-            target_kl=args.target_kl,
-        )
-        cfg = PPOAlgoConfig(
-            num_envs=args.ppo_num_envs,
-            num_steps=args.ppo_num_steps,
-            gamma=args.gamma,
-            gae_lambda=args.gae_lambda,
-            update_epochs=args.ppo_update_epochs,
-            num_minibatches=args.ppo_num_minibatches,
-            ppo=loss_cfg,
-        )
-
         algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
         runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, verbose=bool(args.verbose))
         out = runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
@@ -108,4 +83,3 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         return out
 
     raise ValueError(f"Unknown rl algo: {args.rl_algo}")
-

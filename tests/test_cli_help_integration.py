@@ -34,3 +34,9 @@ def test_train_rejects_legacy_dataset_flag() -> None:
     proc = _run_cli_help("train", "--source", "iris", "--dataset", "mnist")
     assert proc.returncode != 0
     assert "unrecognized arguments: --dataset mnist" in proc.stderr
+
+
+def test_train_rejects_legacy_rl_specific_flag() -> None:
+    proc = _run_cli_help("train", "--source", "CartPole-v1", "--task", "rl", "--gamma", "0.95")
+    assert proc.returncode != 0
+    assert "unrecognized arguments: --gamma 0.95" in proc.stderr

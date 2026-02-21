@@ -9,6 +9,8 @@ from .capsule import (
     show_capsule,
 )
 from .train import build_train_parser, parse_train_args, run_train, run_train_from_argv
+from .train_resolver import resolve_train_args
+from .train_validator import validate_train_args
 
 __all__ = [
     "build_audit_parser",
@@ -17,6 +19,8 @@ __all__ = [
     "run_audit",
     "run_train",
     "run_train_from_argv",
+    "resolve_train_args",
+    "validate_train_args",
     "pack_capsule",
     "install_capsule",
     "list_capsules",
