@@ -8,9 +8,9 @@ from typing import Any, Sequence
 
 import torch
 
-from ..seed import seed_everything
+from ..core.utils.seed import seed_everything
 from ..core.utils.logger import RunLogger
-from ..algorithms.update_rules import get_update_rule_names
+from ..update_rules import get_update_rule_names
 from ..metrics import get_metric_names
 from ..models import get_model_names
 from .train_resolver import _resolve_task, collect_provided_flags, resolve_train_args

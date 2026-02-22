@@ -47,17 +47,16 @@ def _load_lab_modules(monkeypatch: pytest.MonkeyPatch):
     _stub_namespace_package(monkeypatch, "lab", src_root / "lab")
     _stub_namespace_package(monkeypatch, "lab.core", src_root / "lab" / "core")
     _stub_namespace_package(monkeypatch, "lab.models", src_root / "lab" / "models")
-    _stub_namespace_package(monkeypatch, "lab.algorithms", src_root / "lab" / "algorithms")
     _stub_namespace_package(
         monkeypatch,
-        "lab.algorithms.update_rules",
-        src_root / "lab" / "algorithms" / "update_rules",
+        "lab.update_rules",
+        src_root / "lab" / "update_rules",
     )
 
     importlib.import_module("torch")
 
-    registry = importlib.import_module("lab.algorithms.update_rules.registry")
-    importlib.import_module("lab.algorithms.update_rules.builders")
+    registry = importlib.import_module("lab.update_rules.registry")
+    importlib.import_module("lab.update_rules.builders")
     mlp_mod = importlib.import_module("lab.models.imported.mlp")
     conv_mod = importlib.import_module("lab.models.imported.convnet")
     deephebb_mod = importlib.import_module("lab.models.imported.deep_softhebb")

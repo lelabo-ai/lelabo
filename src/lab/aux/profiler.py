@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from ..models import *
 from ..core.task import *
-from ..algorithms.update_rules import UpdateRuleContext, build_update_rule
+from ..update_rules import UpdateRuleContext, build_update_rule
 
 # -----------------------------
 # Robust imports (package or local)

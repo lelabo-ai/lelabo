@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable
 import gymnasium as gym
-from lab.seed import derive_seed
+from lab.core.utils.seed import derive_seed
 
 
 def make_env(env_id: str, seed: int) -> gym.Env:

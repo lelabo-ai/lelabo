@@ -1,14 +1,10 @@
-"""Utility modules for LeLabo core.
-
-Modules are exposed lazily so importing ``lab.core.utils`` does not require
-optional dependencies.
-"""
+"""Reinforcement-learning namespace."""
 
 from __future__ import annotations
 
 import importlib
 
-__all__ = ["envs", "logger", "seed"]
+__all__ = ["algorithms", "runner"]
 
 
 def __getattr__(name: str):

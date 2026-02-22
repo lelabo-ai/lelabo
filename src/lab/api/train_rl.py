@@ -3,16 +3,15 @@ from __future__ import annotations
 from argparse import Namespace
 from typing import Any
 
-from ..algorithms.rl.dqn import DQN
-from ..algorithms.rl.ppo import PPO
-from ..algorithms.update_rules import UpdateRuleContext, build_update_rule
+from ..rl.algorithms import DQN, PPO
+from ..update_rules import UpdateRuleContext, build_update_rule
 from ..core.runners.rl_runner import RLRunner
 from ..core.utils.envs import make_env, make_vec_env
 from ..core.utils.logger import RunLogger
-from ..core.utils.optim import make_optimizer
-from ..models.actor_critic import ActorCriticDiscrete
-from ..models.qnet import QNet
-from ..seed import derive_seed
+from ..optimizers import make_optimizer
+from ..models.imported.actor_critic import ActorCriticDiscrete
+from ..models.imported.qnet import QNet
+from ..core.utils.seed import derive_seed
 from .train_rl_config import build_rl_algo_config, parse_rl_param_overrides
 
 

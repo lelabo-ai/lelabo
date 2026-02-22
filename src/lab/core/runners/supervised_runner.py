@@ -6,11 +6,11 @@ import json
 
 import torch
 from ..trainer import Trainer
-from ..utils.optim import make_optimizer, make_scheduler
+from ...optimizers import make_optimizer, make_scheduler
 from ..utils.logger import RunLogger
 
 # datasets
-from ...datasets import get_dataset
+from ...supervised.datasets import get_dataset
 from ..task import ClassificationTask
 from ..robustness import test_with_noise
 
@@ -20,9 +20,9 @@ from transformers import AutoModelForSequenceClassification
 # models
 from ...models.registry import build_model, ModelContext
 
-from ...algorithms.update_rules import UpdateRuleContext, build_update_rule
+from ...update_rules import UpdateRuleContext, build_update_rule
 from ...metrics import MetricContext, build_metric, get_metric_names, parse_metric_names
-from ...seed import derive_seed
+from ..utils.seed import derive_seed
 
 from ..callbacks import EarlyStopping, EarlyStoppingConfig
 

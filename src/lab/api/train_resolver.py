@@ -4,7 +4,7 @@ import argparse
 import re
 from typing import Sequence
 
-from ..datasets import get_dataset_names
+from ..supervised.datasets import get_dataset_names
 
 
 def collect_provided_flags(argv: Sequence[str]) -> set[str]:
@@ -69,4 +69,3 @@ def resolve_train_args(args: argparse.Namespace) -> argparse.Namespace:
     args.env = source
     args.dataset = f"env:{source}"
     return args
-

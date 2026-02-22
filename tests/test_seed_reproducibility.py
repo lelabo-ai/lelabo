@@ -26,12 +26,18 @@ TORCH_OK = _torch_import_healthy()
 
 
 def _load_seed_module() -> ModuleType:
-    return load_module_from_path("seed_module_for_tests", REPO_ROOT / "src" / "lab" / "seed.py")
+    return load_module_from_path(
+        "seed_module_for_tests",
+        REPO_ROOT / "src" / "lab" / "core" / "utils" / "seed.py",
+    )
 
 
 def _load_dataset_base_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.syspath_prepend(str(REPO_ROOT / "src"))
-    return load_module_from_path("dataset_base_module_for_tests", REPO_ROOT / "src" / "lab" / "datasets" / "base.py")
+    return load_module_from_path(
+        "dataset_base_module_for_tests",
+        REPO_ROOT / "src" / "lab" / "supervised" / "datasets" / "base.py",
+    )
 
 
 def test_derive_seed_is_stable_and_namespaced() -> None:

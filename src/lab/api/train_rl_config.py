@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..algorithms.rl.registry import get_rl_config_contract, resolve_rl_config
+from ..rl.algorithms import get_rl_config_contract, resolve_rl_config
 
 
 def parse_rl_param_overrides(raw_params: list[str] | tuple[str, ...]) -> dict[str, str]:
@@ -36,4 +36,3 @@ def build_dqn_config(overrides: dict[str, str]) -> Any:
 
 def build_ppo_config(overrides: dict[str, str]) -> Any:
     return build_rl_algo_config("ppo", overrides)
-
