@@ -98,6 +98,28 @@ def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
         raise AssertionError("Expected SystemExit for unsafe external capsule deletion.")
 
 
+def test_capsule_cli_restore_rejects_external_paths(tmp_path) -> None:
+    caps_dir = tmp_path / "capsules"
+    external = tmp_path / "external_capsule"
+    external.mkdir()
+    (external / "manifest.json").write_text("{}", encoding="utf-8")
+
+    capsule_registry.add_capsule_entry(
+        capsule_id="external_restore_cap",
+        capsule_path=external,
+        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": str(external)}},
+        alias="external_restore_alias",
+        capsules_dir=caps_dir,
+    )
+
+    try:
+        capsule_cli.main(["restore", "external_restore_alias", "--capsules-dir", str(caps_dir)])
+    except SystemExit as exc:
+        assert "Refusing to restore capsule files outside cache" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit for unsafe external capsule restore.")
+
+
 def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
     source = capsule_create.create_capsule_scaffold(
         capsule_name="store_demo_capsule",
@@ -111,9 +133,11 @@ def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
 
     store_payload = json.loads(capsys.readouterr().out)
     assert store_payload["capsule_id"] == "store_demo_capsule"
+    assert store_payload["moved"] is True
     stored_path = caps_dir / "store_demo_capsule"
     assert stored_path.exists()
     assert (stored_path / "capsule.toml").exists()
+    assert not source.exists()
 
     restore_root = tmp_path / "restore_workspace"
     rc = capsule_cli.main(
@@ -134,7 +158,11 @@ def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
     restored_path = restore_root / "restored_local_capsule"
     assert restore_payload["capsule_id"] == "store_demo_capsule"
     assert restore_payload["restored_path"] == str(restored_path.resolve())
+    assert restore_payload["moved"] is True
+    assert restore_payload["removed_from_cache"] is True
     assert (restored_path / "capsule.toml").exists()
+    assert not stored_path.exists()
+    assert capsule_registry.get_capsule("stored_alias", caps_dir) is None
 
 
 def test_capsule_cli_store_uses_active_capsule_when_from_is_omitted(tmp_path, monkeypatch) -> None:
@@ -152,3 +180,64 @@ def test_capsule_cli_store_uses_active_capsule_when_from_is_omitted(tmp_path, mo
     row = capsule_registry.get_capsule("active_alias", caps_dir)
     assert row is not None
     assert row["capsule_id"] == "active_capsule"
+    assert not source.exists()
+
+
+def test_capsule_cli_store_accepts_manifest_without_capsule_toml(tmp_path, capsys) -> None:
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="manifest_only_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    (source / "capsule.toml").unlink()
+
+    caps_dir = tmp_path / "caps_manifest_only"
+    rc = capsule_cli.main(
+        [
+            "store",
+            "-n",
+            "manifest_only_alias",
+            "--from",
+            str(source),
+            "--capsules-dir",
+            str(caps_dir),
+        ]
+    )
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule_id"] == "manifest_only_capsule"
+    assert payload["moved"] is True
+    assert (caps_dir / "manifest_only_capsule" / "manifest.json").exists()
+    assert not source.exists()
+
+
+def test_capsule_cli_store_from_parent_directory_uses_name_subfolder(tmp_path, capsys) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="test",
+        base_dir=root,
+        register=False,
+    )
+
+    caps_dir = tmp_path / "caps_parent_lookup"
+    rc = capsule_cli.main(
+        [
+            "store",
+            "-n",
+            "test",
+            "--from",
+            str(root),
+            "--capsules-dir",
+            str(caps_dir),
+        ]
+    )
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule_id"] == "test"
+    assert payload["stored_from"] == str(source.resolve())
+    assert payload["moved"] is True
+    assert (caps_dir / "test" / "capsule.toml").exists()
+    assert not source.exists()

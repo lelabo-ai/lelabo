@@ -25,7 +25,7 @@ Subcommands:
   pack       Build a shareable capsule bundle from a run/sweep/config
   install    Install a capsule bundle into the local capsule store
   store      Store a local capsule directory into the capsule library/cache
-  restore    Restore an installed capsule into a local working directory
+  restore    Move an installed capsule out of cache into a local working directory
   list       List installed capsules
   show       Show one installed capsule entry
   remove     Remove one installed capsule entry (and files by default)
@@ -104,7 +104,7 @@ def _cmd_store(argv: list[str]) -> int:
 
 def _cmd_restore(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lelabo capsule restore")
-    parser.add_argument("id_or_alias", help="Installed capsule id or alias to restore")
+    parser.add_argument("id_or_alias", help="Installed capsule id or alias to move out of cache")
     parser.add_argument("--to", dest="destination_dir", default=None, help="Target directory (defaults to cwd)")
     parser.add_argument(
         "-n",
