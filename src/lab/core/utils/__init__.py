@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib
 
-__all__ = ["envs", "logger", "seed"]
+__all__ = ["envs", "logger", "seed", "capsule_plugins"]
 
 
 def __getattr__(name: str):

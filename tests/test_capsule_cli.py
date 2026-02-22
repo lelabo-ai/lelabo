@@ -35,3 +35,40 @@ def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
     assert rc == 0
     out2 = capsys.readouterr().out
     assert "cli_cap" in out2
+
+    installed_dir = caps_dir / "cli_cap"
+    assert installed_dir.exists()
+
+    rc = capsule_cli.main(["remove", "cli_alias", "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+    out3 = capsys.readouterr().out
+    assert '"capsule_id": "cli_cap"' in out3
+    assert '"deleted_files": true' in out3
+    assert not installed_dir.exists()
+
+    rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+    out4 = capsys.readouterr().out
+    assert "(no capsules installed)" in out4
+
+
+def test_capsule_cli_remove_keep_files(tmp_path) -> None:
+    run_dir = tmp_path / "run_keep"
+    run_dir.mkdir()
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lab.main"]}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"acc": 0.2}), encoding="utf-8")
+
+    bundle = tmp_path / "cli_capsule_keep.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_dir), "--out", str(bundle), "--id", "cli_keep"])
+    assert rc == 0
+
+    caps_dir = tmp_path / "caps_keep"
+    rc = capsule_cli.main(["install", str(bundle), "--name", "keep_alias", "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+
+    installed_dir = caps_dir / "cli_keep"
+    assert installed_dir.exists()
+
+    rc = capsule_cli.main(["remove", "keep_alias", "--keep-files", "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+    assert installed_dir.exists()

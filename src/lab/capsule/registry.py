@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -9,13 +11,35 @@ from typing import Any, Dict, Optional
 INDEX_SCHEMA_VERSION = "1.0"
 
 
+def _user_data_capsules_dir() -> Path:
+    # Cross-platform app-data default, similar to how mature CLIs store local state.
+    home = Path.home()
+    if os.name == "nt":
+        base = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA") or str(home / "AppData" / "Local")
+        return (Path(base).expanduser().resolve() / "LeLabo" / "capsules").resolve()
+    if sys.platform == "darwin":
+        return (home / "Library" / "Application Support" / "lelabo" / "capsules").resolve()
+    xdg = os.getenv("XDG_DATA_HOME", "").strip()
+    if xdg:
+        return (Path(xdg).expanduser().resolve() / "lelabo" / "capsules").resolve()
+    return (home / ".local" / "share" / "lelabo" / "capsules").resolve()
+
+
 def default_capsules_dir() -> Path:
     from os import getenv
 
     raw = getenv("LELABO_CAPSULES_DIR", "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (Path.cwd() / ".lelabo" / "capsules").resolve()
+
+    # Backward-compatible legacy project-local location.
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        maybe = candidate / ".lelabo" / "capsules"
+        if maybe.exists():
+            return maybe.resolve()
+
+    return _user_data_capsules_dir()
 
 
 def index_path(capsules_dir: Path | None = None) -> Path:
@@ -109,4 +133,29 @@ def list_capsules(capsules_dir: Path | None = None) -> list[Dict[str, Any]]:
         row["aliases"] = sorted(aliases)
         out.append(row)
     out.sort(key=lambda r: str(r.get("installed_at", "")), reverse=True)
+    return out
+
+
+def remove_capsule_entry(capsule_or_alias: str, capsules_dir: Path | None = None) -> Dict[str, Any]:
+    index = load_index(capsules_dir)
+    capsule_id = str(capsule_or_alias).strip()
+
+    if capsule_id in index.get("capsules", {}):
+        resolved_id = capsule_id
+    else:
+        resolved_id = index.get("aliases", {}).get(capsule_id)
+        if not resolved_id:
+            raise ValueError(f"Unknown capsule '{capsule_or_alias}'.")
+
+    entry = index.get("capsules", {}).pop(resolved_id, None)
+    if entry is None:
+        raise ValueError(f"Unknown capsule '{capsule_or_alias}'.")
+
+    removed_aliases = [a for a, v in list(index.get("aliases", {}).items()) if v == resolved_id]
+    for alias in removed_aliases:
+        index["aliases"].pop(alias, None)
+
+    save_index(index, capsules_dir)
+    out = dict(entry)
+    out["aliases"] = sorted(removed_aliases)
     return out

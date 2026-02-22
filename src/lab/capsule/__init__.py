@@ -4,6 +4,8 @@ from .pack import pack_capsule
 from .install import install_capsule
 from .registry import list_capsules, get_capsule, default_capsules_dir
 from .rerun import rerun_capsule
+from .create import create_capsule_scaffold
+from .remove import remove_capsule
 
 __all__ = [
     "CAPSULE_SCHEMA_VERSION",
@@ -15,4 +17,6 @@ __all__ = [
     "get_capsule",
     "default_capsules_dir",
     "rerun_capsule",
+    "create_capsule_scaffold",
+    "remove_capsule",
 ]

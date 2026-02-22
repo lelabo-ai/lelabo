@@ -41,7 +41,7 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
             rl_algo=args.rl_algo,
             extra={"grad_clip": None},
         )
-        learner = build_update_rule("bp", ctx)
+        learner = build_update_rule(args.algo, ctx)
 
         cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
 

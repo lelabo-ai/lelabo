@@ -4,6 +4,8 @@ import importlib
 import sys
 from argparse import Namespace
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -11,26 +13,26 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 train_api = importlib.import_module("lab.api.train")
 
 
-def test_task_auto_defaults_to_supervised() -> None:
-    args = Namespace(task="auto", source="iris")
-    assert train_api._resolve_task(args, dataset_names={"iris", "mnist"}) == "supervised"
+def test_supervised_mode_normalization_sets_task() -> None:
+    args = Namespace(mode="supervised", dataset="iris")
+    out = train_api._normalize_train_args(args)
+    assert out.task == "supervised"
+    assert out.dataset == "iris"
 
 
-def test_task_auto_keeps_legacy_cartpole_rl_behavior() -> None:
-    args = Namespace(task="auto", source="CartPole-v1")
-    assert train_api._resolve_task(args, dataset_names={"iris", "mnist"}) == "rl"
+def test_rl_mode_normalization_sets_task_and_dataset() -> None:
+    args = Namespace(mode="rl", env="CartPole-v1")
+    out = train_api._normalize_train_args(args)
+    assert out.task == "rl"
+    assert out.env == "CartPole-v1"
+    assert out.dataset == "env:CartPole-v1"
 
 
-def test_task_override_is_respected() -> None:
-    args = Namespace(task="rl", source="iris")
-    assert train_api._resolve_task(args, dataset_names={"iris", "mnist"}) == "rl"
+def test_unknown_mode_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown train mode"):
+        train_api._normalize_train_args(Namespace(mode="auto", source="iris"))
 
 
-def test_task_auto_errors_when_source_is_ambiguous() -> None:
-    args = Namespace(task="auto", source="not_a_dataset_or_env")
-    try:
-        train_api._resolve_task(args, dataset_names={"iris", "mnist"})
-    except ValueError as exc:
-        assert "Cannot infer task from source" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for ambiguous auto source.")
+def test_legacy_unified_source_flag_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown train mode"):
+        train_api._normalize_train_args(Namespace(source="iris"))

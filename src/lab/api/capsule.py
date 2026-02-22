@@ -8,6 +8,8 @@ from ..capsule.pack import pack_capsule as _pack_capsule
 from ..capsule.registry import get_capsule as _get_capsule
 from ..capsule.registry import list_capsules as _list_capsules
 from ..capsule.rerun import rerun_capsule as _rerun_capsule
+from ..capsule.create import create_capsule_scaffold as _create_capsule_scaffold
+from ..capsule.remove import remove_capsule as _remove_capsule
 
 
 def pack_capsule(
@@ -65,3 +67,34 @@ def rerun_capsule(
         )
     )
 
+
+def create_capsule(
+    *,
+    capsule_name: str,
+    base_dir: Path | None = None,
+    force: bool = False,
+    register: bool = True,
+    alias: str | None = None,
+    capsules_dir: Path | None = None,
+) -> Path:
+    return _create_capsule_scaffold(
+        capsule_name=capsule_name,
+        base_dir=base_dir,
+        force=force,
+        register=register,
+        alias=alias,
+        capsules_dir=capsules_dir,
+    )
+
+
+def remove_capsule(
+    *,
+    capsule_or_alias: str,
+    capsules_dir: Path | None = None,
+    delete_files: bool = True,
+) -> dict[str, Any]:
+    return _remove_capsule(
+        capsule_or_alias=capsule_or_alias,
+        capsules_dir=capsules_dir,
+        delete_files=delete_files,
+    )

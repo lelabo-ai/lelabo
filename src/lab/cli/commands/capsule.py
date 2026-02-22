@@ -8,6 +8,7 @@ from typing import Sequence
 from ...api.capsule import install_capsule
 from ...api.capsule import list_capsules
 from ...api.capsule import pack_capsule
+from ...api.capsule import remove_capsule
 from ...api.capsule import rerun_capsule
 from ...api.capsule import show_capsule
 
@@ -23,6 +24,7 @@ Subcommands:
   install    Install a capsule bundle into the local capsule store
   list       List installed capsules
   show       Show one installed capsule entry
+  remove     Remove one installed capsule entry (and files by default)
   rerun      Rerun a capsule entrypoint
 
 Help:
@@ -114,6 +116,30 @@ def _cmd_rerun(argv: list[str]) -> int:
     )
 
 
+def _cmd_remove(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lelabo capsule remove")
+    parser.add_argument("id_or_alias")
+    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument(
+        "--keep-files",
+        action="store_true",
+        help="Only remove from capsule registry, keep capsule files on disk",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        removed = remove_capsule(
+            capsule_or_alias=args.id_or_alias,
+            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
+            delete_files=not bool(args.keep_files),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
+    print(json.dumps(removed, indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     args = list(argv)
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -131,11 +157,13 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_list(rest)
     if cmd == "show":
         return _cmd_show(rest)
+    if cmd == "remove":
+        return _cmd_remove(rest)
     if cmd == "rerun":
         return _cmd_rerun(rest)
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: pack, install, list, show, rerun.\n"
+        "Use one of: pack, install, list, show, remove, rerun.\n"
         "Run `lelabo capsule -h` for usage."
     )

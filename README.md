@@ -87,15 +87,28 @@ Typical workflow:
 3. Launch runs with `experiments/launchers/launch_grid.py`
 4. Analyze results with scripts in `tools/`
 
+Capsule scaffold workflow (project bootstrap):
+1. `lelabo create capsule --name my_capsule`
+2. `cd my_capsule`
+3. Add your `models/`, `update_rules/`, `datasets/`, and config files
+
+`lelabo create capsule` also:
+- writes a `manifest.json` scaffold
+- auto-registers the capsule in the user-level capsules index (visible via `lelabo capsule list`)
+- auto-loads custom files from `models/`, `update_rules/`, `datasets/`, and `metrics/` when running LeLabo inside the capsule
+- copies example templates from `src/lab/capsule/templates/*.py`
+
 Capsule workflow (share/install/rerun experiments):
 1. `lelabo capsule pack --from <run_dir> --out outputs/exports/capsules/my_run.tar.gz`
 2. `lelabo capsule install outputs/exports/capsules/my_run.tar.gz --name my_baseline`
 3. `lelabo capsule list`
 4. `lelabo capsule show my_baseline`
 5. `lelabo capsule rerun my_baseline --env current`
+6. `lelabo capsule remove my_baseline`
 
-By default, installed capsules are stored under `.lelabo/capsules/` and can be overridden with
-`--capsules-dir` or `LELABO_CAPSULES_DIR`.
+By default, installed capsules are stored in a user-level app-data directory
+(`~/.local/share/lelabo/capsules` on Linux, analogous locations on macOS/Windows),
+and can be overridden with `--capsules-dir` or `LELABO_CAPSULES_DIR`.
 
 Quick examples:
 
@@ -108,7 +121,23 @@ lelabo --help
 ```
 
 ```bash
+lelabo create capsule --name my_capsule
+```
+
+```bash
+lelabo list algos
+```
+
+```bash
 lelabo train --help
+```
+
+```bash
+lelabo train supervised --dataset iris --model mlp --algo bp
+```
+
+```bash
+lelabo train rl --env CartPole-v1 --rl-algo ppo --algo bp
 ```
 
 ```bash
