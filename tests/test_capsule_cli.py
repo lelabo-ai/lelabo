@@ -9,6 +9,7 @@ from conftest import REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 capsule_cli = importlib.import_module("lab.cli.commands.capsule")
+capsule_create = importlib.import_module("lab.capsule.create")
 capsule_registry = importlib.import_module("lab.capsule.registry")
 
 
@@ -95,3 +96,59 @@ def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
         assert "Refusing to delete capsule path outside capsules store" in str(exc)
     else:
         raise AssertionError("Expected SystemExit for unsafe external capsule deletion.")
+
+
+def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="store_demo_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+
+    caps_dir = tmp_path / "caps_store"
+    rc = capsule_cli.main(["store", "-n", "stored_alias", "--from", str(source), "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+
+    store_payload = json.loads(capsys.readouterr().out)
+    assert store_payload["capsule_id"] == "store_demo_capsule"
+    stored_path = caps_dir / "store_demo_capsule"
+    assert stored_path.exists()
+    assert (stored_path / "capsule.toml").exists()
+
+    restore_root = tmp_path / "restore_workspace"
+    rc = capsule_cli.main(
+        [
+            "restore",
+            "stored_alias",
+            "--to",
+            str(restore_root),
+            "--name",
+            "restored_local_capsule",
+            "--capsules-dir",
+            str(caps_dir),
+        ]
+    )
+    assert rc == 0
+
+    restore_payload = json.loads(capsys.readouterr().out)
+    restored_path = restore_root / "restored_local_capsule"
+    assert restore_payload["capsule_id"] == "store_demo_capsule"
+    assert restore_payload["restored_path"] == str(restored_path.resolve())
+    assert (restored_path / "capsule.toml").exists()
+
+
+def test_capsule_cli_store_uses_active_capsule_when_from_is_omitted(tmp_path, monkeypatch) -> None:
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="active_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    monkeypatch.chdir(source / "models")
+
+    caps_dir = tmp_path / "caps_active"
+    rc = capsule_cli.main(["store", "-n", "active_alias", "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+
+    row = capsule_registry.get_capsule("active_alias", caps_dir)
+    assert row is not None
+    assert row["capsule_id"] == "active_capsule"
