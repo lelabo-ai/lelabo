@@ -5,7 +5,6 @@ from .dfa import *
 from .targetprop import *
 from .local_probe_bert import *
 from .local_probe_blocks import *
-from .local_probe_mlp import *
 from .softhebb import *
 from .kp import *
 from .scl import *

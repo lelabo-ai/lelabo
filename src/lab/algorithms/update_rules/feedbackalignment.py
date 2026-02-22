@@ -190,10 +190,15 @@ class FeedbackAlignment(UpdateRule):
 
         if not hasattr(model, "get_blocks"):
             raise NotImplementedError("FA expects model.get_blocks() (no fallback).")
-        if "return_cache" not in model.forward.__code__.co_varnames:
-            raise NotImplementedError("FA expects model(x, return_cache=True).")
-
-        out, cache = model(x, return_cache=True)
+        try:
+            out_cache = model(x, return_cache=True)
+        except TypeError as exc:
+            if "return_cache" in str(exc):
+                raise NotImplementedError("FA expects model(x, return_cache=True).") from exc
+            raise
+        if not (isinstance(out_cache, tuple) and len(out_cache) == 2):
+            raise RuntimeError("FA expects model(x, return_cache=True) to return (out, cache).")
+        out, cache = out_cache
         if not isinstance(cache, Mapping) or "block_inputs" not in cache:
             raise RuntimeError("FA expects cache['block_inputs'] from model(..., return_cache=True).")
         block_inputs: Mapping[str, Any] = cache["block_inputs"]

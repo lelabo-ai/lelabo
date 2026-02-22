@@ -60,6 +60,7 @@ class SoftHebb(UpdateRule):
         head_lr: float = 1e-3,
         head_weight_decay: float = 0.0,
         eps_norm: float = 1e-10,
+        conv_t_invert: float = 12.0,
     ):
         super().__init__()
         self.base_lr = float(base_lr)
@@ -77,6 +78,7 @@ class SoftHebb(UpdateRule):
 
         self.head_lr = float(head_lr)
         self.head_weight_decay = float(head_weight_decay)
+        self.conv_t_invert = float(conv_t_invert)
 
         self._head_optimizer: Optional[torch.optim.Optimizer] = None
         self._head_scheduler: Optional[CustomStepLR] = None
@@ -335,13 +337,65 @@ class SoftHebb(UpdateRule):
         return delta
 
     @torch.no_grad()
-    def _apply_conv_update(self, block: SoftHebbBlock, name: str, x_in: torch.Tensor, u: torch.Tensor):
+    def _demo_softhebb_delta_conv2d(
+        self,
+        conv: nn.Conv2d,
+        x_in: torch.Tensor,
+        u: torch.Tensor,
+        *,
+        t_invert: float,
+    ) -> torch.Tensor:
+        # Generic version for standard nn.Conv2d blocks.
+        if int(conv.groups) != 1:
+            raise RuntimeError("SoftHebb Conv2d update currently supports groups=1 only.")
+
+        B, OC, OH, OW = u.shape
+
+        flat_weighted = u.transpose(0, 1).reshape(OC, -1)
+        flat_soft = torch.softmax(float(t_invert) * flat_weighted, dim=0)
+        flat_soft = -flat_soft
+        win = torch.argmax(flat_weighted, dim=0)
+        idx = torch.arange(flat_weighted.size(1), device=flat_weighted.device)
+        flat_soft[win, idx] = -flat_soft[win, idx]
+        softwta = flat_soft.view(OC, B, OH, OW).transpose(0, 1)
+
+        yx = F.conv2d(
+            x_in.transpose(0, 1),
+            softwta.transpose(0, 1),
+            padding=conv.padding,
+            stride=conv.dilation,
+            dilation=conv.stride,
+            groups=1,
+        ).transpose(0, 1)
+
+        # Ensure same spatial kernel support as weight tensor.
+        kH, kW = conv.kernel_size
+        yx = yx[:, :, :kH, :kW]
+
+        yu = torch.sum(softwta * u, dim=(0, 2, 3))  # (OC,)
+        delta = yx - yu.view(-1, 1, 1, 1) * conv.weight
+        delta.div_(torch.abs(delta).amax() + 1e-30)
+        return delta
+
+    @torch.no_grad()
+    def _apply_conv_update(self, mod: nn.Module, name: str, x_in: torch.Tensor, u: torch.Tensor):
         base_lr = self.lr_by_name.get(name, None)
         if base_lr is None:
+            base_lr = self.base_lr
+
+        if isinstance(mod, SoftHebbBlock):
+            dW = self._demo_softhebb_delta(mod, x_in, u)
+            lr_t = self._lr_tensor_from_weight(mod.conv.weight, base_lr)
+            mod.conv.weight.add_(lr_t * dW)
             return
-        dW = self._demo_softhebb_delta(block, x_in, u)
-        lr_t = self._lr_tensor_from_weight(block.conv.weight, base_lr)
-        block.conv.weight.add_(lr_t * dW)
+
+        if isinstance(mod, nn.Conv2d):
+            dW = self._demo_softhebb_delta_conv2d(mod, x_in, u, t_invert=self.conv_t_invert)
+            lr_t = self._lr_tensor_from_weight(mod.weight, base_lr)
+            mod.weight.add_(lr_t * dW)
+            return
+
+        raise TypeError(f"Unsupported module type for conv SoftHebb update: {type(mod)}")
 
     # ---------------------------
     # Loss helper
@@ -423,6 +477,9 @@ class SoftHebb(UpdateRule):
                     u = cache["block_outputs"].get(name, None)
     
                     if isinstance(mod, SoftHebbBlock):
+                        if torch.is_tensor(xin) and torch.is_tensor(u):
+                            self._apply_conv_update(mod, name, xin, u)
+                    elif isinstance(mod, nn.Conv2d):
                         if torch.is_tensor(xin) and torch.is_tensor(u):
                             self._apply_conv_update(mod, name, xin, u)
                             

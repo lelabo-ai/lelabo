@@ -4,11 +4,11 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .blocks import BlockModel, BlockSpec
+from .blocks import LeModule, BlockSpec
 from .mlp import MLPStack
 
 
-class QNet(BlockModel):
+class QNet(LeModule):
     def __init__(self, obs_dim: int, n_actions: int, hidden: int = 256, layers: int = 2, activation: str = "relu"):
         super().__init__()
         dims = [int(obs_dim)] + [int(hidden)] * int(layers) + [int(n_actions)]

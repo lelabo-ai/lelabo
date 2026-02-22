@@ -54,7 +54,7 @@ class LocalProbeMLP(UpdateRule):
 
         n_hidden_layers = len(model.linears) - 1
         for l in range(n_hidden_layers):
-            h = cache["acts"][l + 1]          # [bs, H]
+            h = cache["acts"][l]              # [bs, H]
             z = cache["preacts"][l]           # [bs, H]
             x_in = cache["inputs"][l]         # [bs, Din]
 

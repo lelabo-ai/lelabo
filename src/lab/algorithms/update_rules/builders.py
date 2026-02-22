@@ -12,7 +12,6 @@ from .kp import KP
 from .kp3 import KP3
 from .local_probe_bert import LocalProbeBERT
 from .local_probe_blocks import LocalProbeBlocks
-from .local_probe_mlp import LocalProbeMLP
 from .scl import SoftContrastiveLearning
 from .softhebb import SoftHebb
 from .targetprop import TargetPropagation
@@ -56,8 +55,6 @@ def build_local_probe(ctx: UpdateRuleContext):
         raise ValueError("lpl is only supported in supervised mode.")
     if ctx.dataset == "glue":
         return LocalProbeBERT(base_optimizer=ctx.optimizer, probe_lr=ctx.args.lr)
-    if getattr(ctx.args, "model", None) == "mlp":
-        return LocalProbeMLP(base_optimizer=ctx.optimizer, probe_lr=ctx.args.lr, weight_decay=ctx.args.weight_decay)
     return LocalProbeBlocks(base_optimizer=ctx.optimizer, probe_lr=ctx.args.lr)
 
 

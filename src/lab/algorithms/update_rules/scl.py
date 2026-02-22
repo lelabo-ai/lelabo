@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
-from ...models.convnet import ConvBlock
 from ...models.deep_softhebb import SoftHebbBlock
 
 
@@ -23,7 +22,7 @@ class SoftContrastiveLearning(UpdateRule):
 
       - Intermediate nn.Linear blocks: updated with local SupCon with a per-block frozen projection.
 
-      - Intermediate "feature blocks" (ConvBlock / nn.Conv2d / torchvision ResNet blocks):
+      - Intermediate "feature blocks" (nn.Conv2d / torchvision ResNet blocks):
           * compute h = block(xin) -> expects [B, C, H, W]
           * v = GAP(h) -> [B, C]
           * z = proj(v) -> [B, D]
@@ -226,9 +225,6 @@ class SoftContrastiveLearning(UpdateRule):
         if isinstance(module, nn.Linear):
             return int(module.out_features)
 
-        if isinstance(module, ConvBlock):
-            return int(module.conv.out_channels)
-        
         if isinstance(module, SoftHebbBlock):
             return int(module.conv.out_channels)
 
@@ -326,7 +322,7 @@ class SoftContrastiveLearning(UpdateRule):
     ) -> float:
         """
         Update générique pour n'importe quel bloc qui renvoie un tenseur 4D.
-        (ConvBlock, nn.Conv2d, BasicBlock, Bottleneck, etc.)
+        (nn.Conv2d, BasicBlock, Bottleneck, etc.)
         """
         was_req = [p.requires_grad for p in block.parameters()]
         self._set_requires_grad(block, True)

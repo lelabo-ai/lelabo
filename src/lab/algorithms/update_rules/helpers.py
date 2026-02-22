@@ -73,24 +73,48 @@ def act_deriv_from_name(z: torch.Tensor, act_name: str, *, ste_heaviside: bool =
     return (z > 0).to(z.dtype)
 
 
-def _has_return_cache(model) -> bool:
-    try:
-        return "return_cache" in model.forward.__code__.co_varnames
-    except Exception:
-        return False
-
-
 @torch.no_grad()
 def collect_linear_cache(model, x: torch.Tensor):
-    if hasattr(model, "linears") and _has_return_cache(model):
-        logits, cache = model(x, return_cache=True)
-        linears = list(model.linears)
-        layer_cache = []
-        for i, layer in enumerate(linears):
-            x_l = cache["inputs"][i]
-            z_l = cache["preacts"][i]
-            layer_cache.append((x_l.detach(), z_l.detach(), layer))
-        return logits, layer_cache
+    if hasattr(model, "linears"):
+        out_with_cache = None
+        try:
+            out_with_cache = model(x, return_cache=True)
+        except TypeError as exc:
+            if "return_cache" not in str(exc):
+                raise
+        if isinstance(out_with_cache, tuple) and len(out_with_cache) == 2:
+            logits, cache = out_with_cache
+            if isinstance(cache, dict) and "inputs" in cache and "preacts" in cache:
+                linears = list(model.linears)
+                layer_cache = []
+                for i, layer in enumerate(linears):
+                    x_l = cache["inputs"][i]
+                    z_l = cache["preacts"][i]
+                    layer_cache.append((x_l.detach(), z_l.detach(), layer))
+                return logits, layer_cache
+
+            if (
+                isinstance(cache, dict)
+                and "block_inputs" in cache
+                and "block_outputs" in cache
+                and hasattr(model, "get_blocks")
+            ):
+                block_inputs = cache["block_inputs"]
+                block_outputs = cache["block_outputs"]
+                layer_cache: List[Tuple[torch.Tensor, torch.Tensor, nn.Linear]] = []
+
+                for b in model.get_blocks():
+                    name = getattr(b, "name", None)
+                    module = getattr(b, "module", None)
+                    if not isinstance(name, str) or not isinstance(module, nn.Linear):
+                        continue
+                    x_l = block_inputs.get(name, None) if isinstance(block_inputs, dict) else None
+                    z_l = block_outputs.get(name, None) if isinstance(block_outputs, dict) else None
+                    if torch.is_tensor(x_l) and torch.is_tensor(z_l):
+                        layer_cache.append((x_l.detach(), z_l.detach(), module))
+
+                if layer_cache:
+                    return logits, layer_cache
 
     layer_cache: List[Tuple[torch.Tensor, torch.Tensor, nn.Linear]] = []
     hooks = []

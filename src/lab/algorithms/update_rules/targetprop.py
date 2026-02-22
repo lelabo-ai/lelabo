@@ -288,10 +288,15 @@ class TargetPropagation(UpdateRule):
         x = to_device(x, device)
         y = to_device(y, device)
 
-        if "return_cache" not in model.forward.__code__.co_varnames:
-            raise NotImplementedError("TargetPropagation expects model(x, return_cache=True).")
-
-        out, cache = model(x, return_cache=True)
+        try:
+            out_cache = model(x, return_cache=True)
+        except TypeError as exc:
+            if "return_cache" in str(exc):
+                raise NotImplementedError("TargetPropagation expects model(x, return_cache=True).") from exc
+            raise
+        if not (isinstance(out_cache, tuple) and len(out_cache) == 2):
+            raise RuntimeError("TargetPropagation expects model(x, return_cache=True) to return (out, cache).")
+        out, cache = out_cache
         if not isinstance(cache, Mapping) or "block_inputs" not in cache:
             raise RuntimeError("TargetPropagation expects cache['block_inputs'] from the model.")
         block_inputs: Mapping[str, Any] = cache["block_inputs"]

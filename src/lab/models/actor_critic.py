@@ -4,20 +4,20 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .blocks import BlockModel, BlockSpec
+from .blocks import LeModule, BlockSpec
 from .mlp import MLPStack
 
 
-class ActorCriticDiscrete(BlockModel):
+class ActorCriticDiscrete(LeModule):
     """
     Standard Actor-Critic for discrete actions, built from TWO standard MLPStack.
 
     - actor: outputs logits [B, n_actions]
     - critic: outputs value [B] (from a Linear head of size 1)
 
-    This keeps everything compatible with:
-      - FA/DFA/TargetProp: needs cache["inputs"]/["preacts"] (provided by each MLPStack)
-      - SoftHebb/KP and any block-based rule: needs cache["block_inputs"] and model.get_blocks()
+    This keeps everything compatible with block-based local rules:
+      - FA/DFA/TargetProp and related methods: rely on cache["block_inputs"] + get_blocks()
+      - SoftHebb/KP and any block-based rule: same contract
     """
 
     def __init__(
@@ -101,7 +101,7 @@ LOG_STD_MAX = 2.0
 LOG_STD_MIN = -5.0
 
 
-class SquashedGaussianActor(BlockModel):
+class SquashedGaussianActor(LeModule):
     """Actor SAC: Gaussian squashed par tanh + rescaling vers Box."""
 
     def __init__(
@@ -195,7 +195,7 @@ class SquashedGaussianActor(BlockModel):
         return action, log_pi, mean_action
 
 
-class DoubleQCritic(BlockModel):
+class DoubleQCritic(LeModule):
     """Double Q-network (Q1, Q2) pour SAC."""
 
     def __init__(

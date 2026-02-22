@@ -10,7 +10,6 @@ import torch.nn as nn
 from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
-from ...models.convnet import ConvBlock
 
 
 class KP3(UpdateRule):
@@ -26,7 +25,7 @@ class KP3(UpdateRule):
       and uses a Sanger/GHA term to prevent collapse (neurons learn different directions).
       No backward() is used for these updates.
 
-    - Intermediate ConvBlock blocks: pooled approximation:
+    - Intermediate Conv2d blocks: pooled approximation:
         * x_eff = GAP(xin)                             [B, Cin]
         * maintains class/global means of x_eff
         * updates averaged conv filters (mean over kh,kw) using the same Sanger rule,
@@ -300,17 +299,12 @@ class KP3(UpdateRule):
         }
 
     @torch.no_grad()
-    def _local_update_convblock(self, block: ConvBlock, name: str, xin: torch.Tensor, labels: torch.Tensor) -> Dict[str, float]:
+    def _local_update_conv2d(self, conv: nn.Conv2d, name: str, xin: torch.Tensor, labels: torch.Tensor) -> Dict[str, float]:
         if xin.dim() != 4:
-            return {}
-
-        conv = getattr(block, "conv", None)
-        if not isinstance(conv, nn.Conv2d):
             return {}
 
         W = conv.weight.data  # [Cout, Cin, kH, kW]
         Cout, Cin, kH, kW = W.shape
-        B = xin.size(0)
 
         # pooled input
         x_eff = xin.mean(dim=(2, 3))  # [B, Cin]
@@ -434,10 +428,10 @@ class KP3(UpdateRule):
                 if xin.dim() != 2:
                     continue
                 st = self._local_update_linear(mod, name, xin.detach(), y.detach())
-            elif isinstance(mod, ConvBlock):
+            elif isinstance(mod, nn.Conv2d):
                 if xin.dim() != 4:
                     continue
-                st = self._local_update_convblock(mod, name, xin.detach(), y.detach())
+                st = self._local_update_conv2d(mod, name, xin.detach(), y.detach())
             else:
                 st = {}
 

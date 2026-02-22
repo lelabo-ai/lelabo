@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from ...core.batch import to_device
 from ...core.steps import maybe_accuracy_from_logits
-from ...models.convnet import ConvBlock
 
 
 class KP2(UpdateRule):
@@ -590,24 +589,7 @@ class KP2(UpdateRule):
                     depth_idx += 1
                 continue
 
-            # ConvBlock blocks
-            if isinstance(mod, ConvBlock):
-                if xin.dim() == 4 and u.dim() == 4:
-                    sup_l = self._local_update_conv2d_softhebb_plus_supcon(
-                        conv=mod.conv,
-                        xin=xin,
-                        u_cache=u,
-                        labels=labels,
-                        base_lr=lr_here,
-                        sup_strength=sup_strength,
-                    )
-                    hebb_lrs.append(lr_here)
-                    if sup_l > 0.0:
-                        supcon_losses.append(sup_l)
-                    depth_idx += 1
-                continue
-
-            # Optionally support raw nn.Conv2d too
+            # Conv2d blocks
             if isinstance(mod, nn.Conv2d):
                 if xin.dim() == 4 and u.dim() == 4:
                     sup_l = self._local_update_conv2d_softhebb_plus_supcon(

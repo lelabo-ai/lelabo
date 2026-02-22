@@ -9,9 +9,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    from .blocks import BlockModel, BlockSpec
+    from .blocks import LeModule, BlockSpec
 except Exception:  # pragma: no cover
-    from blocks import BlockModel, BlockSpec
+    from blocks import LeModule, BlockSpec
 
 from .registry import register_model, ModelContext
 
@@ -114,7 +114,7 @@ class SoftHebbBlock(nn.Module):
         return (x, cache_u) if return_cache else x
 
 
-class DeepSoftHebbClassifier(BlockModel):
+class DeepSoftHebbClassifier(LeModule):
     """
     Mirrors your demo architecture:
       - bn1 (affine=False) + conv1(3->96,k5,p2,t=1) + Triangle(0.7) + MaxPool(k4,s2,p1)

@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 
 try:
-    from .blocks import BlockModel, BlockSpec
+    from .blocks import LeModule, BlockSpec
 except Exception:  # pragma: no cover
-    from blocks import BlockModel, BlockSpec
+    from blocks import LeModule, BlockSpec
 
 from .registry import register_model, ModelContext
 
@@ -72,7 +72,7 @@ def _broadcast(value, n: int) -> list:
     return [value for _ in range(n)]
 
 
-class ConvNetClassifier(BlockModel):
+class ConvNetClassifier(LeModule):
     """
     Modular ConvNet.
 
@@ -147,7 +147,7 @@ class ConvNetClassifier(BlockModel):
             # pool on layers: pe-1, 2*pe-1, 3*pe-1, ...
             pool_list = [(i % pe == pe - 1) for i in range(d)]
 
-        # IMPORTANT: do NOT name this attribute `blocks` (BlockModel likely has a property called blocks).
+        # IMPORTANT: do NOT name this attribute `blocks` (LeModule has a property called blocks).
         self.conv_blocks = nn.ModuleList()
         prev = self.in_channels
         for c_out, k, do_pool in zip(ch_list, ks_list, pool_list):

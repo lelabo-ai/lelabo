@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 
 try:
-    from .blocks import BlockModel, BlockSpec
+    from .blocks import LeModule, BlockSpec
 except Exception:  # pragma: no cover
-    from blocks import BlockModel, BlockSpec
+    from blocks import LeModule, BlockSpec
 
 from .registry import register_model, ModelContext
 
@@ -70,7 +70,7 @@ def _find_classifier_head(hf_model: nn.Module) -> nn.Module:
     raise ValueError("Impossible de trouver un head de classification dans le modèle HF.")
 
 
-class HFSequenceClassifier(BlockModel):
+class HFSequenceClassifier(LeModule):
     def __init__(self, model_name: str, num_labels: int, *, trust_remote_code: bool = False):
         super().__init__()
         _require_transformers()
@@ -149,7 +149,7 @@ class HFSequenceClassifier(BlockModel):
 
 
 def build_bert_for_glue(model_name: str, num_labels: int, *, trust_remote_code: bool = False):
-    """Factory compatible GLUE/NLP: retourne un BlockModel HFSequenceClassifier."""
+    """Factory compatible GLUE/NLP: retourne un LeModule HFSequenceClassifier."""
     return HFSequenceClassifier(model_name=model_name, num_labels=num_labels, trust_remote_code=trust_remote_code)
 
 

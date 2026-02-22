@@ -1,18 +1,15 @@
 # lab/models/convnet.py
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-try:
-    from .blocks import BlockModel, BlockSpec
-except Exception:  # pragma: no cover
-    from blocks import BlockModel, BlockSpec
+from .blocks import LeModule, BlockSpec
+from .registry import ModelContext, register_model
 
-from .registry import register_model, ModelContext
 
 @register_model("cnn")
 def build_cnn(ctx: ModelContext, args):
@@ -21,71 +18,79 @@ def build_cnn(ctx: ModelContext, args):
     return ConvNetClassifier(in_channels=ctx.in_channels, num_classes=ctx.num_classes)
 
 
-class ConvBlock(nn.Module):
-    """Conv -> (BN) -> ReLU -> (Pool). Cache is taken right after Conv2d."""
+class ClassicCNN(LeModule):
+    """CNN classique: (Conv -> BN -> ReLU -> Pool) x N -> GAP -> Linear."""
 
     def __init__(
         self,
-        in_ch: int,
-        out_ch: int,
         *,
-        kernel_size: int = 3,
-        stride: int = 1,
-        padding: int | None = None,
-        use_bn: bool = True,
-        pool: bool = False,
-        pool_kernel: int = 2,
+        in_channels: int,
+        num_classes: int,
+        widths: Sequence[int],
+        kernel_sizes: Sequence[int],
+        pools: Sequence[bool],
+        use_bn: bool,
+        pool_kernel: int,
     ):
         super().__init__()
-        if padding is None:
-            # "same-ish" padding for odd kernels when stride=1
-            padding = kernel_size // 2
+        if not widths:
+            raise ValueError("ClassicCNN requires at least one conv width.")
+        if not (len(widths) == len(kernel_sizes) == len(pools)):
+            raise ValueError("widths, kernel_sizes, pools must share the same length.")
 
-        self.conv = nn.Conv2d(
-            in_ch,
-            out_ch,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            bias=not use_bn,
-        )
-        self.bn = nn.BatchNorm2d(out_ch) if use_bn else nn.Identity()
-        self.act = nn.ReLU(inplace=True)
-        self.pool = nn.MaxPool2d(pool_kernel) if pool else nn.Identity()
+        self._conv_names: list[str] = []
+        c_in = int(in_channels)
+        for i, (w, k, do_pool) in enumerate(zip(widths, kernel_sizes, pools), start=1):
+            conv_name = f"conv{i}"
+            bn_name = f"bn{i}"
+            pool_name = f"pool{i}"
 
-    def forward(self, x: torch.Tensor, return_cache: bool = False):
-        cache = None
+            setattr(
+                self,
+                conv_name,
+                nn.Conv2d(
+                    c_in,
+                    int(w),
+                    kernel_size=int(k),
+                    stride=1,
+                    padding=int(k) // 2,
+                    bias=not bool(use_bn),
+                ),
+            )
+            setattr(self, bn_name, nn.BatchNorm2d(int(w)) if bool(use_bn) else nn.Identity())
+            setattr(self, pool_name, nn.MaxPool2d(int(pool_kernel)) if bool(do_pool) else nn.Identity())
 
-        pad_h = self.conv.padding[0]
-        pad_w = self.conv.padding[1]
-        if pad_h != 0 or pad_w != 0:
-            x_conv = F.pad(x, (pad_w, pad_w, pad_h, pad_h), mode="constant", value=0.0)
-        else:
-            x_conv = x
+            self._conv_names.append(conv_name)
+            c_in = int(w)
 
-        # now do the conv with padding=0 (since we already padded)
-        u = F.conv2d(
-            x_conv,
-            self.conv.weight,
-            self.conv.bias,
-            stride=self.conv.stride,
-            padding=0,
-            dilation=self.conv.dilation,
-            groups=self.conv.groups,
-        )
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+        self.head = nn.Linear(c_in, int(num_classes))
 
-        if return_cache:
-            # IMPORTANT: keep backward behavior unchanged; detach copies
-            cache = {
-                "u": u.detach(),          # raw conv output
-                "x_conv": x_conv.detach() # exact conv input used (after padding)
-            }
+    @property
+    def convs(self) -> list[nn.Conv2d]:
+        return [getattr(self, name) for name in self._conv_names]
 
-        x = self.bn(u)
-        x = self.act(x)
-        x = self.pool(x)
-        return (x, cache) if return_cache else x
+    @property
+    def fc(self) -> nn.Linear:
+        return self.head
 
+    def get_blocks(self) -> list[BlockSpec]:
+        specs: list[BlockSpec] = []
+        for name in self._conv_names:
+            specs.append(BlockSpec(name=name, module=getattr(self, name), rep="gap", is_output=False))
+        specs.append(BlockSpec(name="head", module=self.head, rep="identity", is_output=True))
+        return specs
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for i, conv_name in enumerate(self._conv_names, start=1):
+            bn_name = f"bn{i}"
+            pool_name = f"pool{i}"
+            x = getattr(self, conv_name)(x)
+            x = getattr(self, bn_name)(x)
+            x = F.relu(x, inplace=True)
+            x = getattr(self, pool_name)(x)
+        x = self.gap(x).flatten(1)
+        return self.head(x)
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:
@@ -96,44 +101,22 @@ def _broadcast(value, n: int) -> list:
     return [value for _ in range(n)]
 
 
-class ConvNetClassifier(BlockModel):
-    """
-    Modular ConvNet.
-
-    You have two ways to choose the widths:
-    - Option A: provide `channels=(c1, c2, ..., cL)`
-    - Option B: set `channels=None` and provide `depth`, `base_width`, `width_factor`
-      which generates: [base_width, base_width*width_factor, base_width*width_factor^2, ...]
-
-    Pooling can be configured with:
-    - `pools=(True/False per layer)` OR
-    - `pool_every=k` meaning pool every k-th layer (default k=1 => pool after every layer)
-    """
-
+class ConvNetClassifier(ClassicCNN):
     def __init__(
         self,
         *,
         in_channels: int = 1,
         num_classes: int = 10,
-        # Option A: explicit widths
         channels: Sequence[int] | None = None,
-        # Option B: generated widths (paper-like)
         depth: int | None = 3,
         base_width: int = 96,
         width_factor: int = 4,
-        # Convolution / pooling config
         kernel_sizes: int | Sequence[int] = 3,
         use_bn: bool = False,
-        pool_every: int = 1,  # pool every k layers (1 = every layer)
-        pools: Sequence[bool] | None = None,  # overrides pool_every if provided
+        pool_every: int = 1,
+        pools: Sequence[bool] | None = None,
         pool_kernel: int = 2,
     ):
-        super().__init__()
-        self.in_channels = int(in_channels)
-        self.num_classes = int(num_classes)
-        self.use_bn = bool(use_bn)
-
-        # ---- decide channels
         if channels is None:
             if depth is None:
                 raise ValueError("If `channels` is None, you must provide `depth`.")
@@ -151,7 +134,6 @@ class ConvNetClassifier(BlockModel):
                 raise ValueError("`channels` must have at least one element.")
             d = len(ch_list)
 
-        # ---- kernel sizes (broadcast or per-layer)
         if isinstance(kernel_sizes, int):
             ks_list = _broadcast(int(kernel_sizes), d)
         else:
@@ -159,7 +141,6 @@ class ConvNetClassifier(BlockModel):
             if len(ks_list) != d:
                 raise ValueError(f"`kernel_sizes` must have length {d}, got {len(ks_list)}.")
 
-        # ---- pooling pattern
         if pools is not None:
             pool_list = [bool(p) for p in pools]
             if len(pool_list) != d:
@@ -168,57 +149,14 @@ class ConvNetClassifier(BlockModel):
             pe = int(pool_every)
             if pe <= 0:
                 raise ValueError("`pool_every` must be >= 1.")
-            # pool on layers: pe-1, 2*pe-1, 3*pe-1, ...
             pool_list = [(i % pe == pe - 1) for i in range(d)]
 
-        # IMPORTANT: do NOT name this attribute `blocks` (BlockModel likely has a property called blocks).
-        self.conv_blocks = nn.ModuleList()
-        prev = self.in_channels
-        for c_out, k, do_pool in zip(ch_list, ks_list, pool_list):
-            self.conv_blocks.append(
-                ConvBlock(
-                    prev,
-                    int(c_out),
-                    kernel_size=int(k),
-                    use_bn=self.use_bn,
-                    pool=bool(do_pool),
-                    pool_kernel=int(pool_kernel),
-                )
-            )
-            prev = int(c_out)
-
-        # ---- head
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(prev, self.num_classes)
-
-        # for naming / caching
-        self._conv_names = [f"conv{i}" for i in range(1, len(self.conv_blocks) + 1)]
-
-    def get_blocks(self) -> list[BlockSpec]:
-        specs: list[BlockSpec] = []
-        for name, block in zip(self._conv_names, self.conv_blocks):
-            specs.append(BlockSpec(name=name, module=block, rep="identity", is_output=False))
-        specs.append(BlockSpec(name="head", module=self.fc, rep="identity", is_output=True))
-        return specs
-
-    def forward(self, x: torch.Tensor, return_cache: bool = False):
-        cache = {"block_inputs": {}, "block_outputs": {}} if return_cache else None
-
-        for name, block in zip(self._conv_names, self.conv_blocks):
-            if return_cache:
-                cache["block_inputs"][name] = x
-            if return_cache:
-                x, cache_block = block(x, return_cache=return_cache)
-            else:
-                x = block(x, return_cache=return_cache)
-            if return_cache:
-                cache["block_outputs"][name] = cache_block
-
-        x = self.avgpool(x).flatten(1)
-        if return_cache:
-            cache["block_inputs"]["head"] = x
-        logits = self.fc(x)
-        if return_cache:
-            cache["block_outputs"]["head"] = logits
-
-        return (logits, cache) if return_cache else logits
+        super().__init__(
+            in_channels=int(in_channels),
+            num_classes=int(num_classes),
+            widths=ch_list,
+            kernel_sizes=ks_list,
+            pools=pool_list,
+            use_bn=bool(use_bn),
+            pool_kernel=int(pool_kernel),
+        )
