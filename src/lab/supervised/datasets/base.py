@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+import random
+import warnings
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Callable, Optional, Tuple
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from lab.core.utils.seed import make_dataloader_seeding
@@ -47,6 +52,22 @@ def dataset_to_tensors(ds: Dataset) -> tuple[torch.Tensor, torch.Tensor]:
     return torch.stack(xs, dim=0), torch.tensor(ys)
 
 
+@lru_cache(maxsize=1)
+def _multiprocess_workers_supported() -> bool:
+    try:
+        ctx = mp.get_context()
+        lock = ctx.Lock()
+        try:
+            acquired = bool(lock.acquire(False))
+            if acquired:
+                lock.release()
+        except Exception:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def make_loader(
     ds: Dataset,
     *,
@@ -58,15 +79,30 @@ def make_loader(
     pin_memory: bool = True,
     **loader_kwargs: Any,
 ) -> DataLoader:
-    g, worker_init_fn, _ = make_dataloader_seeding(seed, scope=seed_scope)
+    requested_workers = max(0, int(num_workers))
+    resolved_workers = requested_workers
+    if requested_workers > 0 and not _multiprocess_workers_supported():
+        warnings.warn(
+            "Multiprocessing DataLoader workers are unavailable in this environment; "
+            "falling back to num_workers=0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        resolved_workers = 0
+
+    g, worker_init_fn, loader_seed = make_dataloader_seeding(seed, scope=seed_scope)
     g = loader_kwargs.pop("generator", g)
     worker_init_fn = loader_kwargs.pop("worker_init_fn", worker_init_fn)
+    if resolved_workers == 0:
+        random.seed(loader_seed)
+        np.random.seed(loader_seed % (2**32))
+        torch.manual_seed(loader_seed)
     return DataLoader(
         ds,
         batch_size=batch_size,
         shuffle=shuffle,
         generator=g,
-        num_workers=num_workers,
+        num_workers=resolved_workers,
         worker_init_fn=worker_init_fn,
         pin_memory=pin_memory,
         **loader_kwargs,

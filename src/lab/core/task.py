@@ -49,6 +49,89 @@ class ClassificationTask:
         return {"logits": dlogits}
 
 
+class GLUETask:
+    """
+    Task helper for HuggingFace sequence classification/regression batches.
+    """
+
+    def __init__(self, task_name: str, is_regression: bool, num_labels: int):
+        self.task_name = str(task_name).lower()
+        self.is_regression = bool(is_regression)
+        self.num_labels = int(num_labels)
+
+    def loss(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        if self.is_regression:
+            preds = logits.view(-1).float()
+            targets = y.view(-1).float()
+            return F.mse_loss(preds, targets)
+        return F.cross_entropy(logits, y.long())
+
+    @torch.no_grad()
+    def metrics(self, outputs_or_logits: Any, y: torch.Tensor) -> Dict[str, float]:
+        logits = outputs_or_logits.logits if hasattr(outputs_or_logits, "logits") else outputs_or_logits
+        if not torch.is_tensor(logits):
+            return {}
+        if self.is_regression:
+            preds = logits.view(-1).float()
+            targets = y.view(-1).float()
+            mse = F.mse_loss(preds, targets).item()
+            mae = F.l1_loss(preds, targets).item()
+            return {"mse": float(mse), "mae": float(mae), "metric": float(-mse)}
+
+        preds = logits.argmax(dim=-1)
+        acc = (preds == y.long()).float().mean().item()
+        return {"acc": float(acc), "metric": float(acc)}
+
+    @torch.no_grad()
+    def evaluate(self, model, loader, device: str) -> Dict[str, float]:
+        total_n = 0
+        total_loss = 0.0
+        total_acc = 0.0
+        total_mse = 0.0
+        total_mae = 0.0
+
+        for batch in loader:
+            if not isinstance(batch, dict):
+                raise TypeError("GLUETask expects mapping batches with HuggingFace collate output.")
+
+            b: Dict[str, Any] = {}
+            for k, v in batch.items():
+                if torch.is_tensor(v):
+                    b[k] = v.to(device)
+                else:
+                    b[k] = v
+
+            outputs = model(**b)
+            labels = b["labels"]
+            logits = outputs.logits
+            loss = outputs.loss if getattr(outputs, "loss", None) is not None else self.loss(logits, labels)
+
+            n = int(labels.shape[0]) if hasattr(labels, "shape") and labels.shape else 1
+            w = float(max(1, n))
+            total_n += int(w)
+            total_loss += float(loss.item()) * w
+
+            stats = self.metrics(outputs, labels)
+            if self.is_regression:
+                total_mse += float(stats.get("mse", 0.0)) * w
+                total_mae += float(stats.get("mae", 0.0)) * w
+            else:
+                total_acc += float(stats.get("acc", 0.0)) * w
+
+        denom = float(max(1, total_n))
+        out: Dict[str, float] = {"loss": float(total_loss / denom)}
+        if self.is_regression:
+            mse = float(total_mse / denom)
+            out["mse"] = mse
+            out["mae"] = float(total_mae / denom)
+            out["metric"] = float(-mse)
+        else:
+            acc = float(total_acc / denom)
+            out["acc"] = acc
+            out["metric"] = acc
+        return out
+
+
 # ============================================================
 # DQN
 # ============================================================

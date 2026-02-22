@@ -11,7 +11,7 @@ from ..utils.logger import RunLogger
 
 # datasets
 from ...supervised.datasets import get_dataset
-from ..task import ClassificationTask
+from ..task import ClassificationTask, GLUETask
 from ..robustness import test_with_noise
 
 # GLUE

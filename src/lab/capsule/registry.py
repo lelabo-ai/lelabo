@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,7 +62,20 @@ def load_index(capsules_dir: Path | None = None) -> Dict[str, Any]:
     if not idx_path.exists():
         return _empty_index()
 
-    data = json.loads(idx_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(idx_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        backup_name = (
+            f"{idx_path.name}.corrupt."
+            f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bak"
+        )
+        backup_path = idx_path.with_name(backup_name)
+        try:
+            shutil.move(str(idx_path), str(backup_path))
+        except Exception:
+            pass
+        return _empty_index()
+
     if not isinstance(data, dict):
         return _empty_index()
 
@@ -90,9 +104,12 @@ def add_capsule_entry(
     capsules_dir: Path | None = None,
 ) -> Dict[str, Any]:
     index = load_index(capsules_dir)
+    normalized_capsule_id = str(capsule_id).strip()
+    if not normalized_capsule_id:
+        raise ValueError("capsule_id cannot be empty.")
 
     entry = {
-        "capsule_id": capsule_id,
+        "capsule_id": normalized_capsule_id,
         "path": str(capsule_path.resolve()),
         "manifest_path": str((capsule_path / "manifest.json").resolve()),
         "installed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -101,9 +118,20 @@ def add_capsule_entry(
         "created_at": manifest.get("created_at"),
         "source": manifest.get("source", {}),
     }
-    index["capsules"][capsule_id] = entry
+    index["capsules"][normalized_capsule_id] = entry
     if alias:
-        index["aliases"][alias] = capsule_id
+        alias_key = str(alias).strip()
+        if alias_key:
+            if alias_key in index["capsules"] and alias_key != normalized_capsule_id:
+                raise ValueError(
+                    f"Alias '{alias_key}' conflicts with existing capsule id '{alias_key}'."
+                )
+            existing_target = index.get("aliases", {}).get(alias_key)
+            if existing_target and existing_target != normalized_capsule_id:
+                raise ValueError(
+                    f"Alias '{alias_key}' is already used by capsule '{existing_target}'."
+                )
+            index["aliases"][alias_key] = normalized_capsule_id
 
     save_index(index, capsules_dir)
     return entry

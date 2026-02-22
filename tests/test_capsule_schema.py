@@ -30,3 +30,18 @@ def test_validate_manifest_ok() -> None:
 def test_validate_manifest_missing_keys() -> None:
     with pytest.raises(Exception):
         schema.validate_manifest({"schema_version": schema.CAPSULE_SCHEMA_VERSION})
+
+
+def test_validate_manifest_rejects_unsafe_capsule_id() -> None:
+    manifest = {
+        "schema_version": schema.CAPSULE_SCHEMA_VERSION,
+        "capsule_id": "../escape",
+        "created_at": "2026-02-20T12:00:00Z",
+        "kind": "single_run",
+        "source": {"path": "/tmp/x", "type": "directory"},
+        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lab.main"]}],
+        "artifacts": {},
+        "replay": {"command": ["python", "-m", "lab.main"]},
+    }
+    with pytest.raises(Exception):
+        schema.validate_manifest(manifest)

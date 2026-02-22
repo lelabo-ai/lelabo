@@ -116,7 +116,7 @@ def _add_supervised_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--early-patience", type=int, default=5)
     parser.add_argument("--early-min-delta", type=float, default=0.0)
     parser.add_argument("--early-warmup", type=int, default=5)
-    parser.add_argument("--robustness", type=str, default="input_noise", choices=["none", "input_noise", "relative_input_noise", "weight_noise", "all"])
+    parser.add_argument("--robustness", type=str, default="none", choices=["none", "input_noise", "relative_input_noise", "weight_noise", "all"])
     parser.add_argument("--noise-trials", type=int, default=30)
     parser.add_argument(
         "--glue-task",

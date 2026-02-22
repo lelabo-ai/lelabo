@@ -9,6 +9,7 @@ from conftest import REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 capsule_cli = importlib.import_module("lab.cli.commands.capsule")
+capsule_registry = importlib.import_module("lab.capsule.registry")
 
 
 def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
@@ -72,3 +73,25 @@ def test_capsule_cli_remove_keep_files(tmp_path) -> None:
     rc = capsule_cli.main(["remove", "keep_alias", "--keep-files", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     assert installed_dir.exists()
+
+
+def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
+    caps_dir = tmp_path / "capsules"
+    external = tmp_path / "external_capsule"
+    external.mkdir()
+    (external / "manifest.json").write_text("{}", encoding="utf-8")
+
+    capsule_registry.add_capsule_entry(
+        capsule_id="external_cap",
+        capsule_path=external,
+        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": str(external)}},
+        alias="external_alias",
+        capsules_dir=caps_dir,
+    )
+
+    try:
+        capsule_cli.main(["remove", "external_alias", "--capsules-dir", str(caps_dir)])
+    except SystemExit as exc:
+        assert "Refusing to delete capsule path outside capsules store" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit for unsafe external capsule deletion.")

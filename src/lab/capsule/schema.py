@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
 
 CAPSULE_SCHEMA_VERSION = "1.0"
+_CAPSULE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 _REQUIRED_TOP_LEVEL_KEYS = {
@@ -34,6 +36,19 @@ def _expect_list(value: Any, path: str) -> list[Any]:
     return value
 
 
+def normalize_capsule_id(raw: Any, *, field_name: str = "capsule_id") -> str:
+    capsule_id = str(raw).strip()
+    if not capsule_id:
+        raise ManifestError(f"{field_name} must be non-empty.")
+    if capsule_id in {".", ".."}:
+        raise ManifestError(f"{field_name} cannot be '.' or '..'.")
+    if "/" in capsule_id or "\\" in capsule_id:
+        raise ManifestError(f"{field_name} cannot contain path separators.")
+    if not _CAPSULE_ID_RE.fullmatch(capsule_id):
+        raise ManifestError(f"{field_name} must match [A-Za-z0-9._-]+.")
+    return capsule_id
+
+
 def validate_manifest(manifest: Dict[str, Any]) -> Dict[str, Any]:
     _expect_dict(manifest, "manifest")
 
@@ -47,9 +62,7 @@ def validate_manifest(manifest: Dict[str, Any]) -> Dict[str, Any]:
             f"Unsupported schema_version='{schema_version}'. Expected '{CAPSULE_SCHEMA_VERSION}'."
         )
 
-    capsule_id = str(manifest.get("capsule_id", "")).strip()
-    if not capsule_id:
-        raise ManifestError("capsule_id must be non-empty.")
+    normalize_capsule_id(manifest.get("capsule_id", ""))
 
     kind = str(manifest.get("kind", "")).strip().lower()
     if kind not in {"single_run", "sweep", "config_only"}:

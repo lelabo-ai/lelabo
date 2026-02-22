@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .registry import get_capsule, remove_capsule_entry
+from .registry import default_capsules_dir, get_capsule, remove_capsule_entry
 
 
 def remove_capsule(
@@ -17,10 +17,15 @@ def remove_capsule(
     if row is None:
         raise ValueError(f"Unknown capsule '{capsule_or_alias}'.")
 
+    root = (capsules_dir or default_capsules_dir()).resolve()
     capsule_path = Path(str(row.get("path", ""))).resolve()
 
     deleted = False
     if delete_files and str(capsule_path):
+        if capsule_path == root or root not in capsule_path.parents:
+            raise ValueError(
+                f"Refusing to delete capsule path outside capsules store '{root}': {capsule_path}"
+            )
         if capsule_path.is_dir():
             shutil.rmtree(capsule_path)
             deleted = True

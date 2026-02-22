@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ...capsule.registry import get_capsule
-from ...core.utils.capsule_plugins import find_active_capsule_root, load_capsule_plugins
+from ...core.utils.capsule_plugins import find_active_capsule_root
 from ...metrics.registry import get_metric_names
 from ...models.registry import get_model_names
 from ...supervised.datasets.registry import get_dataset_names
@@ -64,33 +64,27 @@ def _normalized_target(raw: str) -> str:
     return target
 
 
-def _collect(target: str, *, capsules_dir: Path | None) -> dict[str, list[str]]:
+def _collect(
+    target: str,
+    *,
+    capsules_dir: Path | None,
+    explicit_capsule_roots: Sequence[Path] | None = None,
+) -> dict[str, list[str]]:
+    extra_roots = list(explicit_capsule_roots or [])
     if target == "algos":
-        return {"algos": sorted(get_update_rule_names(capsules_dir=capsules_dir))}
+        return {"algos": sorted(get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     if target == "datasets":
-        return {"datasets": sorted(get_dataset_names(capsules_dir=capsules_dir))}
+        return {"datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     if target == "models":
-        return {"models": sorted(get_model_names(capsules_dir=capsules_dir))}
+        return {"models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     if target == "metrics":
-        return {"metrics": sorted(get_metric_names(capsules_dir=capsules_dir))}
+        return {"metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     return {
-        "algos": sorted(get_update_rule_names(capsules_dir=capsules_dir)),
-        "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir)),
-        "models": sorted(get_model_names(capsules_dir=capsules_dir)),
-        "metrics": sorted(get_metric_names(capsules_dir=capsules_dir)),
+        "algos": sorted(get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+        "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+        "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+        "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
     }
-
-
-def _kinds_for_target(target: str) -> tuple[str, ...]:
-    if target == "algos":
-        return ("update_rules",)
-    if target == "datasets":
-        return ("datasets",)
-    if target == "models":
-        return ("models",)
-    if target == "metrics":
-        return ("metrics",)
-    return ("models", "update_rules", "datasets", "metrics")
 
 
 def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:
@@ -113,18 +107,18 @@ def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:
     return root
 
 
-def _load_explicit_capsules(
+def _resolve_explicit_capsule_roots(
     refs: Sequence[str],
     *,
-    target: str,
     capsules_dir: Path | None,
-) -> None:
+) -> list[Path]:
     if not refs:
-        return
-    kinds = _kinds_for_target(target)
+        return []
+    out: list[Path] = []
     for ref in refs:
         root = _resolve_capsule_root(ref, capsules_dir)
-        load_capsule_plugins(kinds=kinds, capsule_root=root)
+        out.append(root)
+    return out
 
 
 def _print_text(rows: dict[str, list[str]]) -> None:
@@ -177,15 +171,14 @@ def main(argv: Sequence[str]) -> int:
 
     caps_dir = Path(parsed.capsules_dir) if parsed.capsules_dir else None
     try:
-        _load_explicit_capsules(
+        explicit_roots = _resolve_explicit_capsule_roots(
             [str(x) for x in parsed.capsule],
-            target=target,
             capsules_dir=caps_dir,
         )
     except ValueError as exc:
         raise SystemExit(str(exc))
 
-    rows = _collect(target, capsules_dir=caps_dir)
+    rows = _collect(target, capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
     if bool(parsed.json):
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:

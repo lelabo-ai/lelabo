@@ -9,7 +9,7 @@ from typing import Any
 
 from .checksums import verify_checksums
 from .registry import add_capsule_entry, default_capsules_dir
-from .schema import validate_manifest
+from .schema import normalize_capsule_id, validate_manifest
 
 
 def _extract_bundle(bundle_path: Path, dst: Path) -> None:
@@ -35,6 +35,13 @@ def _extract_bundle(bundle_path: Path, dst: Path) -> None:
             tf.extractall(dst, filter="data")
         except TypeError:
             tf.extractall(dst)
+
+
+def _safe_capsule_dst(root: Path, capsule_id: str) -> Path:
+    dst = (root / capsule_id).resolve()
+    if dst == root or root not in dst.parents:
+        raise ValueError(f"Unsafe capsule destination path resolved outside capsules dir: {dst}")
+    return dst
 
 
 def install_capsule(
@@ -65,13 +72,14 @@ def install_capsule(
         if not ok:
             raise ValueError("Checksum verification failed: " + "; ".join(errs))
 
-        capsule_id = str(manifest["capsule_id"]).strip()
-        if not capsule_id:
-            raise ValueError("Invalid manifest: capsule_id is empty.")
+        capsule_id = normalize_capsule_id(manifest["capsule_id"])
 
-        dst = root / capsule_id
+        dst = _safe_capsule_dst(root, capsule_id)
         if dst.exists():
-            shutil.rmtree(dst)
+            if dst.is_dir():
+                shutil.rmtree(dst)
+            else:
+                dst.unlink()
         shutil.copytree(tmp, dst)
 
     entry = add_capsule_entry(

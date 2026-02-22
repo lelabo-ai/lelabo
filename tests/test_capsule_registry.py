@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -67,3 +69,44 @@ def test_default_capsules_dir_uses_user_data_when_no_legacy_dir(tmp_path, monkey
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg_data"))
     monkeypatch.chdir(tmp_path)
     assert registry.default_capsules_dir() == (tmp_path / "xdg_data" / "lelabo" / "capsules").resolve()
+
+
+def test_registry_load_index_recovers_from_corrupted_json(tmp_path) -> None:
+    capsules_dir = tmp_path / "capsules"
+    idx_path = registry.index_path(capsules_dir)
+    idx_path.parent.mkdir(parents=True, exist_ok=True)
+    idx_path.write_text("{not json", encoding="utf-8")
+
+    loaded = registry.load_index(capsules_dir)
+    assert loaded["capsules"] == {}
+    assert loaded["aliases"] == {}
+    backups = list(idx_path.parent.glob("index.json.corrupt.*.bak"))
+    assert backups
+    assert not idx_path.exists()
+
+
+def test_registry_rejects_alias_collision(tmp_path) -> None:
+    capsules_dir = tmp_path / "capsules"
+    cap1 = capsules_dir / "cap1"
+    cap2 = capsules_dir / "cap2"
+    cap1.mkdir(parents=True)
+    cap2.mkdir(parents=True)
+    (cap1 / "manifest.json").write_text("{}", encoding="utf-8")
+    (cap2 / "manifest.json").write_text("{}", encoding="utf-8")
+
+    registry.add_capsule_entry(
+        capsule_id="cap1",
+        capsule_path=cap1,
+        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": "x"}},
+        alias="baseline",
+        capsules_dir=capsules_dir,
+    )
+
+    with pytest.raises(ValueError, match="Alias 'baseline' is already used"):
+        registry.add_capsule_entry(
+            capsule_id="cap2",
+            capsule_path=cap2,
+            manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": "x"}},
+            alias="baseline",
+            capsules_dir=capsules_dir,
+        )

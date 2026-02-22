@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import importlib
+import os
 import pkgutil
+import sys
+import warnings
 from typing import Callable, Dict
+
+
+def _strict_plugin_loading() -> bool:
+    raw = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 class Registry:
     def __init__(self, name: str, package: str | None = None):
@@ -28,7 +36,7 @@ class Registry:
     def names(self) -> list[str]:
         return sorted(self._items.keys())
 
-    def discover(self, package: str | None = None):
+    def discover(self, package: str | None = None, *, reload: bool = False):
         pkg_name = package or self.package
         if not pkg_name:
             raise ValueError("discover() needs a package name")
@@ -43,7 +51,27 @@ class Registry:
             if any(part.startswith("_") for part in rel_name.split(".")):
                 continue
             try:
-                importlib.import_module(full_name)
-            except ImportError:
+                if reload and full_name in sys.modules:
+                    importlib.reload(sys.modules[full_name])
+                else:
+                    importlib.import_module(full_name)
+            except ImportError as exc:
                 # Ignore missing optional deps in plugin-like modules.
-                pass
+                if _strict_plugin_loading():
+                    raise
+                warnings.warn(
+                    f"[{self.name}] Skipping '{full_name}' due missing optional dependency: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
+    def snapshot_discovered_items(self, package: str | None = None) -> Dict[str, Callable[..., object]]:
+        original_items = dict(self._items)
+        try:
+            self._items = {}
+            self.discover(package=package)
+            if not self._items:
+                self.discover(package=package, reload=True)
+            return dict(self._items)
+        finally:
+            self._items = original_items

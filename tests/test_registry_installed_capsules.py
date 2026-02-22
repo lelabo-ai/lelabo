@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -104,4 +106,34 @@ def test_get_metric_names_includes_installed_capsules(tmp_path) -> None:
         assert "installed_capsule_metric" in names
     finally:
         metrics_registry.METRIC_REGISTRY._items = original_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_broken_installed_capsule_emits_warning_and_keeps_builtins(tmp_path) -> None:
+    capsule_root = tmp_path / "capsule_broken"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
+    (capsule_root / "models" / "broken.py").write_text(
+        "raise RuntimeError('boom from broken capsule')\n",
+        encoding="utf-8",
+    )
+
+    caps_dir = tmp_path / "caps_store"
+    capsule_registry.add_capsule_entry(
+        capsule_id="caps_broken_id",
+        capsule_path=capsule_root,
+        manifest={"kind": "config_only", "created_at": "2026-02-22T00:00:00Z", "source": {"path": str(capsule_root)}},
+        alias="caps_broken_alias",
+        capsules_dir=caps_dir,
+    )
+
+    original_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    try:
+        with pytest.warns(RuntimeWarning, match="failed to load"):
+            names = models_registry.get_model_names(capsules_dir=caps_dir)
+        assert isinstance(names, list)
+        assert names
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_items
         plugins.reset_capsule_plugin_cache()
