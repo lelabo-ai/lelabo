@@ -4,7 +4,7 @@ from typing import Any
 
 from lab.core.registry import Registry  # si tu utilises le Registry générique
 
-MODEL_REGISTRY = Registry("models", package="lab.models")
+MODEL_REGISTRY = Registry("models", package="lab.models.imported")
 
 @dataclass
 class ModelContext:

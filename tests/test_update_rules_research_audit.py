@@ -58,10 +58,10 @@ def _load_lab_modules(monkeypatch: pytest.MonkeyPatch):
 
     registry = importlib.import_module("lab.algorithms.update_rules.registry")
     importlib.import_module("lab.algorithms.update_rules.builders")
-    mlp_mod = importlib.import_module("lab.models.mlp")
-    conv_mod = importlib.import_module("lab.models.convnet")
-    deephebb_mod = importlib.import_module("lab.models.deep_softhebb")
-    ac_mod = importlib.import_module("lab.models.actor_critic")
+    mlp_mod = importlib.import_module("lab.models.imported.mlp")
+    conv_mod = importlib.import_module("lab.models.imported.convnet")
+    deephebb_mod = importlib.import_module("lab.models.imported.deep_softhebb")
+    ac_mod = importlib.import_module("lab.models.imported.actor_critic")
     task_mod = importlib.import_module("lab.core.task")
     return registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, task_mod
 

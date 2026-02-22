@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .blocks import LeModule, BlockSpec
-from .registry import ModelContext, register_model
+from ..blocks import LeModule, BlockSpec
+from ..registry import ModelContext, register_model
 
 
 def make_activation(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
