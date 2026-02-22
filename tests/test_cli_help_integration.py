@@ -52,7 +52,7 @@ def test_list_help_displays_list_usage() -> None:
     assert proc.returncode == 0
     assert "List available LeLabo registries" in proc.stdout
     assert "lelabo list [target] [--json]" in proc.stdout
-    assert "algos" in proc.stdout
+    assert "update-rules" in proc.stdout
     assert "datasets" in proc.stdout
 
 

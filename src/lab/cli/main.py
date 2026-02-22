@@ -48,8 +48,8 @@ Commands:
   train      Run supervised or RL training (explicit mode)
   audit      Run update-rule audit tests
   create     Create local LeLabo scaffolds
-  list       List available algos/datasets/models/metrics
-  capsule    Pack/install/list/show/rerun experiment capsules
+  list       List available update-rules/datasets/models/metrics
+  capsule    Pack/install/store/restore/list/show/rerun experiment capsules
 
 Help:
   lelabo -h
@@ -64,7 +64,7 @@ Examples:
   lelabo train rl --env CartPole-v1 --rl-algo ppo
   lelabo audit --all --modes supervised,rl
   lelabo create capsule --name my_capsule
-  lelabo list algos
+  lelabo list update-rules
   lelabo capsule pack --from outputs/runs/demo/run1
 """
 

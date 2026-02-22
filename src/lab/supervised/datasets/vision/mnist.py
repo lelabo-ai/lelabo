@@ -3,17 +3,16 @@ from __future__ import annotations
 from typing import Optional
 import torch
 from torch.utils.data import Subset
-from torchvision.datasets import MNIST
-from torchvision import transforms
 
-from ..base import DataBundle, dataset_to_tensors, make_loader
+from ..base import DataBundle, make_loader
 from ..paths import dataset_dir
-from ..registry import register_dataset
 from ..splits import split_train_val
 from ..transforms import AddRelativeNoise, Flatten
 
 
-def _build_transform(*, add_noise: bool, flatten: bool, noise_sigma: float) -> transforms.Compose:
+def _build_transform(*, add_noise: bool, flatten: bool, noise_sigma: float):
+    from torchvision import transforms
+
     tfms = [
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,)),
@@ -39,7 +38,6 @@ def _maybe_subset(ds, max_items: Optional[int], seed: int) -> object:
     return Subset(ds, idx)
 
 
-@register_dataset("mnist")
 def make_mnist_dataset(
     *,
     batch_size: int = 128,
@@ -56,6 +54,8 @@ def make_mnist_dataset(
     test_max: Optional[int] = 1000,
     **_: object,
 ) -> DataBundle:
+    from torchvision.datasets import MNIST
+
     data_root = str(dataset_dir("mnist"))
 
     train_tfm = _build_transform(add_noise=(input_noise_dataset > 0.0), flatten=flatten, noise_sigma=input_noise_dataset)
@@ -92,10 +92,9 @@ def make_mnist_dataset(
         num_workers=num_workers, pin_memory=pin_memory
     )
 
-    x_test, y_test = dataset_to_tensors(test_ds)
-
     if flatten:
-        in_dim: Optional[int] = int(x_test.shape[1])
+        sample_x, _sample_y = test_ds[0]
+        in_dim: Optional[int] = int(sample_x.numel())
         input_shape = None
     else:
         in_dim = None
@@ -108,6 +107,5 @@ def make_mnist_dataset(
         num_classes=10,
         in_dim=in_dim,
         input_shape=input_shape,
-        x_test=x_test,
-        y_test=y_test,
+        test_dataset=test_ds,
     )

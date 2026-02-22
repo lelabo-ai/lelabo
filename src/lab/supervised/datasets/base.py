@@ -23,6 +23,7 @@ class DataBundle:
     input_shape: Optional[Tuple[int, ...]] = None
     x_test: Optional[torch.Tensor] = None
     y_test: Optional[torch.Tensor] = None
+    test_dataset: Optional[Dataset] = None
     meta: dict[str, Any] = field(default_factory=dict)
 
 
@@ -42,10 +43,16 @@ class TensorDatasetWithTransform(Dataset):
         return x, self.y[idx]
 
 
-def dataset_to_tensors(ds: Dataset) -> tuple[torch.Tensor, torch.Tensor]:
+def dataset_to_tensors(ds: Dataset, max_items: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    limit = len(ds)
+    if max_items is not None:
+        if int(max_items) <= 0:
+            raise ValueError(f"max_items must be positive when provided, got {max_items}")
+        limit = min(limit, int(max_items))
+
     xs = []
     ys = []
-    for i in range(len(ds)):
+    for i in range(limit):
         x, y = ds[i]
         xs.append(x)
         ys.append(y)

@@ -48,6 +48,30 @@ def _iter_plugin_files(capsule_root: Path, kind: str) -> list[Path]:
     )
 
 
+def plugin_files_fingerprint(capsule_root: Path | None, *, kinds: Sequence[str]) -> tuple[tuple[str, tuple[tuple[str, int, int], ...]], ...]:
+    """
+    Lightweight content fingerprint for plugin files under a capsule root.
+    Used to skip expensive registry refreshes when plugin files did not change.
+    """
+    if capsule_root is None:
+        return tuple()
+
+    root = Path(capsule_root).resolve()
+    out: list[tuple[str, tuple[tuple[str, int, int], ...]]] = []
+    for kind in kinds:
+        files = _iter_plugin_files(root, kind)
+        rows: list[tuple[str, int, int]] = []
+        for path in files:
+            try:
+                st = path.stat()
+                rows.append((str(path), int(st.st_mtime_ns), int(st.st_size)))
+            except OSError:
+                # If a file disappears between listing and stat, ignore and continue.
+                continue
+        out.append((str(kind), tuple(rows)))
+    return tuple(out)
+
+
 def _load_plugin(path: Path, kind: str) -> str:
     mod_name = _module_name_for(path, kind)
     spec = importlib.util.spec_from_file_location(mod_name, str(path))
@@ -139,5 +163,6 @@ __all__ = [
     "find_active_capsule_root",
     "load_capsule_plugins",
     "load_installed_capsule_plugins",
+    "plugin_files_fingerprint",
     "reset_capsule_plugin_cache",
 ]

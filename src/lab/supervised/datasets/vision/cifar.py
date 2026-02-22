@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 from torch.utils.data import Subset
-from torchvision import datasets, transforms
 
-from ..base import DataBundle, dataset_to_tensors, make_loader
+from ..base import DataBundle, make_loader
 from ..paths import dataset_dir
-from ..registry import register_dataset
 from ..splits import split_train_val
 from ..transforms import AddRelativeNoise, Flatten
 
@@ -17,7 +15,9 @@ def _build_transform(
     add_noise: bool,
     flatten: bool,
     noise_sigma: float,
-) -> transforms.Compose:
+) -> object:
+    from torchvision import transforms
+
     mean = (0.4914, 0.4822, 0.4465)
     std = (0.2470, 0.2435, 0.2616)
 
@@ -56,6 +56,8 @@ def _make_cifar_dataset(
     pin_memory: bool = True,
     **_: object,
 ) -> DataBundle:
+    from torchvision import datasets
+
     dataset = str(dataset).lower()
     if dataset not in {"cifar10", "cifar100"}:
         raise ValueError(f"Unknown CIFAR dataset: {dataset}")
@@ -126,10 +128,9 @@ def _make_cifar_dataset(
         pin_memory=pin_memory,
     )
 
-    x_test, y_test = dataset_to_tensors(test_ds)
-
     if flatten:
-        in_dim: Optional[int] = int(x_test.shape[1])
+        sample_x, _sample_y = test_ds[0]
+        in_dim: Optional[int] = int(sample_x.numel())
         input_shape: Optional[Tuple[int, ...]] = None
     else:
         in_dim = None
@@ -142,16 +143,13 @@ def _make_cifar_dataset(
         num_classes=num_classes,
         in_dim=in_dim,
         input_shape=input_shape,
-        x_test=x_test,
-        y_test=y_test,
+        test_dataset=test_ds,
     )
 
 
-@register_dataset("cifar10")
 def make_cifar10_dataset(**kwargs) -> DataBundle:
     return _make_cifar_dataset(dataset="cifar10", **kwargs)
 
 
-@register_dataset("cifar100")
 def make_cifar100_dataset(**kwargs) -> DataBundle:
     return _make_cifar_dataset(dataset="cifar100", **kwargs)

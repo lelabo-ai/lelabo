@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from .base import UpdateRule
+from .registry import UpdateRuleContext, register_update_rule
 from ..core.batch import to_device
 from ..core.steps import maybe_accuracy_from_logits
 
@@ -454,3 +455,8 @@ class KP3(UpdateRule):
 
         self.global_step += 1
         return out_stats
+
+
+@register_update_rule("kp3")
+def build_kp3(ctx: UpdateRuleContext):
+    return KP3(local_lr=ctx.args.lr, head_lr=ctx.args.lr, head_weight_decay=ctx.args.weight_decay)

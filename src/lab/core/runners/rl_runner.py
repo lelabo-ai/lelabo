@@ -45,6 +45,16 @@ class RLRunner:
         xs = list(xs)
         return float(sum(xs) / len(xs)) if xs else 0.0
 
+    @staticmethod
+    def _safe_close(env: Any) -> None:
+        close_fn = getattr(env, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                # Closing errors should not hide training/eval outcomes.
+                pass
+
     def train(
         self,
         total_steps: int,
@@ -57,65 +67,69 @@ class RLRunner:
 
         start = time.perf_counter()
         updates = 0
+        try:
+            while int(self.algo.total_steps) < int(total_steps):
+                batch, info = self.algo.collect(self.env, device=self.device)
 
-        while int(self.algo.total_steps) < int(total_steps):
-            batch, info = self.algo.collect(self.env, device=self.device)
+                # épisodes terminés (si l'algo en renvoie)
+                for ep in info.get("episodes", []) or []:
+                    # accepte return/length, sinon ignore silencieusement
+                    if "return" in ep:
+                        self._last_returns.append(float(ep["return"]))
+                    if "length" in ep:
+                        self._last_lengths.append(float(ep["length"]))
 
-            # épisodes terminés (si l'algo en renvoie)
-            for ep in info.get("episodes", []) or []:
-                # accepte return/length, sinon ignore silencieusement
-                if "return" in ep:
-                    self._last_returns.append(float(ep["return"]))
-                if "length" in ep:
-                    self._last_lengths.append(float(ep["length"]))
+                    rec = {"t": "episode", "total_steps": int(self.algo.total_steps), **ep}
+                    #self.logger.log(rec)
 
-                rec = {"t": "episode", "total_steps": int(self.algo.total_steps), **ep}
-                #self.logger.log(rec)
+                stats = self.algo.update(batch, device=self.device)
 
-            stats = self.algo.update(batch, device=self.device)
+                if stats:
+                    updates += 1
 
-            if stats:
-                updates += 1
+                    # log jsonl
+                    if (updates % log_every_updates) == 0:
+                        rec = {"t": "rl_update", "total_steps": int(self.algo.total_steps), **stats}
 
-                # log jsonl
-                if (updates % log_every_updates) == 0:
-                    rec = {"t": "rl_update", "total_steps": int(self.algo.total_steps), **stats}
+                        rec["roll_mean_return_20"] = self._mean(self._last_returns)
+                        rec["roll_mean_length_20"] = self._mean(self._last_lengths)
 
-                    rec["roll_mean_return_20"] = self._mean(self._last_returns)
-                    rec["roll_mean_length_20"] = self._mean(self._last_lengths)
+                        self.logger.log(rec)
 
-                    self.logger.log(rec)
+                    # print console
+                    if self.verbose and (updates % print_every_updates) == 0:
+                        mean_r = self._mean(self._last_returns)
+                        mean_l = self._mean(self._last_lengths)
 
-                # print console
-                if self.verbose and (updates % print_every_updates) == 0:
-                    mean_r = self._mean(self._last_returns)
-                    mean_l = self._mean(self._last_lengths)
+                        # affiche quelques métriques PPO si dispo
+                        extra_keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "loss"]
+                        extras = []
+                        for k in extra_keys:
+                            if k in stats and isinstance(stats[k], (int, float)):
+                                extras.append(f"{k}={float(stats[k]):.4g}")
+                        extras_s = (" | " + " ".join(extras)) if extras else ""
 
-                    # affiche quelques métriques PPO si dispo
-                    extra_keys = ["policy_loss", "value_loss", "entropy", "approx_kl", "loss"]
-                    extras = []
-                    for k in extra_keys:
-                        if k in stats and isinstance(stats[k], (int, float)):
-                            extras.append(f"{k}={float(stats[k]):.4g}")
-                    extras_s = (" | " + " ".join(extras)) if extras else ""
+                        print(
+                            f"[update {updates}] steps={int(self.algo.total_steps)} "
+                            f"mean_return(last {self.reward_window})={mean_r:.3f} "
+                            f"mean_len(last {self.length_window})={mean_l:.2f}"
+                            f"{extras_s}"
+                        )
 
-                    print(
-                        f"[update {updates}] steps={int(self.algo.total_steps)} "
-                        f"mean_return(last {self.reward_window})={mean_r:.3f} "
-                        f"mean_len(last {self.length_window})={mean_l:.2f}"
-                        f"{extras_s}"
-                    )
+            total_time = time.perf_counter() - start
+            sps = float(int(self.algo.total_steps) / total_time) if total_time > 0 else 0.0
 
-        total_time = time.perf_counter() - start
-        sps = float(int(self.algo.total_steps) / total_time) if total_time > 0 else 0.0
+            eval_stats = self.algo.evaluate(eval_env, eval_episodes=eval_episodes, device=self.device)
+            self.logger.log({"t": "eval_rl", "total_steps": int(self.algo.total_steps), **eval_stats})
 
-        eval_stats = self.algo.evaluate(eval_env, eval_episodes=eval_episodes, device=self.device)
-        self.logger.log({"t": "eval_rl", "total_steps": int(self.algo.total_steps), **eval_stats})
-
-        return {
-            "total_steps": int(self.algo.total_steps),
-            "total_time_sec": float(total_time),
-            "steps_per_sec": float(sps),
-            "updates": int(updates),
-            "eval": eval_stats,
-        }
+            return {
+                "total_steps": int(self.algo.total_steps),
+                "total_time_sec": float(total_time),
+                "steps_per_sec": float(sps),
+                "updates": int(updates),
+                "eval": eval_stats,
+            }
+        finally:
+            self._safe_close(self.env)
+            if eval_env is not self.env:
+                self._safe_close(eval_env)

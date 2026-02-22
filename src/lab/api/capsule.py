@@ -3,13 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Sequence
 
+from ..capsule.create import create_capsule_scaffold as _create_capsule_scaffold
 from ..capsule.install import install_capsule as _install_capsule
 from ..capsule.pack import pack_capsule as _pack_capsule
+from ..capsule.remove import remove_capsule as _remove_capsule
 from ..capsule.registry import get_capsule as _get_capsule
 from ..capsule.registry import list_capsules as _list_capsules
 from ..capsule.rerun import rerun_capsule as _rerun_capsule
-from ..capsule.create import create_capsule_scaffold as _create_capsule_scaffold
-from ..capsule.remove import remove_capsule as _remove_capsule
+from ..capsule.restore import restore_capsule as _restore_capsule
+from ..capsule.store import store_capsule as _store_capsule
 
 
 def pack_capsule(
@@ -36,6 +38,19 @@ def install_capsule(
     return _install_capsule(
         bundle_path=bundle_path,
         alias=alias,
+        capsules_dir=capsules_dir,
+    )
+
+
+def store_capsule(
+    *,
+    alias: str | None = None,
+    source_path: Path | None = None,
+    capsules_dir: Path | None = None,
+) -> dict[str, Any]:
+    return _store_capsule(
+        alias=alias,
+        source_path=source_path,
         capsules_dir=capsules_dir,
     )
 
@@ -97,4 +112,19 @@ def remove_capsule(
         capsule_or_alias=capsule_or_alias,
         capsules_dir=capsules_dir,
         delete_files=delete_files,
+    )
+
+
+def restore_capsule(
+    *,
+    capsule_or_alias: str,
+    destination_dir: Path | None = None,
+    name: str | None = None,
+    capsules_dir: Path | None = None,
+) -> dict[str, Any]:
+    return _restore_capsule(
+        capsule_or_alias=capsule_or_alias,
+        destination_dir=destination_dir,
+        name=name,
+        capsules_dir=capsules_dir,
     )

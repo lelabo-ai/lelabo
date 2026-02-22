@@ -15,7 +15,7 @@ def build_audit_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "rule",
         nargs="?",
-        help="Update rule to audit (e.g. bp, kp3, dni). Ignored with --all.",
+        help="Update rule to audit (e.g. bp, fa, dni). Ignored with --all.",
     )
     parser.add_argument(
         "--all",
@@ -90,4 +90,3 @@ def run_audit(argv: Sequence[str]) -> int:
     cmd.extend(extra)
 
     return subprocess.call(cmd, env=env)
-

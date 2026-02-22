@@ -76,9 +76,6 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
 
         algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
         runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, verbose=bool(args.verbose))
-        out = runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
-
-        envs.close()
-        return out
+        return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     raise ValueError(f"Unknown rl algo: {args.rl_algo}")

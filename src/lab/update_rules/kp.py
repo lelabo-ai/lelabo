@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base import UpdateRule
+from .registry import UpdateRuleContext, register_update_rule
 from ..core.batch import to_device
 from ..core.steps import maybe_accuracy_from_logits
 
@@ -440,6 +441,7 @@ class KP(UpdateRule):
         self.global_step += 1
         return out_stats
 
+
     # ============================================================
     # Finetune helper
     # ============================================================
@@ -501,3 +503,8 @@ class KP(UpdateRule):
         out_stats.update(stats)
         self.global_step += 1
         return out_stats
+
+
+@register_update_rule("kp")
+def build_kp(ctx: UpdateRuleContext):
+    return KP(learning_rate=ctx.args.lr, bp_lr=ctx.args.lr, bp_weight_decay=ctx.args.weight_decay)

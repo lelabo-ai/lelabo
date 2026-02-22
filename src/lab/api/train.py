@@ -55,7 +55,7 @@ def _add_supervised_args(parser: argparse.ArgumentParser) -> None:
         help="Supervised dataset name.",
     )
     parser.add_argument("--model", choices=get_model_names(), default="cnn")
-    parser.add_argument("--algo", choices=get_update_rule_names(), default="kp2")
+    parser.add_argument("--algo", choices=get_update_rule_names(), default="bp")
     available_metrics = get_metric_names()
     parser.add_argument(
         "--metrics",
@@ -118,6 +118,12 @@ def _add_supervised_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--early-warmup", type=int, default=5)
     parser.add_argument("--robustness", type=str, default="none", choices=["none", "input_noise", "relative_input_noise", "weight_noise", "all"])
     parser.add_argument("--noise-trials", type=int, default=30)
+    parser.add_argument(
+        "--robustness-max-samples",
+        type=int,
+        default=0,
+        help="Cap number of test samples materialized for robustness analysis (0 keeps full test set).",
+    )
     parser.add_argument(
         "--glue-task",
         type=str,

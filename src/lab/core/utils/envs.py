@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 from typing import Callable
-import gymnasium as gym
 from lab.core.utils.seed import derive_seed
 
 
-def make_env(env_id: str, seed: int) -> gym.Env:
+def _require_gymnasium():
+    try:
+        import gymnasium as gym
+    except ImportError as exc:
+        raise ImportError(
+            "RL environments require 'gymnasium'. Install optional deps with: pip install '.[rl]'"
+        ) from exc
+    return gym
+
+
+def make_env(env_id: str, seed: int):
+    gym = _require_gymnasium()
     root_seed = int(seed)
     env = gym.make(env_id)
     env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -18,12 +28,13 @@ def make_env(env_id: str, seed: int) -> gym.Env:
     return env
 
 
-def make_env_thunk(env_id: str, seed: int) -> Callable[[], gym.Env]:
+def make_env_thunk(env_id: str, seed: int) -> Callable[[], object]:
     def _thunk():
         return make_env(env_id, seed)
     return _thunk
 
 
 def make_vec_env(env_id: str, seed: int, num_envs: int):
+    gym = _require_gymnasium()
     thunks = [make_env_thunk(env_id, seed + i) for i in range(num_envs)]
     return gym.vector.SyncVectorEnv(thunks)

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import torch
-from datasets import load_dataset
-from transformers import AutoTokenizer, DataCollatorWithPadding
 
 from ..base import DataBundle, make_loader
-from ..registry import register_dataset
 
 GLUE_KEYS = {
     "cola": ("sentence", None),
@@ -20,7 +17,6 @@ GLUE_KEYS = {
 }
 
 
-@register_dataset("glue")
 def make_glue_dataset(
     *,
     glue_task: str,
@@ -32,6 +28,15 @@ def make_glue_dataset(
     pin_memory: bool = True,
     **_: object,
 ) -> DataBundle:
+    try:
+        from datasets import load_dataset
+        from transformers import AutoTokenizer, DataCollatorWithPadding
+    except ImportError as exc:
+        raise ImportError(
+            "Dataset 'glue' requires optional NLP dependencies. "
+            "Install with: pip install '.[nlp]'"
+        ) from exc
+
     task_name = str(glue_task).lower()
     if task_name not in GLUE_KEYS:
         raise ValueError(f"Unknown GLUE task: {task_name}")

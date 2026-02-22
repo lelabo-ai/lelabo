@@ -11,11 +11,9 @@ from ..utils.logger import RunLogger
 
 # datasets
 from ...supervised.datasets import get_dataset
+from ...supervised.datasets.base import dataset_to_tensors
 from ..task import ClassificationTask, GLUETask
 from ..robustness import test_with_noise
-
-# GLUE
-from transformers import AutoModelForSequenceClassification
 
 # models
 from ...models.registry import build_model, ModelContext
@@ -99,6 +97,13 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             )
             model = build_model(args.model, ctx, args)
         else:
+            try:
+                from transformers import AutoModelForSequenceClassification
+            except ImportError as exc:
+                raise ImportError(
+                    "Dataset 'glue' requires 'transformers'. "
+                    "Install optional deps with: pip install '.[nlp]'"
+                ) from exc
             model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
 
         task = GLUETask(task_name=args.glue_task, is_regression=is_regression, num_labels=num_labels)
@@ -194,9 +199,17 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         eval_block["test"] = trainer.evaluate(test_loader, split="test")
     summary["eval"] = eval_block
 
-    # robustness (unchanged, uses Xte/yte)
+    # robustness
     robustness_block: Dict[str, Any] = {}
-    if args.dataset in ["iris", "mnist", "cifar10", "cifar100", "breast_cancer"] and args.robustness != "none" and Xte is not None and yte is not None:
+    supports_robustness = args.dataset in {"iris", "mnist", "cifar10", "cifar100", "breast_cancer"}
+    if supports_robustness and args.robustness != "none" and (Xte is None or yte is None):
+        test_ds = getattr(bundle, "test_dataset", None)
+        if test_ds is not None:
+            raw_max = int(getattr(args, "robustness_max_samples", 0) or 0)
+            max_items = raw_max if raw_max > 0 else None
+            Xte, yte = dataset_to_tensors(test_ds, max_items=max_items)
+
+    if supports_robustness and args.robustness != "none" and Xte is not None and yte is not None:
         sigmas_input = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
         sigmas_rel = [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
         sigmas_w = [0.0, 0.01, 0.05, 0.1, 0.2, 0.5]

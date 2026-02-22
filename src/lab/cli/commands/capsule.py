@@ -9,8 +9,10 @@ from ...api.capsule import install_capsule
 from ...api.capsule import list_capsules
 from ...api.capsule import pack_capsule
 from ...api.capsule import remove_capsule
+from ...api.capsule import restore_capsule
 from ...api.capsule import rerun_capsule
 from ...api.capsule import show_capsule
+from ...api.capsule import store_capsule
 
 
 CAPSULE_HELP = """\
@@ -22,6 +24,8 @@ Usage:
 Subcommands:
   pack       Build a shareable capsule bundle from a run/sweep/config
   install    Install a capsule bundle into the local capsule store
+  store      Store a local capsule directory into the capsule library/cache
+  restore    Restore an installed capsule into a local working directory
   list       List installed capsules
   show       Show one installed capsule entry
   remove     Remove one installed capsule entry (and files by default)
@@ -64,6 +68,64 @@ def _cmd_install(argv: list[str]) -> int:
         capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
     )
     print(json.dumps(entry, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _cmd_store(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lelabo capsule store")
+    parser.add_argument(
+        "-n",
+        "--name",
+        dest="alias",
+        required=True,
+        help="Capsule alias to register in the library",
+    )
+    parser.add_argument(
+        "--from",
+        dest="source",
+        default=None,
+        help="Path inside a capsule directory (defaults to current working directory)",
+    )
+    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    args = parser.parse_args(argv)
+
+    try:
+        entry = store_capsule(
+            alias=args.alias,
+            source_path=Path(args.source) if args.source else None,
+            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc))
+
+    print(json.dumps(entry, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _cmd_restore(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lelabo capsule restore")
+    parser.add_argument("id_or_alias", help="Installed capsule id or alias to restore")
+    parser.add_argument("--to", dest="destination_dir", default=None, help="Target directory (defaults to cwd)")
+    parser.add_argument(
+        "-n",
+        "--name",
+        default=None,
+        help="Optional destination folder name (defaults to capsule id)",
+    )
+    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    args = parser.parse_args(argv)
+
+    try:
+        restored = restore_capsule(
+            capsule_or_alias=args.id_or_alias,
+            destination_dir=Path(args.destination_dir) if args.destination_dir else None,
+            name=args.name,
+            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
+        )
+    except (FileExistsError, FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc))
+
+    print(json.dumps(restored, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -153,6 +215,10 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_pack(rest)
     if cmd == "install":
         return _cmd_install(rest)
+    if cmd == "store":
+        return _cmd_store(rest)
+    if cmd == "restore":
+        return _cmd_restore(rest)
     if cmd == "list":
         return _cmd_list(rest)
     if cmd == "show":
@@ -164,6 +230,6 @@ def main(argv: Sequence[str]) -> int:
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: pack, install, list, show, remove, rerun.\n"
+        "Use one of: pack, install, store, restore, list, show, remove, rerun.\n"
         "Run `lelabo capsule -h` for usage."
     )

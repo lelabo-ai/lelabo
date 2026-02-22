@@ -302,7 +302,7 @@ def build_parser():
     p.add_argument("--env", default="CartPole-v1")
 
     p.add_argument("--model", default="mlp")  # kept for symmetry; this profiler uses MLP/ActorCriticDiscrete
-    p.add_argument("--algos", type=str, default="bp,fa,softhebb", help="comma-separated list, e.g. bp,fa,dfa,softhebb,tp,dni,kp")
+    p.add_argument("--algos", type=str, default="bp,fa,softhebb", help="comma-separated list, e.g. bp,fa,dfa,softhebb,tp,dni")
 
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--layers", type=int, default=2)

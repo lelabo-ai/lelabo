@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 import torch
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from torch.utils.data import TensorDataset
 
 from ..base import DataBundle, make_loader
-from ..registry import register_dataset
 from ..splits import split_train_val
 from ..transforms import apply_relative_noise
 
 
-@register_dataset("iris")
 def make_iris_dataset(
     *,
     batch_size: int = 32,
@@ -24,6 +18,11 @@ def make_iris_dataset(
     pin_memory: bool = True,
     **_: object,
 ) -> DataBundle:
+    from sklearn.datasets import load_iris
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from torch.utils.data import TensorDataset
+
     data = load_iris()
     X, y = data.data, data.target
 

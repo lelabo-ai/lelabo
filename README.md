@@ -125,7 +125,7 @@ lelabo create capsule --name my_capsule
 ```
 
 ```bash
-lelabo list algos
+lelabo list update-rules
 ```
 
 ```bash

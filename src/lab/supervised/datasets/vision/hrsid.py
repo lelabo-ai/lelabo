@@ -12,7 +12,7 @@ from PIL import Image
 from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 
-from ..base import DataBundle, dataset_to_tensors, make_loader
+from ..base import DataBundle, make_loader
 from ..paths import dataset_dir
 from ..registry import register_dataset
 from ..splits import split_train_val
@@ -515,10 +515,9 @@ def _make_hrsid_dataset(
         pin_memory=pin_memory,
     )
 
-    x_test, y_test = dataset_to_tensors(test_ds)
-
     if flatten:
-        in_dim: Optional[int] = int(x_test.shape[1])
+        sample_x, _sample_y = test_ds[0]
+        in_dim: Optional[int] = int(sample_x.numel())
         input_shape: Optional[Tuple[int, ...]] = None
     else:
         in_dim = None
@@ -531,8 +530,7 @@ def _make_hrsid_dataset(
         num_classes=2,
         in_dim=in_dim,
         input_shape=input_shape,
-        x_test=x_test,
-        y_test=y_test,
+        test_dataset=test_ds,
     )
 
 

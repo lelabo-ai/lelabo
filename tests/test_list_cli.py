@@ -18,15 +18,21 @@ capsule_registry = importlib.import_module("lab.capsule.registry")
 
 
 def test_list_cli_all_text(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(list_cli, "get_update_rule_names", lambda **kwargs: ["bp", "fa"])
-    monkeypatch.setattr(list_cli, "get_dataset_names", lambda **kwargs: ["iris"])
-    monkeypatch.setattr(list_cli, "get_model_names", lambda **kwargs: ["cnn", "mlp"])
-    monkeypatch.setattr(list_cli, "get_metric_names", lambda **kwargs: ["acc"])
+    monkeypatch.setattr(
+        list_cli,
+        "_collect_all_single_refresh",
+        lambda **kwargs: {
+            "update_rules": ["bp", "fa"],
+            "datasets": ["iris"],
+            "models": ["cnn", "mlp"],
+            "metrics": ["acc"],
+        },
+    )
 
     rc = list_cli.main(["all"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "algos (2)" in out
+    assert "update_rules (2)" in out
     assert "- bp" in out
     assert "datasets (1)" in out
     assert "models (2)" in out
@@ -34,14 +40,25 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
 
 
 def test_list_cli_single_target_json(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(list_cli, "get_update_rule_names", lambda **kwargs: ["kp2", "bp"])
+    monkeypatch.setattr(list_cli, "get_update_rule_names", lambda **kwargs: ["dfa", "bp"])
+
+    rc = list_cli.main(["update-rules", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["update_rules"]
+    assert payload["update_rules"] == ["bp", "dfa"]
+
+
+def test_list_cli_algos_alias_maps_to_update_rules(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_update_rule_names", lambda **kwargs: ["dfa", "bp"])
 
     rc = list_cli.main(["algos", "--json"])
     assert rc == 0
     out = capsys.readouterr().out
     payload = json.loads(out)
-    assert sorted(payload.keys()) == ["algos"]
-    assert payload["algos"] == ["bp", "kp2"]
+    assert sorted(payload.keys()) == ["update_rules"]
+    assert payload["update_rules"] == ["bp", "dfa"]
 
 
 def test_list_cli_unknown_target_raises_system_exit() -> None:
