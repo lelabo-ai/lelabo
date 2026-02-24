@@ -8,6 +8,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from .. import __version__ as LELABO_VERSION
+from ..config.versioning import TRAIN_CONFIG_SCHEMA_VERSION
 from .registry import add_capsule_entry, default_capsules_dir
 from .schema import CAPSULE_SCHEMA_VERSION, validate_manifest
 
@@ -27,6 +29,10 @@ _EXAMPLE_TEMPLATE_MAP = {
     "datasets/example.py": "datasets_example.py",
     "metrics/example.py": "metrics_example.py",
     "configs/example.py": "configs_example.py",
+    "configs/README.md": "configs_readme.md",
+    "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
+    "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
+    "configs/train.rl.detailed.toml": "configs_train_rl_detailed.toml",
     "runs/example.py": "runs_example.py",
 }
 
@@ -56,7 +62,7 @@ def _readme_template(name: str) -> str:
         "- `configs/`: experiment configs\n"
         "- `runs/`: local run artifacts\n"
         "\n"
-        "Each folder contains an `example.py` template you can adapt.\n"
+        "Each folder contains starter templates you can adapt.\n"
         "\n"
         "## Local Registries\n\n"
         "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"
@@ -75,6 +81,7 @@ def _capsule_toml_template(name: str) -> str:
         "[capsule]\n"
         f'name = "{name}"\n'
         f'created_at = "{created_at}"\n'
+        f'lelabo_version = "{LELABO_VERSION}"\n'
         'format = "lelabo.capsule.scaffold.v1"\n'
     )
 
@@ -84,6 +91,7 @@ def _manifest_template(name: str, target: Path) -> dict[str, Any]:
     return {
         "schema_version": CAPSULE_SCHEMA_VERSION,
         "capsule_id": name,
+        "lelabo_version": LELABO_VERSION,
         "created_at": created_at,
         "kind": "config_only",
         "source": {
@@ -112,6 +120,22 @@ def _load_example_templates() -> dict[str, str]:
     return out
 
 
+def _render_template_text(rel_path: str, content: str) -> str:
+    rendered = str(content)
+    if rel_path.startswith("configs/") and rel_path.endswith(".toml"):
+        rendered = re.sub(
+            r'(?m)^(\s*config_version\s*=\s*)"[^"]*"\s*$',
+            rf'\1"{TRAIN_CONFIG_SCHEMA_VERSION}"',
+            rendered,
+        )
+        rendered = re.sub(
+            r'(?m)^(\s*lelabo_version\s*=\s*)"[^"]*"\s*$',
+            rf'\1"{LELABO_VERSION}"',
+            rendered,
+        )
+    return rendered
+
+
 def _template_files(name: str) -> dict[str, str]:
     templates = {
         "README.md": _readme_template(name),
@@ -120,9 +144,13 @@ def _template_files(name: str) -> dict[str, str]:
         "update_rules/__init__.py": '"""Custom update rules for this capsule."""\n',
         "datasets/__init__.py": '"""Custom datasets for this capsule."""\n',
         "metrics/__init__.py": '"""Custom metrics for this capsule."""\n',
-        "configs/README.md": "# Configs\n\nPlace experiment config files here.\n",
     }
-    templates.update(_load_example_templates())
+    templates.update(
+        {
+            rel_path: _render_template_text(rel_path, content)
+            for rel_path, content in _load_example_templates().items()
+        }
+    )
     return templates
 
 

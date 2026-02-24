@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 
 import pytest
@@ -15,6 +16,7 @@ plugins = importlib.import_module("lab.core.utils.capsule_plugins")
 models_registry = importlib.import_module("lab.models.registry")
 datasets_registry = importlib.import_module("lab.supervised.datasets.registry")
 train_api = importlib.import_module("lab.api.train")
+lab_pkg = importlib.import_module("lab")
 
 
 def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
@@ -42,9 +44,24 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
     assert (out / "configs" / "example.py").exists()
+    assert (out / "configs" / "README.md").exists()
+    assert (out / "configs" / "train.supervised.quickstart.toml").exists()
+    assert (out / "configs" / "train.supervised.detailed.toml").exists()
+    assert (out / "configs" / "train.rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
+    capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
+    cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
+    assert "lelabo_version" in capsule_toml
+    assert str(manifest.get("lelabo_version", "")).strip()
+    assert 'config_version = "1.0"' in cfg_quick
+    assert f'lelabo_version = "{lab_pkg.__version__}"' in cfg_quick
+    assert 'config_version = "auto"' not in cfg_quick
+    assert "layered config resolution" in configs_readme.lower()
+    assert "train.supervised.quickstart.toml" in configs_readme
     row = registry.get_capsule("demo_capsule", capsules_dir)
     assert row is not None
     assert row["capsule_id"] == "demo_capsule"

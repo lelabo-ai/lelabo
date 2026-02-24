@@ -11,21 +11,28 @@ def make_optimizer(
     lr: float,
     weight_decay: float = 0.0,
     momentum: float = 0.9,
+    **kwargs: Any,
 ):
     name = name.lower()
 
     if name == "adamw":
-        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
+        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay, **kwargs)
 
     if name == "sgd":
-        return torch.optim.SGD(params, lr=lr, weight_decay=weight_decay)
+        return torch.optim.SGD(params, lr=lr, weight_decay=weight_decay, **kwargs)
 
     if name in ["sgd+momentum", "sgd_momentum", "momentum"]:
-        return torch.optim.SGD(params, lr=lr, weight_decay=weight_decay, momentum=momentum)
+        return torch.optim.SGD(
+            params,
+            lr=lr,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            **kwargs,
+        )
 
     if name == "ano":
         from ano_optimizer import Ano  # type: ignore
-        return Ano(params, lr=lr, weight_decay=weight_decay)
+        return Ano(params, lr=lr, weight_decay=weight_decay, **kwargs)
 
     raise ValueError(f"Unknown optimizer: {name}")
 

@@ -63,6 +63,9 @@ def validate_manifest(manifest: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     normalize_capsule_id(manifest.get("capsule_id", ""))
+    if "lelabo_version" in manifest:
+        if not str(manifest.get("lelabo_version", "")).strip():
+            raise ManifestError("lelabo_version must be non-empty when provided.")
 
     kind = str(manifest.get("kind", "")).strip().lower()
     if kind not in {"single_run", "sweep", "config_only"}:

@@ -12,6 +12,7 @@ def remove_capsule(
     capsule_or_alias: str,
     capsules_dir: Path | None = None,
     delete_files: bool = True,
+    allow_external_delete: bool = False,
 ) -> dict[str, Any]:
     row = get_capsule(capsule_or_alias, capsules_dir)
     if row is None:
@@ -22,10 +23,18 @@ def remove_capsule(
 
     deleted = False
     if delete_files and str(capsule_path):
-        if capsule_path == root or root not in capsule_path.parents:
+        if capsule_path == root:
             raise ValueError(
-                f"Refusing to delete capsule path outside capsules store '{root}': {capsule_path}"
+                f"Refusing to delete capsules store root '{root}'."
             )
+        is_outside_store = root not in capsule_path.parents
+        if is_outside_store and not allow_external_delete:
+            raise ValueError(
+                f"Refusing to delete capsule path outside capsules store '{root}': {capsule_path}. "
+                "Use '-rf' (or '--force-external-delete') to allow external deletion."
+            )
+        if allow_external_delete and capsule_path == Path(capsule_path.anchor):
+            raise ValueError(f"Refusing to delete filesystem root path: {capsule_path}")
         if capsule_path.is_dir():
             shutil.rmtree(capsule_path)
             deleted = True
@@ -37,6 +46,7 @@ def remove_capsule(
     out = dict(removed)
     out["deleted_files"] = bool(deleted)
     out["delete_files_requested"] = bool(delete_files)
+    out["allow_external_delete"] = bool(allow_external_delete)
     return out
 
 

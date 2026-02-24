@@ -44,13 +44,22 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     callbacks = []
     if bool(args.early_stop):
+        early_name = str(getattr(args, "early_stopping_name", "default")).strip().lower()
+        if early_name not in {"", "default"}:
+            raise ValueError(
+                f"Unsupported early_stopping.name '{early_name}'. "
+                "Only 'default' is currently available."
+            )
+        early_mode = str(getattr(args, "early_mode", "auto")).strip().lower()
+        if early_mode == "auto":
+            early_mode = "max" if "acc" in args.early_monitor else "min"
         callbacks.append(EarlyStopping(EarlyStoppingConfig(
             monitor=args.early_monitor,
-            mode="max" if "acc" in args.early_monitor else "min",
+            mode=early_mode,
             patience=args.early_patience,
             min_delta=args.early_min_delta,
             warmup_epochs=max(0, args.early_warmup),
-            restore_best=True,
+            restore_best=bool(getattr(args, "early_restore_best", True)),
         )))
 
     flatten = (args.model == "mlp")
@@ -70,6 +79,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             hf_model=args.hf_model,
             max_length=args.max_length,
         )
+    dataset_kwargs.update(dict(getattr(args, "dataset_params", {}) or {}))
 
     bundle = get_dataset(**dataset_kwargs)
 
@@ -119,15 +129,26 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         model = build_model(args.model, ctx, args)
         task = ClassificationTask(num_classes=num_classes)
 
-    optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
+    optimizer = make_optimizer(
+        args.optimizer,
+        model.parameters(),
+        lr=float(optimizer_params.pop("lr", args.lr)),
+        weight_decay=float(optimizer_params.pop("weight_decay", args.weight_decay)),
+        momentum=float(optimizer_params.pop("momentum", 0.9)),
+        **optimizer_params,
+    )
     scheduler = None
     if getattr(args, "lr_scheduler", "none") not in (None, "none", "null", "off", ""):
-        sched_kwargs = {}
+        sched_kwargs = dict(getattr(args, "scheduler_params", {}) or {})
         if getattr(args, "lr_scheduler_kwargs", None):
             try:
-                sched_kwargs = json.loads(args.lr_scheduler_kwargs)
+                loaded = json.loads(args.lr_scheduler_kwargs)
             except Exception as exc:
                 raise ValueError("lr-scheduler-kwargs must be valid JSON.") from exc
+            if not isinstance(loaded, dict):
+                raise ValueError("lr-scheduler-kwargs must decode to a JSON object.")
+            sched_kwargs.update(loaded)
 
         steps_per_epoch = len(train_loader) if hasattr(train_loader, "__len__") else None
         scheduler = make_scheduler(
@@ -144,6 +165,8 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         "requested_metrics": requested_metrics,
         "bp_alignment_every": max(1, int(getattr(args, "bp_alignment_every", 1))),
         "bp_alignment_eps": float(getattr(args, "bp_alignment_eps", 1e-12)),
+        "update_rule_params": dict(getattr(args, "update_rule_params", {}) or {}),
+        "metric_params": dict(getattr(args, "metric_params", {}) or {}),
     }
     ctx = UpdateRuleContext(
         args=args,

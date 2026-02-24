@@ -1,0 +1,89 @@
+config_version = "auto"
+lelabo_version = "auto"
+task = "supervised"
+
+[dataset]
+name = "mnist"
+[dataset.params]
+# extra dataset-specific keys can be added here
+
+[model]
+name = "mlp"
+[model.params]
+hidden = 2048
+layers = 4
+
+[update_rule]
+name = "bp"
+[update_rule.params]
+# add custom update-rule params for your plugin
+
+[optimizer]
+name = "adamw"
+[optimizer.params]
+lr = 0.001
+weight_decay = 0.01
+# momentum is used by sgd+momentum
+momentum = 0.9
+
+[scheduler]
+name = "none"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
+# step_size = 10
+# gamma = 0.5
+
+[runtime]
+device = "auto"
+seed = 2
+determinism = "relaxed"
+verbose = 1
+# run_dir = "outputs/runs/my_run"
+
+[train]
+epochs = 50
+batch = 64
+val_frac = 0.1
+input_noise_training = 0.0
+input_noise_dataset = 0.0
+noise_on_test = false
+bp_alignment_every = 1
+bp_alignment_eps = 1e-12
+
+[early_stopping]
+name = "default"
+enabled = true
+monitor = "val.acc"
+mode = "auto"
+patience = 5
+min_delta = 0.0
+warmup = 5
+restore_best = true
+[early_stopping.params]
+# plugin-specific params
+
+[robustness]
+mode = "none"
+trials = 30
+max_samples = 0
+[robustness.params]
+# plugin-specific params
+
+[hf]
+glue_task = "sst2"
+model = "bert-base-uncased"
+trust_remote_code = false
+max_length = 128
+
+[[metrics]]
+name = "acc"
+
+[[metrics]]
+name = "loss"
+
+# Metric-specific params are supported with:
+# [[metrics]]
+# name = "bp_alignment"
+# [metrics.params]
+# every = 10

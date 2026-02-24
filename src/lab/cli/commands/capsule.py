@@ -187,13 +187,34 @@ def _cmd_remove(argv: list[str]) -> int:
         action="store_true",
         help="Only remove from capsule registry, keep capsule files on disk",
     )
+    parser.add_argument(
+        "-r",
+        action="store_true",
+        dest="rm_recursive",
+        help="Used with -f as '-rf' to allow deleting capsule files outside cache.",
+    )
+    parser.add_argument(
+        "-f",
+        action="store_true",
+        dest="rm_force",
+        help="Used with -r as '-rf' to allow deleting capsule files outside cache.",
+    )
+    parser.add_argument(
+        "--force-external-delete",
+        action="store_true",
+        help="Allow deleting capsule files even when stored outside capsules cache.",
+    )
     args = parser.parse_args(argv)
+    allow_external_delete = bool(args.force_external_delete or (args.rm_recursive and args.rm_force))
+    if (args.rm_recursive or args.rm_force) and not allow_external_delete:
+        raise SystemExit("Use '-rf' together to allow external capsule deletion.")
 
     try:
         removed = remove_capsule(
             capsule_or_alias=args.id_or_alias,
             capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
             delete_files=not bool(args.keep_files),
+            allow_external_delete=allow_external_delete,
         )
     except ValueError as exc:
         raise SystemExit(str(exc))

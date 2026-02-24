@@ -18,7 +18,13 @@ from .train_rl_config import build_rl_algo_config, parse_rl_param_overrides
 def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
     device = args.device
     raw_rl_params = list(getattr(args, "rl_param", []) or [])
-    rl_overrides = parse_rl_param_overrides(raw_rl_params)
+    rl_overrides = dict(getattr(args, "rl_params", {}) or {})
+    if raw_rl_params:
+        rl_overrides.update(parse_rl_param_overrides(raw_rl_params))
+    optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
+    lr = float(optimizer_params.pop("lr", args.lr))
+    weight_decay = float(optimizer_params.pop("weight_decay", args.weight_decay))
+    momentum = float(optimizer_params.pop("momentum", 0.9))
     train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
     eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
 
@@ -30,7 +36,14 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         n_actions = int(env.action_space.n)
 
         qnet = QNet(obs_dim=obs_dim, n_actions=n_actions, hidden=args.hidden, layers=args.layers)
-        optimizer = make_optimizer(args.optimizer, qnet.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        optimizer = make_optimizer(
+            args.optimizer,
+            qnet.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            **optimizer_params,
+        )
         ctx = UpdateRuleContext(
             args=args,
             model=qnet,
@@ -61,7 +74,14 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         n_actions = int(envs.single_action_space.n)
 
         model = ActorCriticDiscrete(obs_dim=obs_dim, n_actions=n_actions, hidden_dim=args.hidden, num_layers=args.layers)
-        optimizer = make_optimizer(args.optimizer, model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        optimizer = make_optimizer(
+            args.optimizer,
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            **optimizer_params,
+        )
 
         ctx = UpdateRuleContext(
             args=args,
@@ -79,3 +99,10 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     raise ValueError(f"Unknown rl algo: {args.rl_algo}")
+
+
+def run_rl_train(args: Namespace, logger: RunLogger) -> dict[str, Any]:
+    return run_rl(args, logger)
+
+
+__all__ = ["run_rl", "run_rl_train"]

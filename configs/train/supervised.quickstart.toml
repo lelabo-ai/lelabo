@@ -1,0 +1,6 @@
+config_version = "auto"
+lelabo_version = "auto"
+task = "supervised"
+
+[dataset]
+name = "iris"

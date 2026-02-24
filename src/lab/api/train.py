@@ -8,13 +8,19 @@ from typing import Any, Sequence
 
 import torch
 
+from ..config.resolve import (
+    resolve_rl_config,
+    resolve_supervised_config,
+    to_rl_namespace,
+    to_supervised_namespace,
+)
 from ..core.utils.seed import seed_everything
 from ..core.utils.logger import RunLogger
 from ..supervised.datasets import get_dataset_names
 from ..update_rules import get_update_rule_names
-from ..metrics import get_metric_names
 from ..models import get_model_names
 from ..rl.algorithms import get_rl_algo_names
+from .train_rl_config import parse_rl_param_overrides
 
 
 def _default_device() -> str:
@@ -27,138 +33,110 @@ def _default_device() -> str:
             return "cpu"
 
 
-def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--hidden", type=int, default=2048)
-    parser.add_argument("--layers", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--device", type=str, default=_default_device())
-    parser.add_argument("--seed", type=int, default=2)
-    parser.add_argument(
-        "--determinism",
-        type=str,
-        default="relaxed",
-        choices=["off", "relaxed", "strict"],
-        help="Determinism policy: off, relaxed, strict.",
-    )
-    parser.add_argument("--verbose", type=int, default=1)
-    parser.add_argument("--optimizer", type=str, default="adamw", choices=["adamw", "sgd", "sgd+momentum", "ano"])
-    parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--run-dir", type=str, default=None, help="writes metrics.jsonl + meta.json + summary.json")
+def _set_nested(target: dict[str, Any], path: list[str], value: Any) -> None:
+    cur = target
+    for key in path[:-1]:
+        child = cur.get(key)
+        if not isinstance(child, dict):
+            child = {}
+            cur[key] = child
+        cur = child
+    cur[path[-1]] = value
 
 
-def _add_supervised_args(parser: argparse.ArgumentParser) -> None:
+def _resolve_mode_config_path(mode: str, explicit: str | None) -> str | None:
+    if explicit:
+        return explicit
+    cwd = Path.cwd()
+    candidates = [
+        cwd / f"train.{mode}.toml",
+        cwd / "train.toml",
+        cwd / "configs" / f"train.{mode}.toml",
+        cwd / "configs" / "train.toml",
+    ]
+    for path in candidates:
+        if path.exists() and path.is_file():
+            return str(path)
+    return None
+
+
+def _add_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--dataset",
-        choices=get_dataset_names(),
+        "--config",
         type=str,
-        required=True,
-        help="Supervised dataset name.",
-    )
-    parser.add_argument("--model", choices=get_model_names(), default="cnn")
-    parser.add_argument("--algo", choices=get_update_rule_names(), default="bp")
-    available_metrics = get_metric_names()
-    parser.add_argument(
-        "--metrics",
-        type=str,
-        default="",
+        default=None,
         help=(
-            "Comma-separated optional training metrics. "
-            f"Available: {', '.join(available_metrics) if available_metrics else '(none)'}"
+            "Optional train TOML config file. If omitted, LeLabo auto-detects: "
+            "train.<mode>.toml, train.toml, configs/train.<mode>.toml, configs/train.toml."
         ),
     )
     parser.add_argument(
-        "--bp-alignment-every",
-        type=int,
-        default=1,
-        help="Compute BP-alignment diagnostics every N local batches when requested metrics need it.",
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Advanced nested override (repeatable), e.g. "
+            "--set model.params.hidden=1024 --set early_stopping.patience=12"
+        ),
     )
+
+
+def _add_runtime_override_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
-        "--bp-alignment-eps",
-        type=float,
-        default=1e-12,
-        help="Numerical epsilon for BP-alignment diagnostics.",
-    )
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch", type=int, default=64)
-    parser.add_argument(
-        "--lr-scheduler",
-        type=str,
-        default="none",
-        help="torch scheduler name: none|step|multistep|cosine|plateau|onecycle|exponential|constant|linear",
-    )
-    parser.add_argument(
-        "--lr-scheduler-interval",
-        type=str,
-        default="epoch",
-        choices=["epoch", "batch"],
-        help="when to call scheduler.step()",
-    )
-    parser.add_argument(
-        "--lr-scheduler-monitor",
-        type=str,
-        default="val.loss",
-        help="metric key used by ReduceLROnPlateau (e.g. val.loss or val.metric)",
-    )
-    parser.add_argument(
-        "--lr-scheduler-kwargs",
+        "--determinism",
         type=str,
         default=None,
-        help="JSON dict of scheduler kwargs, e.g. '{\"step_size\":10,\"gamma\":0.5}'",
+        choices=["off", "relaxed", "strict"],
     )
-    parser.add_argument("--input-noise-training", type=float, default=0.0, help="stddev gaussian noise on inputs during training")
-    parser.add_argument("--input-noise-dataset", type=float, default=0.0, help="stddev gaussian noise on inputs in dataset (train+val+test)")
-    parser.add_argument("--noise-on-test", type=int, choices=[0, 1], default=0, help="0/1 to add noise to test set if input-noise-dataset > 0")
-    parser.add_argument("--val-frac", type=float, default=0.1, help="fraction of train set used as validation (0 disables)")
-    parser.add_argument("--early-stop", action="store_true", help="enable early stopping")
-    parser.add_argument("--no-early-stop", dest="early_stop", action="store_false", help="disable early stopping")
-    parser.set_defaults(early_stop=True)
-    parser.add_argument("--early-monitor", type=str, default="val.acc")
-    parser.add_argument("--early-patience", type=int, default=5)
-    parser.add_argument("--early-min-delta", type=float, default=0.0)
-    parser.add_argument("--early-warmup", type=int, default=5)
-    parser.add_argument("--robustness", type=str, default="none", choices=["none", "input_noise", "relative_input_noise", "weight_noise", "all"])
-    parser.add_argument("--noise-trials", type=int, default=30)
+    parser.add_argument("--verbose", type=int, default=None)
     parser.add_argument(
-        "--robustness-max-samples",
-        type=int,
-        default=0,
-        help="Cap number of test samples materialized for robustness analysis (0 keeps full test set).",
-    )
-    parser.add_argument(
-        "--glue-task",
+        "--run-dir",
         type=str,
-        default="sst2",
-        choices=["cola", "sst2", "mrpc", "qqp", "stsb", "mnli", "qnli", "rte", "wnli"],
+        default=None,
+        help="Writes metrics.jsonl + meta.json + summary.json.",
     )
-    parser.add_argument("--hf-model", type=str, default="bert-base-uncased")
-    parser.add_argument("--hf-trust-remote-code", action="store_true", help="allow HF trust_remote_code for custom models")
-    parser.add_argument("--max-length", type=int, default=128)
-    _add_common_runtime_args(parser)
 
 
-def _add_rl_args(parser: argparse.ArgumentParser) -> None:
+def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dataset",
+        choices=list(get_dataset_names()),
+        type=str,
+        default=None,
+    )
+    parser.add_argument("--model", choices=list(get_model_names()), default=None)
+    parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
+    parser.add_argument("--optimizer", choices=["adamw", "sgd", "sgd+momentum", "ano"], default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--weight-decay", type=float, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch", type=int, default=None)
+    parser.add_argument("--metrics", type=str, default=None, help="Comma-separated metrics list.")
+
+
+def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--env",
         type=str,
-        required=True,
+        default=None,
         metavar="ENV_ID",
-        help="Gymnasium environment id (e.g. CartPole-v1).",
     )
-    parser.add_argument("--algo", choices=get_update_rule_names(), default="bp")
-    parser.add_argument("--rl-algo", type=str, default="ppo", choices=list(get_rl_algo_names()))
-    parser.add_argument("--rl-steps", type=int, default=500_000)
-    parser.add_argument("--rl-eval-episodes", type=int, default=10)
+    parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
+    parser.add_argument("--optimizer", choices=["adamw", "sgd", "sgd+momentum", "ano"], default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--weight-decay", type=float, default=None)
+    parser.add_argument("--rl-algo", type=str, default=None, choices=list(get_rl_algo_names()))
+    parser.add_argument("--rl-steps", type=int, default=None)
+    parser.add_argument("--rl-eval-episodes", type=int, default=None)
     parser.add_argument(
         "--rl-param",
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help=(
-            "RL algo config override. Repeatable. "
-            "Examples: --rl-param gamma=0.97 --rl-param num_steps=256"
-        ),
     )
-    _add_common_runtime_args(parser)
 
 
 def build_train_parser() -> argparse.ArgumentParser:
@@ -171,23 +149,117 @@ def build_train_parser() -> argparse.ArgumentParser:
     supervised_parser = subparsers.add_parser(
         "supervised",
         help="Run supervised training.",
-        description="Run a supervised LeLabo experiment.",
+        description="Run a supervised LeLabo experiment from a layered config.",
     )
-    _add_supervised_args(supervised_parser)
+    _add_config_args(supervised_parser)
+    _add_supervised_overrides(supervised_parser)
+    _add_runtime_override_args(supervised_parser)
 
     rl_parser = subparsers.add_parser(
         "rl",
         help="Run reinforcement-learning training.",
-        description="Run an RL LeLabo experiment.",
+        description="Run an RL LeLabo experiment from a layered config.",
     )
-    _add_rl_args(rl_parser)
+    _add_config_args(rl_parser)
+    _add_rl_overrides(rl_parser)
+    _add_runtime_override_args(rl_parser)
 
     return parser
 
 
+def _build_supervised_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+
+    if parsed.dataset is not None:
+        _set_nested(out, ["dataset", "name"], parsed.dataset)
+    if parsed.model is not None:
+        _set_nested(out, ["model", "name"], parsed.model)
+    if parsed.algo is not None:
+        _set_nested(out, ["update_rule", "name"], parsed.algo)
+    if parsed.optimizer is not None:
+        _set_nested(out, ["optimizer", "name"], parsed.optimizer)
+    if parsed.lr is not None:
+        _set_nested(out, ["optimizer", "params", "lr"], parsed.lr)
+    if parsed.weight_decay is not None:
+        _set_nested(out, ["optimizer", "params", "weight_decay"], parsed.weight_decay)
+    if parsed.epochs is not None:
+        _set_nested(out, ["train", "epochs"], parsed.epochs)
+    if parsed.batch is not None:
+        _set_nested(out, ["train", "batch"], parsed.batch)
+
+    if parsed.metrics is not None:
+        metrics = [tok.strip() for tok in str(parsed.metrics).split(",") if tok.strip()]
+        _set_nested(out, ["metrics"], [{"name": name} for name in metrics])
+
+    if parsed.device is not None:
+        _set_nested(out, ["runtime", "device"], parsed.device)
+    if parsed.seed is not None:
+        _set_nested(out, ["runtime", "seed"], parsed.seed)
+    if parsed.determinism is not None:
+        _set_nested(out, ["runtime", "determinism"], parsed.determinism)
+    if parsed.verbose is not None:
+        _set_nested(out, ["runtime", "verbose"], parsed.verbose)
+    if parsed.run_dir is not None:
+        _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
+
+    return out
+
+
+def _build_rl_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+
+    if parsed.env is not None:
+        _set_nested(out, ["env"], parsed.env)
+    if parsed.algo is not None:
+        _set_nested(out, ["update_rule", "name"], parsed.algo)
+    if parsed.optimizer is not None:
+        _set_nested(out, ["optimizer", "name"], parsed.optimizer)
+    if parsed.lr is not None:
+        _set_nested(out, ["optimizer", "params", "lr"], parsed.lr)
+    if parsed.weight_decay is not None:
+        _set_nested(out, ["optimizer", "params", "weight_decay"], parsed.weight_decay)
+    if parsed.rl_algo is not None:
+        _set_nested(out, ["rl", "algo"], parsed.rl_algo)
+    if parsed.rl_steps is not None:
+        _set_nested(out, ["rl", "steps"], parsed.rl_steps)
+    if parsed.rl_eval_episodes is not None:
+        _set_nested(out, ["rl", "eval_episodes"], parsed.rl_eval_episodes)
+    if parsed.rl_param:
+        _set_nested(out, ["rl", "params"], parse_rl_param_overrides(parsed.rl_param))
+
+    if parsed.device is not None:
+        _set_nested(out, ["runtime", "device"], parsed.device)
+    if parsed.seed is not None:
+        _set_nested(out, ["runtime", "seed"], parsed.seed)
+    if parsed.determinism is not None:
+        _set_nested(out, ["runtime", "determinism"], parsed.determinism)
+    if parsed.verbose is not None:
+        _set_nested(out, ["runtime", "verbose"], parsed.verbose)
+    if parsed.run_dir is not None:
+        _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
+    return out
+
+
 def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
-    return build_train_parser().parse_args(raw_argv)
+    parsed = build_train_parser().parse_args(raw_argv)
+    if parsed.mode == "supervised":
+        config_path = _resolve_mode_config_path("supervised", parsed.config)
+        cfg = resolve_supervised_config(
+            config_path=config_path,
+            cli_overrides=_build_supervised_cli_overrides(parsed),
+            set_overrides=list(parsed.set or []),
+        )
+        return to_supervised_namespace(cfg, device_resolver=_default_device)
+    if parsed.mode == "rl":
+        config_path = _resolve_mode_config_path("rl", parsed.config)
+        cfg = resolve_rl_config(
+            config_path=config_path,
+            cli_overrides=_build_rl_cli_overrides(parsed),
+            set_overrides=list(parsed.set or []),
+        )
+        return to_rl_namespace(cfg, device_resolver=_default_device)
+    raise ValueError(f"Unknown train mode '{parsed.mode}'.")
 
 
 def _normalize_train_args(args: argparse.Namespace) -> argparse.Namespace:
@@ -227,17 +299,17 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 
     task = str(getattr(args, "task", "")).strip().lower()
     if task == "rl":
-        from .train_rl import run_rl
+        from .train_rl import run_rl_train
 
-        rl_summary = run_rl(args, logger)
+        rl_summary = run_rl_train(args, logger)
         summary = {"args": vars(args), "rl": {"algo": args.rl_algo, **rl_summary}}
         logger.write_summary(summary)
         return summary
 
     if task == "supervised":
-        from ..core.runners.supervised_runner import run_supervised
+        from .train_supervised import run_supervised_train
 
-        summary = run_supervised(args, logger)
+        summary = run_supervised_train(args, logger)
         logger.write_summary(summary)
         return summary
 

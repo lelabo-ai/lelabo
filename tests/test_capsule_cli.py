@@ -98,6 +98,51 @@ def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
         raise AssertionError("Expected SystemExit for unsafe external capsule deletion.")
 
 
+def test_capsule_cli_remove_allows_external_paths_with_rf(tmp_path) -> None:
+    caps_dir = tmp_path / "capsules"
+    external = tmp_path / "external_capsule_force"
+    external.mkdir()
+    (external / "manifest.json").write_text("{}", encoding="utf-8")
+
+    capsule_registry.add_capsule_entry(
+        capsule_id="external_cap_force",
+        capsule_path=external,
+        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": str(external)}},
+        alias="external_alias_force",
+        capsules_dir=caps_dir,
+    )
+
+    rc = capsule_cli.main(["remove", "external_alias_force", "--capsules-dir", str(caps_dir), "-r", "-f"])
+    assert rc == 0
+    assert not external.exists()
+    assert capsule_registry.get_capsule("external_alias_force", caps_dir) is None
+
+
+def test_capsule_cli_remove_rejects_half_rf_flag(tmp_path) -> None:
+    caps_dir = tmp_path / "capsules"
+    external = tmp_path / "external_capsule_half_rf"
+    external.mkdir()
+    (external / "manifest.json").write_text("{}", encoding="utf-8")
+
+    capsule_registry.add_capsule_entry(
+        capsule_id="external_cap_half_rf",
+        capsule_path=external,
+        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": str(external)}},
+        alias="external_alias_half_rf",
+        capsules_dir=caps_dir,
+    )
+
+    try:
+        capsule_cli.main(["remove", "external_alias_half_rf", "--capsules-dir", str(caps_dir), "-f"])
+    except SystemExit as exc:
+        assert "Use '-rf' together" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit when only one of -r/-f is provided.")
+
+    assert external.exists()
+    assert capsule_registry.get_capsule("external_alias_half_rf", caps_dir) is not None
+
+
 def test_capsule_cli_restore_rejects_external_paths(tmp_path) -> None:
     caps_dir = tmp_path / "capsules"
     external = tmp_path / "external_capsule"

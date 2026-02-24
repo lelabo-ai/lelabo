@@ -1,0 +1,34 @@
+config_version = "auto"
+lelabo_version = "auto"
+task = "rl"
+env = "CartPole-v1"
+
+[model]
+name = "default"
+[model.params]
+hidden = 2048
+layers = 4
+
+[update_rule]
+name = "bp"
+[update_rule.params]
+
+[optimizer]
+name = "adamw"
+[optimizer.params]
+lr = 0.001
+weight_decay = 0.01
+momentum = 0.9
+
+[runtime]
+device = "auto"
+seed = 2
+determinism = "relaxed"
+verbose = 1
+run_dir = "runs/rl_demo"
+
+[rl]
+algo = "ppo"
+steps = 500000
+eval_episodes = 10
+[rl.params]

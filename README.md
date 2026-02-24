@@ -133,11 +133,24 @@ lelabo train --help
 ```
 
 ```bash
-lelabo train supervised --dataset iris --model mlp --algo bp
+lelabo train supervised --dataset iris
 ```
 
 ```bash
-lelabo train rl --env CartPole-v1 --rl-algo ppo --algo bp
+lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris
+```
+
+```bash
+# --config is optional if train.toml is present in your project
+lelabo train supervised
+```
+
+```bash
+lelabo train supervised --dataset iris --set early_stopping.patience=20 --set model.params.hidden=1024
+```
+
+```bash
+lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1 --rl-algo ppo
 ```
 
 ```bash

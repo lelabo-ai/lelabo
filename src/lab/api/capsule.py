@@ -107,11 +107,13 @@ def remove_capsule(
     capsule_or_alias: str,
     capsules_dir: Path | None = None,
     delete_files: bool = True,
+    allow_external_delete: bool = False,
 ) -> dict[str, Any]:
     return _remove_capsule(
         capsule_or_alias=capsule_or_alias,
         capsules_dir=capsules_dir,
         delete_files=delete_files,
+        allow_external_delete=allow_external_delete,
     )
 
 
