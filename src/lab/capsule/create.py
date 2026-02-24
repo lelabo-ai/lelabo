@@ -28,7 +28,6 @@ _EXAMPLE_TEMPLATE_MAP = {
     "update_rules/example.py": "update_rules_example.py",
     "datasets/example.py": "datasets_example.py",
     "metrics/example.py": "metrics_example.py",
-    "configs/example.py": "configs_example.py",
     "configs/README.md": "configs_readme.md",
     "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
     "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",

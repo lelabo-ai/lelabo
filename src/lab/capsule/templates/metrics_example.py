@@ -24,9 +24,6 @@ from lab.metrics import (
 #@register_metric_fn(
 #    "example_fn_accuracy",
 #    kind="classification",
-#    description="Function-based accuracy example.",
-#    output_key="example_fn_accuracy",
-#    params={},
 #)
 def example_fn_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, metric_params: dict[str, Any]) -> float:
     _ = metric_params

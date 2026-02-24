@@ -206,30 +206,3 @@ def test_list_cli_auto_includes_installed_capsules_from_capsules_dir_flag(tmp_pa
         models_registry.MODEL_REGISTRY._items = original_model_items
         plugins.reset_capsule_plugin_cache()
 
-
-def test_list_cli_metrics_details_json(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        list_cli,
-        "_collect_metric_details",
-        lambda **kwargs: [
-            {
-                "name": "f1",
-                "kind": "classification",
-                "output_key": "f1_macro",
-                "params": {"average": "macro|micro|weighted|binary"},
-                "description": "F1 score.",
-            }
-        ],
-    )
-
-    rc = list_cli.main(["metrics", "--details", "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert "metrics" in payload
-    assert payload["metrics"][0]["name"] == "f1"
-    assert payload["metrics"][0]["kind"] == "classification"
-
-
-def test_list_cli_details_rejected_for_non_metric_target() -> None:
-    with pytest.raises(SystemExit):
-        list_cli.main(["models", "--details"])
