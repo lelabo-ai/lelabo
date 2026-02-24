@@ -7,9 +7,9 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-plugins = importlib.import_module("lab.core.utils.capsule_plugins")
-datasets_registry = importlib.import_module("lab.supervised.datasets.registry")
-capsule_registry = importlib.import_module("lab.capsule.registry")
+plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
+capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
 def test_get_dataset_names_includes_installed_capsule_datasets(tmp_path, monkeypatch) -> None:
@@ -17,7 +17,7 @@ def test_get_dataset_names_includes_installed_capsule_datasets(tmp_path, monkeyp
     (capsule_root / "datasets").mkdir(parents=True)
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
     (capsule_root / "datasets" / "extra_dataset.py").write_text(
-        "from lab.supervised.datasets.registry import register_dataset\n\n"
+        "from lelabo.supervised.datasets.registry import register_dataset\n\n"
         "@register_dataset('installed_capsule_dataset')\n"
         "def build_installed_capsule_dataset(**kwargs):\n"
         "    return None\n",

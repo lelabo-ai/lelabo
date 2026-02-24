@@ -9,7 +9,7 @@ Each config should declare:
 
 Priority order at runtime:
 
-1. Library defaults (`src/lab/config/assets/*.toml`, loaded by `src/lab/config/defaults.py`)
+1. Library defaults (`src/lelabo/config/assets/*.toml`, loaded by `src/lelabo/config/defaults.py`)
 2. Project TOML (`train.<mode>.toml`, `train.toml`, `configs/train.<mode>.toml`, `configs/train.toml`)
 3. Explicit CLI overrides
 4. Advanced `--set key=value` overrides

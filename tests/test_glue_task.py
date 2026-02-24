@@ -10,7 +10,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-task_mod = importlib.import_module("lab.core.task")
+task_mod = importlib.import_module("lelabo.core.task")
 
 
 class _DummyGlueClassifier(torch.nn.Module):

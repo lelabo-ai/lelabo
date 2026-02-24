@@ -10,13 +10,13 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-create = importlib.import_module("lab.capsule.create")
-registry = importlib.import_module("lab.capsule.registry")
-plugins = importlib.import_module("lab.core.utils.capsule_plugins")
-models_registry = importlib.import_module("lab.models.registry")
-datasets_registry = importlib.import_module("lab.supervised.datasets.registry")
-train_api = importlib.import_module("lab.api.train")
-lab_pkg = importlib.import_module("lab")
+create = importlib.import_module("lelabo.capsule.create")
+registry = importlib.import_module("lelabo.capsule.registry")
+plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+models_registry = importlib.import_module("lelabo.models.registry")
+datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
+train_api = importlib.import_module("lelabo.api.train")
+lab_pkg = importlib.import_module("lelabo")
 
 
 def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:

@@ -8,7 +8,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-collect = importlib.import_module("lab.capsule.collect")
+collect = importlib.import_module("lelabo.capsule.collect")
 
 
 def test_collect_sweep(tmp_path) -> None:
@@ -18,7 +18,7 @@ def test_collect_sweep(tmp_path) -> None:
 
     r1 = sweep / "job1"
     r1.mkdir()
-    (r1 / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lab.main", "--seed", "1"]}), encoding="utf-8")
+    (r1 / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo.main", "--seed", "1"]}), encoding="utf-8")
     (r1 / "summary.json").write_text(json.dumps({"acc": 0.5}), encoding="utf-8")
 
     stage = tmp_path / "stage"

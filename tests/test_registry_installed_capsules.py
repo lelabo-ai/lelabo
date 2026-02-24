@@ -9,11 +9,11 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-plugins = importlib.import_module("lab.core.utils.capsule_plugins")
-capsule_registry = importlib.import_module("lab.capsule.registry")
-models_registry = importlib.import_module("lab.models.registry")
-rules_registry = importlib.import_module("lab.update_rules.registry")
-metrics_registry = importlib.import_module("lab.metrics.registry")
+plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+capsule_registry = importlib.import_module("lelabo.capsule.registry")
+models_registry = importlib.import_module("lelabo.models.registry")
+rules_registry = importlib.import_module("lelabo.update_rules.registry")
+metrics_registry = importlib.import_module("lelabo.metrics.registry")
 
 
 def test_get_model_names_includes_installed_capsules(tmp_path) -> None:
@@ -21,7 +21,7 @@ def test_get_model_names_includes_installed_capsules(tmp_path) -> None:
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
     (capsule_root / "models" / "m.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         "@register_model('installed_capsule_model')\n"
         "def build_installed_capsule_model(ctx, args):\n"
         "    return None\n",
@@ -52,7 +52,7 @@ def test_get_update_rule_names_includes_installed_capsules(tmp_path) -> None:
     (capsule_root / "update_rules").mkdir(parents=True)
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
     (capsule_root / "update_rules" / "r.py").write_text(
-        "from lab.update_rules.registry import register_update_rule\n\n"
+        "from lelabo.update_rules.registry import register_update_rule\n\n"
         "@register_update_rule('installed_capsule_rule')\n"
         "def build_installed_capsule_rule(ctx):\n"
         "    return object()\n",
@@ -83,7 +83,7 @@ def test_get_metric_names_includes_installed_capsules(tmp_path) -> None:
     (capsule_root / "metrics").mkdir(parents=True)
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
     (capsule_root / "metrics" / "metric.py").write_text(
-        "from lab.metrics.registry import register_metric\n\n"
+        "from lelabo.metrics.registry import register_metric\n\n"
         "@register_metric('installed_capsule_metric')\n"
         "def build_installed_capsule_metric(ctx):\n"
         "    return object()\n",

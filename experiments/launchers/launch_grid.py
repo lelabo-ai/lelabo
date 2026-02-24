@@ -171,7 +171,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, required=True, help="YAML config describing base args + grid.")
     ap.add_argument("--python", type=str, default="python", help="Python executable")
-    ap.add_argument("--entry", type=str, default="lab.cli.main", help="Python module executed via `python -m`.")
+    ap.add_argument("--entry", type=str, default="lelabo.cli.main", help="Python module executed via `python -m`.")
     ap.add_argument("--outdir", type=str, default="outputs/runs", help="Where logs/metadata are written")
     ap.add_argument("--name", type=str, default=None, help="Experiment name (default: timestamp)")
     ap.add_argument("--max-parallel", type=int, default=1, help="Number of concurrent runs")
@@ -211,7 +211,7 @@ def main():
         run_dirname = build_run_dirname(merged, display_keys)
         job_dir = out_root / run_dirname
         cmd = [args.python, "-m", args.entry]
-        if args.entry == "lab.cli.main":
+        if args.entry == "lelabo.cli.main":
             cmd.append("train")
         cmd += to_cli_args(merged) + ["--run-dir", str(job_dir)]
 

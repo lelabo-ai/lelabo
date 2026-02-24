@@ -10,8 +10,8 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-optimizers_api = importlib.import_module("lab.optimizers")
-train_api = importlib.import_module("lab.api.train")
+optimizers_api = importlib.import_module("lelabo.optimizers")
+train_api = importlib.import_module("lelabo.api.train")
 
 
 def _make_model() -> torch.nn.Module:
@@ -57,7 +57,7 @@ def test_optimizer_can_be_loaded_from_capsule_plugin(tmp_path, monkeypatch) -> N
     )
     (capsule_root / "optimizers" / "example.py").write_text(
         "import torch\n"
-        "from lab.optimizers import OptimizerContext, register_optimizer\n\n"
+        "from lelabo.optimizers import OptimizerContext, register_optimizer\n\n"
         "@register_optimizer('capsule_adam')\n"
         "def build_capsule_adam(ctx: OptimizerContext):\n"
         "    return torch.optim.Adam(ctx.params, lr=ctx.lr, weight_decay=ctx.weight_decay)\n",
@@ -86,7 +86,7 @@ def test_train_parser_accepts_capsule_optimizer_choice(tmp_path, monkeypatch) ->
     )
     (capsule_root / "optimizers" / "choice.py").write_text(
         "import torch\n"
-        "from lab.optimizers import OptimizerContext, register_optimizer\n\n"
+        "from lelabo.optimizers import OptimizerContext, register_optimizer\n\n"
         "@register_optimizer('capsule_sgd')\n"
         "def build_capsule_sgd(ctx: OptimizerContext):\n"
         "    return torch.optim.SGD(ctx.params, lr=ctx.lr, weight_decay=ctx.weight_decay)\n",

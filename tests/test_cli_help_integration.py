@@ -5,7 +5,7 @@ import sys
 
 
 def _run_cli_help(*args: str) -> subprocess.CompletedProcess[str]:
-    cmd = [sys.executable, "-m", "lab.cli.main", *args]
+    cmd = [sys.executable, "-m", "lelabo.cli.main", *args]
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 

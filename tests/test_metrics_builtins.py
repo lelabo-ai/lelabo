@@ -12,11 +12,11 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-metrics_api = importlib.import_module("lab.metrics")
-metrics_payload = importlib.import_module("lab.metrics.payload")
-trainer_api = importlib.import_module("lab.core.trainer")
-task_api = importlib.import_module("lab.core.task")
-backprop_api = importlib.import_module("lab.update_rules.backprop")
+metrics_api = importlib.import_module("lelabo.metrics")
+metrics_payload = importlib.import_module("lelabo.metrics.payload")
+trainer_api = importlib.import_module("lelabo.core.trainer")
+task_api = importlib.import_module("lelabo.core.task")
+backprop_api = importlib.import_module("lelabo.update_rules.backprop")
 
 
 def test_builtin_metric_names_are_registered() -> None:

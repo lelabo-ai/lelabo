@@ -9,7 +9,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-schema = importlib.import_module("lab.capsule.schema")
+schema = importlib.import_module("lelabo.capsule.schema")
 
 
 def test_validate_manifest_ok() -> None:
@@ -19,9 +19,9 @@ def test_validate_manifest_ok() -> None:
         "created_at": "2026-02-20T12:00:00Z",
         "kind": "single_run",
         "source": {"path": "/tmp/x", "type": "directory"},
-        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lab.main"]}],
+        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo.main"]}],
         "artifacts": {},
-        "replay": {"command": ["python", "-m", "lab.main"]},
+        "replay": {"command": ["python", "-m", "lelabo.main"]},
     }
     out = schema.validate_manifest(manifest)
     assert out["capsule_id"] == "demo"
@@ -39,9 +39,9 @@ def test_validate_manifest_rejects_unsafe_capsule_id() -> None:
         "created_at": "2026-02-20T12:00:00Z",
         "kind": "single_run",
         "source": {"path": "/tmp/x", "type": "directory"},
-        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lab.main"]}],
+        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo.main"]}],
         "artifacts": {},
-        "replay": {"command": ["python", "-m", "lab.main"]},
+        "replay": {"command": ["python", "-m", "lelabo.main"]},
     }
     with pytest.raises(Exception):
         schema.validate_manifest(manifest)

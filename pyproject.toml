@@ -34,18 +34,18 @@ nlp = [
 ]
 
 [project.scripts]
-lelabo = "lab.cli.main:main"
+lelabo = "lelabo.cli.main:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["lab*"]
+include = ["lelabo*"]
 
 [tool.setuptools.package-data]
-"lab.config.assets" = ["*.toml"]
-"lab.capsule.templates" = ["*.md", "*.toml"]
+"lelabo.config.assets" = ["*.toml"]
+"lelabo.capsule.templates" = ["*.md", "*.toml"]
 
 [tool.pytest.ini_options]
 markers = [

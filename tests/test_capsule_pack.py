@@ -9,13 +9,13 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-pack = importlib.import_module("lab.capsule.pack")
+pack = importlib.import_module("lelabo.capsule.pack")
 
 
 def test_pack_capsule_creates_bundle(tmp_path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lab.main"]}), encoding="utf-8")
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo.main"]}), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps({"acc": 0.9}), encoding="utf-8")
 
     out = tmp_path / "demo_capsule.tar.gz"

@@ -8,15 +8,15 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-capsule_cli = importlib.import_module("lab.cli.commands.capsule")
-capsule_create = importlib.import_module("lab.capsule.create")
-capsule_registry = importlib.import_module("lab.capsule.registry")
+capsule_cli = importlib.import_module("lelabo.cli.commands.capsule")
+capsule_create = importlib.import_module("lelabo.capsule.create")
+capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
 def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lab.main"]}), encoding="utf-8")
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo.main"]}), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps({"acc": 0.1}), encoding="utf-8")
 
     bundle = tmp_path / "cli_capsule.tar.gz"
@@ -57,7 +57,7 @@ def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
 def test_capsule_cli_remove_keep_files(tmp_path) -> None:
     run_dir = tmp_path / "run_keep"
     run_dir.mkdir()
-    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lab.main"]}), encoding="utf-8")
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo.main"]}), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps({"acc": 0.2}), encoding="utf-8")
 
     bundle = tmp_path / "cli_capsule_keep.tar.gz"

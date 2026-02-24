@@ -11,9 +11,9 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-train_api = importlib.import_module("lab.api.train")
-update_rules_api = importlib.import_module("lab.update_rules")
-lab_pkg = importlib.import_module("lab")
+train_api = importlib.import_module("lelabo.api.train")
+update_rules_api = importlib.import_module("lelabo.update_rules")
+lab_pkg = importlib.import_module("lelabo")
 
 
 def test_supervised_mode_normalization_sets_task() -> None:

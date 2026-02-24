@@ -9,8 +9,8 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-create_cli = importlib.import_module("lab.cli.commands.create")
-capsule_cli = importlib.import_module("lab.cli.commands.capsule")
+create_cli = importlib.import_module("lelabo.cli.commands.create")
+capsule_cli = importlib.import_module("lelabo.cli.commands.capsule")
 
 
 def test_create_cli_capsule_creates_layout(tmp_path, capsys) -> None:

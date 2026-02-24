@@ -6,7 +6,7 @@ import sys
 from conftest import REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-checksums = importlib.import_module("lab.capsule.checksums")
+checksums = importlib.import_module("lelabo.capsule.checksums")
 
 
 def test_checksums_roundtrip(tmp_path) -> None:

@@ -17,7 +17,7 @@ def test_discover_imports_nested_modules_without_init_side_effects(tmp_path) -> 
     (pkg_root / "__init__.py").write_text("", encoding="utf-8")
     (nested / "__init__.py").write_text("", encoding="utf-8")
     (pkg_root / "api.py").write_text(
-        "from lab.core.registry import Registry\n\n"
+        "from lelabo.core.registry import Registry\n\n"
         "REG = Registry('demo', package='demo_registry_pkg')\n\n"
         "def register(name):\n"
         "    return REG.register(name)\n",
@@ -49,7 +49,7 @@ def test_snapshot_discovered_items_handles_preloaded_modules(tmp_path) -> None:
 
     (pkg_root / "__init__.py").write_text("", encoding="utf-8")
     (pkg_root / "api.py").write_text(
-        "from lab.core.registry import Registry\n\n"
+        "from lelabo.core.registry import Registry\n\n"
         "REG = Registry('demo_snapshot', package='demo_snapshot_pkg')\n\n"
         "def register(name):\n"
         "    return REG.register(name)\n",
@@ -85,7 +85,7 @@ def test_snapshot_discovered_items_handles_preloaded_modules(tmp_path) -> None:
 
 
 def test_update_rule_registry_lists_builtin_rules() -> None:
-    from lab.update_rules import get_update_rule_names
+    from lelabo.update_rules import get_update_rule_names
 
     names = set(get_update_rule_names())
     assert {"bp", "dfa", "softhebb", "tp"}.issubset(names)

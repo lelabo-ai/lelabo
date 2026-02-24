@@ -44,24 +44,24 @@ def _load_lab_modules(monkeypatch: pytest.MonkeyPatch):
     src_root = REPO_ROOT / "src"
     monkeypatch.syspath_prepend(str(src_root))
 
-    _stub_namespace_package(monkeypatch, "lab", src_root / "lab")
-    _stub_namespace_package(monkeypatch, "lab.core", src_root / "lab" / "core")
-    _stub_namespace_package(monkeypatch, "lab.models", src_root / "lab" / "models")
+    _stub_namespace_package(monkeypatch, "lelabo", src_root / "lelabo")
+    _stub_namespace_package(monkeypatch, "lelabo.core", src_root / "lelabo" / "core")
+    _stub_namespace_package(monkeypatch, "lelabo.models", src_root / "lelabo" / "models")
     _stub_namespace_package(
         monkeypatch,
-        "lab.update_rules",
-        src_root / "lab" / "update_rules",
+        "lelabo.update_rules",
+        src_root / "lelabo" / "update_rules",
     )
 
     importlib.import_module("torch")
 
-    registry = importlib.import_module("lab.update_rules.registry")
-    importlib.import_module("lab.update_rules.builders")
-    mlp_mod = importlib.import_module("lab.models.imported.mlp")
-    conv_mod = importlib.import_module("lab.models.imported.convnet")
-    deephebb_mod = importlib.import_module("lab.models.imported.deep_softhebb")
-    ac_mod = importlib.import_module("lab.models.imported.actor_critic")
-    task_mod = importlib.import_module("lab.core.task")
+    registry = importlib.import_module("lelabo.update_rules.registry")
+    importlib.import_module("lelabo.update_rules.builders")
+    mlp_mod = importlib.import_module("lelabo.models.imported.mlp")
+    conv_mod = importlib.import_module("lelabo.models.imported.convnet")
+    deephebb_mod = importlib.import_module("lelabo.models.imported.deep_softhebb")
+    ac_mod = importlib.import_module("lelabo.models.imported.actor_critic")
+    task_mod = importlib.import_module("lelabo.core.task")
     return registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, task_mod
 
 

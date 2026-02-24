@@ -37,20 +37,20 @@ def _load_update_rule_modules(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.syspath_prepend(str(src_root))
 
     # Avoid side effects from __init__.py files that pull optional dependencies.
-    _stub_namespace_package(monkeypatch, "lab", src_root / "lab")
-    _stub_namespace_package(monkeypatch, "lab.core", src_root / "lab" / "core")
-    _stub_namespace_package(monkeypatch, "lab.models", src_root / "lab" / "models")
+    _stub_namespace_package(monkeypatch, "lelabo", src_root / "lelabo")
+    _stub_namespace_package(monkeypatch, "lelabo.core", src_root / "lelabo" / "core")
+    _stub_namespace_package(monkeypatch, "lelabo.models", src_root / "lelabo" / "models")
     _stub_namespace_package(
         monkeypatch,
-        "lab.update_rules",
-        src_root / "lab" / "update_rules",
+        "lelabo.update_rules",
+        src_root / "lelabo" / "update_rules",
     )
 
     # Import torch first to avoid environment-specific OpenMP import-order issues.
     importlib.import_module("torch")
 
-    registry = importlib.import_module("lab.update_rules.registry")
-    importlib.import_module("lab.update_rules.builders")
+    registry = importlib.import_module("lelabo.update_rules.registry")
+    importlib.import_module("lelabo.update_rules.builders")
     return registry
 
 

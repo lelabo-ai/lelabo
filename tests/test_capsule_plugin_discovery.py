@@ -7,9 +7,9 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-plugins = importlib.import_module("lab.core.utils.capsule_plugins")
-models_registry = importlib.import_module("lab.models.registry")
-rules_registry = importlib.import_module("lab.update_rules.registry")
+plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+models_registry = importlib.import_module("lelabo.models.registry")
+rules_registry = importlib.import_module("lelabo.update_rules.registry")
 
 
 def test_capsule_plugins_are_loaded_into_registries(tmp_path, monkeypatch) -> None:
@@ -22,7 +22,7 @@ def test_capsule_plugins_are_loaded_into_registries(tmp_path, monkeypatch) -> No
     )
 
     (capsule_root / "models" / "capsule_model.py").write_text(
-        "from lab.models.registry import register_model\n"
+        "from lelabo.models.registry import register_model\n"
         "import torch.nn as nn\n\n"
         "@register_model('capsule_identity')\n"
         "def build_capsule_identity(ctx, args):\n"
@@ -30,7 +30,7 @@ def test_capsule_plugins_are_loaded_into_registries(tmp_path, monkeypatch) -> No
         encoding="utf-8",
     )
     (capsule_root / "update_rules" / "capsule_rule.py").write_text(
-        "from lab.update_rules.registry import register_update_rule\n\n"
+        "from lelabo.update_rules.registry import register_update_rule\n\n"
         "@register_update_rule('capsule_dummy_rule')\n"
         "def build_capsule_dummy_rule(ctx):\n"
         "    return object()\n",
@@ -71,14 +71,14 @@ def test_active_capsule_registry_state_is_isolated_between_roots(tmp_path, monke
     model_a = "isolated_model_caps_a"
     model_b = "isolated_model_caps_b"
     (cap_a / "models" / "a.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         f"@register_model('{model_a}')\n"
         "def build_a(ctx, args):\n"
         "    return None\n",
         encoding="utf-8",
     )
     (cap_b / "models" / "b.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         f"@register_model('{model_b}')\n"
         "def build_b(ctx, args):\n"
         "    return None\n",

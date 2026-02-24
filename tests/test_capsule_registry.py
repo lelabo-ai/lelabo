@@ -9,7 +9,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-registry = importlib.import_module("lab.capsule.registry")
+registry = importlib.import_module("lelabo.capsule.registry")
 
 
 def test_registry_add_and_resolve(tmp_path) -> None:

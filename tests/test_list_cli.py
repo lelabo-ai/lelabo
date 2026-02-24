@@ -10,13 +10,13 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-list_cli = importlib.import_module("lab.cli.commands.list")
-plugins = importlib.import_module("lab.core.utils.capsule_plugins")
-models_registry = importlib.import_module("lab.models.registry")
-optimizers_registry = importlib.import_module("lab.optimizers.registry")
-schedulers_registry = importlib.import_module("lab.schedulers.registry")
-datasets_registry = importlib.import_module("lab.supervised.datasets.registry")
-capsule_registry = importlib.import_module("lab.capsule.registry")
+list_cli = importlib.import_module("lelabo.cli.commands.list")
+plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+models_registry = importlib.import_module("lelabo.models.registry")
+optimizers_registry = importlib.import_module("lelabo.optimizers.registry")
+schedulers_registry = importlib.import_module("lelabo.schedulers.registry")
+datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
+capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
 def test_list_cli_all_text(monkeypatch, capsys) -> None:
@@ -102,7 +102,7 @@ def test_list_cli_can_include_capsule_models_from_path(tmp_path, capsys) -> None
         encoding="utf-8",
     )
     (capsule_root / "models" / "extra_model.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         "@register_model('capsule_list_model')\n"
         "def build_capsule_list_model(ctx, args):\n"
         "    return None\n",
@@ -130,7 +130,7 @@ def test_list_cli_can_include_capsule_datasets_from_alias(tmp_path, capsys) -> N
     )
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
     (capsule_root / "datasets" / "extra_dataset.py").write_text(
-        "from lab.supervised.datasets.registry import register_dataset\n\n"
+        "from lelabo.supervised.datasets.registry import register_dataset\n\n"
         "@register_dataset('capsule_list_dataset')\n"
         "def build_capsule_list_dataset(**kwargs):\n"
         "    return None\n",
@@ -171,7 +171,7 @@ def test_list_cli_auto_includes_installed_capsules(tmp_path, monkeypatch, capsys
     capsule_root = tmp_path / "capsule_installed_models"
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "models" / "auto_model.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         "@register_model('auto_capsule_model')\n"
         "def build_auto_capsule_model(ctx, args):\n"
         "    return None\n",
@@ -205,7 +205,7 @@ def test_list_cli_auto_includes_installed_capsules_from_capsules_dir_flag(tmp_pa
     capsule_root = tmp_path / "capsule_installed_models_flag"
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "models" / "auto_model_flag.py").write_text(
-        "from lab.models.registry import register_model\n\n"
+        "from lelabo.models.registry import register_model\n\n"
         "@register_model('auto_capsule_model_flag')\n"
         "def build_auto_capsule_model_flag(ctx, args):\n"
         "    return None\n",
@@ -243,7 +243,7 @@ def test_list_cli_can_include_capsule_schedulers_from_path(tmp_path, capsys) -> 
         encoding="utf-8",
     )
     (capsule_root / "schedulers" / "extra_scheduler.py").write_text(
-        "from lab.schedulers import register_scheduler\n\n"
+        "from lelabo.schedulers import register_scheduler\n\n"
         "@register_scheduler('capsule_list_scheduler')\n"
         "def build_capsule_list_scheduler(ctx):\n"
         "    return None\n",
@@ -271,7 +271,7 @@ def test_list_cli_can_include_capsule_optimizers_from_path(tmp_path, capsys) -> 
     )
     (capsule_root / "optimizers" / "extra_optimizer.py").write_text(
         "import torch\n"
-        "from lab.optimizers import register_optimizer\n\n"
+        "from lelabo.optimizers import register_optimizer\n\n"
         "@register_optimizer('capsule_list_optimizer')\n"
         "def build_capsule_list_optimizer(ctx):\n"
         "    return torch.optim.AdamW(ctx.params, lr=ctx.lr, weight_decay=ctx.weight_decay)\n",

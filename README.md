@@ -53,7 +53,7 @@ This repository follows a few guiding principles:
 
 The repository is now split by responsibility:
 
-- **`src/lab/`**  
+- **`src/lelabo/`**  
   Importable research code: models, datasets, algorithms, trainer/runner logic.
 
 - **`experiments/configs/`**  
@@ -82,7 +82,7 @@ The structure is designed to make it easy to answer questions like:
 This repository is intended for **personal research use**.
 
 Typical workflow:
-1. Define or modify a **model / algorithm** in `src/lab/`
+1. Define or modify a **model / algorithm** in `src/lelabo/`
 2. Create or update a sweep config in `experiments/configs/`
 3. Launch runs with `experiments/launchers/launch_grid.py`
 4. Analyze results with scripts in `tools/`
@@ -96,7 +96,7 @@ Capsule scaffold workflow (project bootstrap):
 - writes a `manifest.json` scaffold
 - auto-registers the capsule in the user-level capsules index (visible via `lelabo capsule list`)
 - auto-loads custom files from `models/`, `update_rules/`, `datasets/`, and `metrics/` when running LeLabo inside the capsule
-- copies example templates from `src/lab/capsule/templates/*.py`
+- copies example templates from `src/lelabo/capsule/templates/*.py`
 
 Capsule workflow (share/install/rerun experiments):
 1. `lelabo capsule pack --from <run_dir> --out outputs/exports/capsules/my_run.tar.gz`

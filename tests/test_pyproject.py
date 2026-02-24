@@ -12,7 +12,7 @@ def test_pyproject_declares_src_layout_and_cli_scripts() -> None:
     assert package_dir[""] == "src"
 
     scripts = pyproject["project"]["scripts"]
-    assert scripts["lelabo"] == "lab.cli.main:main"
+    assert scripts["lelabo"] == "lelabo.cli.main:main"
     assert "lelabo-profiler" not in scripts
 
 

@@ -9,7 +9,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-runner_mod = importlib.import_module("lab.core.runners.rl_runner")
+runner_mod = importlib.import_module("lelabo.core.runners.rl_runner")
 
 
 class _DummyEnv:

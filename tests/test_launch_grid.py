@@ -85,5 +85,5 @@ def test_launcher_dry_run_writes_plan(tmp_path: Path) -> None:
     assert len(data) > 0
     first_cmd = data[0]["cmd"]
     assert "-m" in first_cmd
-    assert "lab.cli.main" in first_cmd
+    assert "lelabo.cli.main" in first_cmd
     assert "train" in first_cmd

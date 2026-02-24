@@ -8,9 +8,9 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-pack = importlib.import_module("lab.capsule.pack")
-install = importlib.import_module("lab.capsule.install")
-rerun = importlib.import_module("lab.capsule.rerun")
+pack = importlib.import_module("lelabo.capsule.pack")
+install = importlib.import_module("lelabo.capsule.install")
+rerun = importlib.import_module("lelabo.capsule.rerun")
 
 
 def test_rerun_capsule_current_env(tmp_path) -> None:

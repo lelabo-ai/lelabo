@@ -9,9 +9,9 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-cli_main = importlib.import_module("lab.cli.main")
-audit_cli = importlib.import_module("lab.cli.commands.audit")
-api_audit = importlib.import_module("lab.api.audit")
+cli_main = importlib.import_module("lelabo.cli.main")
+audit_cli = importlib.import_module("lelabo.cli.commands.audit")
+api_audit = importlib.import_module("lelabo.api.audit")
 
 
 def test_lelabo_audit_rule_invokes_pytest_with_expected_env(monkeypatch) -> None:

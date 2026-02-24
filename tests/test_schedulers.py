@@ -10,7 +10,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-schedulers_api = importlib.import_module("lab.schedulers")
+schedulers_api = importlib.import_module("lelabo.schedulers")
 
 
 def _make_optimizer() -> torch.optim.Optimizer:
@@ -60,7 +60,7 @@ def test_scheduler_can_be_loaded_from_capsule_plugin(tmp_path, monkeypatch) -> N
     )
     (capsule_root / "schedulers" / "example.py").write_text(
         "import torch\n"
-        "from lab.schedulers import SchedulerContext, register_scheduler\n\n"
+        "from lelabo.schedulers import SchedulerContext, register_scheduler\n\n"
         "@register_scheduler('capsule_step_lr')\n"
         "def build_capsule_step_lr(ctx: SchedulerContext):\n"
         "    return torch.optim.lr_scheduler.StepLR(ctx.optimizer, step_size=1, gamma=0.9)\n",
