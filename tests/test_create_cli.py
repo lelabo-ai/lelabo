@@ -25,6 +25,7 @@ def test_create_cli_capsule_creates_layout(tmp_path, capsys) -> None:
     assert (tmp_path / "cli_capsule" / "models").is_dir()
     assert (tmp_path / "cli_capsule" / "update_rules").is_dir()
     assert (tmp_path / "cli_capsule" / "metrics").is_dir()
+    assert (tmp_path / "cli_capsule" / "optimizers").is_dir()
     assert (tmp_path / "cli_capsule" / "models" / "example.py").exists()
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])

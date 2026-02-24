@@ -33,6 +33,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "update_rules").is_dir()
     assert (out / "datasets").is_dir()
     assert (out / "metrics").is_dir()
+    assert (out / "optimizers").is_dir()
+    assert (out / "schedulers").is_dir()
     assert (out / "configs").is_dir()
     assert (out / "runs").is_dir()
     assert (out / "README.md").exists()
@@ -43,6 +45,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
+    assert (out / "optimizers" / "example.py").exists()
+    assert (out / "schedulers" / "example.py").exists()
     assert (out / "configs" / "README.md").exists()
     assert (out / "configs" / "train.supervised.quickstart.toml").exists()
     assert (out / "configs" / "train.supervised.detailed.toml").exists()
@@ -50,6 +54,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
     metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
+    readme_text = (out / "README.md").read_text(encoding="utf-8")
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
@@ -58,6 +63,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_metric" in metric_example
     assert "register_metric_fn" in metric_example
     assert "ClassificationMetricBase" in metric_example
+    assert "register_optimizer" in readme_text
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick

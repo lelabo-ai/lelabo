@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 
-_SUPPORTED_KINDS = ("models", "update_rules", "datasets", "metrics")
+_SUPPORTED_KINDS = ("models", "update_rules", "datasets", "metrics", "schedulers", "optimizers")
 _LOADED_BY_FILE: dict[str, str] = {}
 
 

@@ -142,6 +142,9 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         lr=float(optimizer_params.pop("lr", args.lr)),
         weight_decay=float(optimizer_params.pop("weight_decay", args.weight_decay)),
         momentum=float(optimizer_params.pop("momentum", 0.9)),
+        args=args,
+        mode="supervised",
+        dataset=args.dataset,
         **optimizer_params,
     )
     scheduler = None
@@ -160,6 +163,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         scheduler = make_scheduler(
             args.lr_scheduler,
             optimizer,
+            args=args,
             epochs=args.epochs,
             steps_per_epoch=steps_per_epoch,
             interval=getattr(args, "lr_scheduler_interval", "epoch"),

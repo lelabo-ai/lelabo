@@ -13,6 +13,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 list_cli = importlib.import_module("lab.cli.commands.list")
 plugins = importlib.import_module("lab.core.utils.capsule_plugins")
 models_registry = importlib.import_module("lab.models.registry")
+optimizers_registry = importlib.import_module("lab.optimizers.registry")
+schedulers_registry = importlib.import_module("lab.schedulers.registry")
 datasets_registry = importlib.import_module("lab.supervised.datasets.registry")
 capsule_registry = importlib.import_module("lab.capsule.registry")
 
@@ -25,7 +27,9 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
             "update_rules": ["bp", "fa"],
             "datasets": ["iris"],
             "models": ["cnn", "mlp"],
+            "optimizers": ["adamw"],
             "metrics": ["acc"],
+            "schedulers": ["step"],
         },
     )
 
@@ -36,7 +40,9 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
     assert "- bp" in out
     assert "datasets (1)" in out
     assert "models (2)" in out
+    assert "optimizers (1)" in out
     assert "metrics (1)" in out
+    assert "schedulers (1)" in out
 
 
 def test_list_cli_single_target_json(monkeypatch, capsys) -> None:
@@ -64,6 +70,28 @@ def test_list_cli_algos_alias_maps_to_update_rules(monkeypatch, capsys) -> None:
 def test_list_cli_unknown_target_raises_system_exit() -> None:
     with pytest.raises(SystemExit):
         list_cli.main(["unknown_target"])
+
+
+def test_list_cli_schedulers_target_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_scheduler_names", lambda **kwargs: ["cosine", "step"])
+
+    rc = list_cli.main(["schedulers", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["schedulers"]
+    assert payload["schedulers"] == ["cosine", "step"]
+
+
+def test_list_cli_optimizers_target_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_optimizer_names", lambda **kwargs: ["adamw", "sgd"])
+
+    rc = list_cli.main(["optimizers", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["optimizers"]
+    assert payload["optimizers"] == ["adamw", "sgd"]
 
 
 def test_list_cli_can_include_capsule_models_from_path(tmp_path, capsys) -> None:
@@ -206,3 +234,57 @@ def test_list_cli_auto_includes_installed_capsules_from_capsules_dir_flag(tmp_pa
         models_registry.MODEL_REGISTRY._items = original_model_items
         plugins.reset_capsule_plugin_cache()
 
+
+def test_list_cli_can_include_capsule_schedulers_from_path(tmp_path, capsys) -> None:
+    capsule_root = tmp_path / "capsule_schedulers"
+    (capsule_root / "schedulers").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_schedulers\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "schedulers" / "extra_scheduler.py").write_text(
+        "from lab.schedulers import register_scheduler\n\n"
+        "@register_scheduler('capsule_list_scheduler')\n"
+        "def build_capsule_list_scheduler(ctx):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    original_scheduler_items = dict(schedulers_registry.SCHEDULER_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    try:
+        rc = list_cli.main(["schedulers", "--capsule", str(capsule_root), "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "capsule_list_scheduler" in payload["schedulers"]
+    finally:
+        schedulers_registry.SCHEDULER_REGISTRY._items = original_scheduler_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_list_cli_can_include_capsule_optimizers_from_path(tmp_path, capsys) -> None:
+    capsule_root = tmp_path / "capsule_optimizers"
+    (capsule_root / "optimizers").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_optimizers\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "optimizers" / "extra_optimizer.py").write_text(
+        "import torch\n"
+        "from lab.optimizers import register_optimizer\n\n"
+        "@register_optimizer('capsule_list_optimizer')\n"
+        "def build_capsule_list_optimizer(ctx):\n"
+        "    return torch.optim.AdamW(ctx.params, lr=ctx.lr, weight_decay=ctx.weight_decay)\n",
+        encoding="utf-8",
+    )
+
+    original_optimizer_items = dict(optimizers_registry.OPTIMIZER_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    try:
+        rc = list_cli.main(["optimizers", "--capsule", str(capsule_root), "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "capsule_list_optimizer" in payload["optimizers"]
+    finally:
+        optimizers_registry.OPTIMIZER_REGISTRY._items = original_optimizer_items
+        plugins.reset_capsule_plugin_cache()

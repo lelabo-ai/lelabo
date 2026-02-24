@@ -19,6 +19,7 @@ from ..core.utils.logger import RunLogger
 from ..supervised.datasets import get_dataset_names
 from ..update_rules import get_update_rule_names
 from ..models import get_model_names
+from ..optimizers import get_optimizer_names
 from ..rl.algorithms import get_rl_algo_names
 from .train_rl_config import parse_rl_param_overrides
 
@@ -109,7 +110,7 @@ def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--model", choices=list(get_model_names()), default=None)
     parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
-    parser.add_argument("--optimizer", choices=["adamw", "sgd", "sgd+momentum", "ano"], default=None)
+    parser.add_argument("--optimizer", choices=list(get_optimizer_names()), default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--epochs", type=int, default=None)
@@ -125,7 +126,7 @@ def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
         metavar="ENV_ID",
     )
     parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
-    parser.add_argument("--optimizer", choices=["adamw", "sgd", "sgd+momentum", "ano"], default=None)
+    parser.add_argument("--optimizer", choices=list(get_optimizer_names()), default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--rl-algo", type=str, default=None, choices=list(get_rl_algo_names()))

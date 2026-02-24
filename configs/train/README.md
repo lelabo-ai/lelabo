@@ -44,6 +44,12 @@ For custom metric plugins inside a capsule, use `metrics/example.py` patterns:
 1. Function metric with `register_metric_fn`
 2. Advanced class metric with `ClassificationMetricBase` / `RegressionMetricBase`
 
+For custom scheduler plugins inside a capsule, use `schedulers/example.py`
+with `register_scheduler`.
+
+For custom optimizer plugins inside a capsule, use `optimizers/example.py`
+with `register_optimizer`.
+
 ```bash
 lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1
 ```

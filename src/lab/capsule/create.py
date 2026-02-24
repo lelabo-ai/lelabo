@@ -19,6 +19,8 @@ _SCAFFOLD_DIRS = (
     "update_rules",
     "datasets",
     "metrics",
+    "optimizers",
+    "schedulers",
     "configs",
     "runs",
 )
@@ -28,6 +30,8 @@ _EXAMPLE_TEMPLATE_MAP = {
     "update_rules/example.py": "update_rules_example.py",
     "datasets/example.py": "datasets_example.py",
     "metrics/example.py": "metrics_example.py",
+    "optimizers/example.py": "optimizers_example.py",
+    "schedulers/example.py": "schedulers_example.py",
     "configs/README.md": "configs_readme.md",
     "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
     "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
@@ -58,6 +62,8 @@ def _readme_template(name: str) -> str:
         "- `update_rules/`: custom learning rules\n"
         "- `datasets/`: local dataset helpers\n"
         "- `metrics/`: local training metrics\n"
+        "- `optimizers/`: local optimizer builders\n"
+        "- `schedulers/`: local learning-rate schedulers\n"
         "- `configs/`: experiment configs\n"
         "- `runs/`: local run artifacts\n"
         "\n"
@@ -65,12 +71,15 @@ def _readme_template(name: str) -> str:
         "\n"
         "## Local Registries\n\n"
         "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"
-        "`models/*.py`, `update_rules/*.py`, `datasets/*.py`, and `metrics/*.py`.\n"
+        "`models/*.py`, `update_rules/*.py`, `datasets/*.py`, `metrics/*.py`,\n"
+        "`optimizers/*.py`, and `schedulers/*.py`.\n"
         "Use the standard decorators in these files:\n\n"
         "- `from lab.models.registry import register_model`\n"
         "- `from lab.update_rules.registry import register_update_rule`\n"
         "- `from lab.supervised.datasets.registry import register_dataset`\n"
         "- `from lab.metrics.registry import register_metric`\n"
+        "- `from lab.optimizers import register_optimizer`\n"
+        "- `from lab.schedulers import register_scheduler`\n"
     )
 
 
@@ -143,6 +152,8 @@ def _template_files(name: str) -> dict[str, str]:
         "update_rules/__init__.py": '"""Custom update rules for this capsule."""\n',
         "datasets/__init__.py": '"""Custom datasets for this capsule."""\n',
         "metrics/__init__.py": '"""Custom metrics for this capsule."""\n',
+        "optimizers/__init__.py": '"""Custom optimizers for this capsule."""\n',
+        "schedulers/__init__.py": '"""Custom schedulers for this capsule."""\n',
     }
     templates.update(
         {

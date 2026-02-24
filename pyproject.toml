@@ -13,6 +13,8 @@ authors = [{ name = "Adrien Kegreisz" }]
 dependencies = [
     "numpy>=1.26",
     "pyyaml>=6",
+    "zstandard>=0.22",
+    "ano-optimizer>=1.0.0",
     "tomli>=2; python_version < '3.11'",
 ]
 
@@ -29,9 +31,6 @@ rl = [
 nlp = [
     "transformers>=4.40",
     "datasets>=2.18",
-]
-capsule = [
-    "zstandard>=0.22",
 ]
 
 [project.scripts]

@@ -42,6 +42,9 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
             lr=lr,
             weight_decay=weight_decay,
             momentum=momentum,
+            args=args,
+            mode="rl",
+            dataset=args.dataset,
             **optimizer_params,
         )
         ctx = UpdateRuleContext(
@@ -80,6 +83,9 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
             lr=lr,
             weight_decay=weight_decay,
             momentum=momentum,
+            args=args,
+            mode="rl",
+            dataset=args.dataset,
             **optimizer_params,
         )
 

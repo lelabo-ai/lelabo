@@ -54,6 +54,8 @@ def test_list_help_displays_list_usage() -> None:
     assert "lelabo list [target] [--json]" in proc.stdout
     assert "update-rules" in proc.stdout
     assert "datasets" in proc.stdout
+    assert "optimizers" in proc.stdout
+    assert "schedulers" in proc.stdout
 
 
 def test_train_without_subcommand_prints_help() -> None:

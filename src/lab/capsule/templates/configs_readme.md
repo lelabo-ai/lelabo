@@ -61,6 +61,40 @@ For a custom metric plugin starter, see:
   - a function metric (`register_metric_fn`)
   - an advanced class metric (`ClassificationMetricBase`)
 
+For a custom scheduler plugin starter, see:
+
+- `schedulers/example.py`
+  This file shows how to register a scheduler with `register_scheduler`.
+
+For a custom optimizer plugin starter, see:
+
+- `optimizers/example.py`
+  This file shows how to register an optimizer with `register_optimizer`.
+
+Quick custom optimizer snippet:
+
+```toml
+[optimizer]
+name = "my_adamw"
+[optimizer.params]
+lr = 0.001
+weight_decay = 0.01
+betas = [0.9, 0.999]
+eps = 1e-8
+```
+
+Quick custom scheduler snippet:
+
+```toml
+[scheduler]
+name = "my_cosine"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
+T_max = 50
+eta_min = 0.0
+```
+
 Quick custom metric snippets:
 
 ```toml

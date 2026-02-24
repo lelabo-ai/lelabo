@@ -14,6 +14,7 @@ from .batch import infer_batch_size
 from .steps import compute_loss_and_stats
 from .state import TrainState
 from ..metrics.payload import is_metric_payload_key
+from ..schedulers import SchedulerController
 
 try:
     from tqdm.auto import tqdm
@@ -70,38 +71,40 @@ class Trainer:
         if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
 
-    def _pick_scheduler_metric(self, logs: Optional[Dict[str, float]]) -> Optional[float]:
+    def _pick_scheduler_metric(self, logs: Optional[Dict[str, Any]]) -> Optional[float]:
         if not logs:
             return None
         key = self.scheduler_monitor
-        if key and key in logs:
+        if key and key in logs and isinstance(logs[key], (int, float)):
             return float(logs[key])
         for fallback in ("val.loss", "train.loss", "val.metric", "train.metric"):
-            if fallback in logs:
+            if fallback in logs and isinstance(logs[fallback], (int, float)):
                 return float(logs[fallback])
         return None
 
-    def _step_schedulers(self, *, interval: str, logs: Optional[Dict[str, float]] = None) -> None:
+    def _step_schedulers(self, *, interval: str, logs: Optional[Dict[str, Any]] = None) -> None:
         if not self.schedulers:
             return
         interval = str(interval).lower()
-        if interval == "batch":
-            for sched in self.schedulers:
-                if isinstance(sched, ReduceLROnPlateau):
-                    continue
-                sched.step()
-            return
+        for sched in self.schedulers:
+            if isinstance(sched, SchedulerController):
+                if interval == "batch":
+                    sched.step_batch(logs=logs)
+                elif interval == "epoch":
+                    sched.step_epoch(logs=logs)
+                continue
 
-        if interval == "epoch":
-            metric = self._pick_scheduler_metric(logs)
-            for sched in self.schedulers:
-                if isinstance(sched, ReduceLROnPlateau):
-                    if metric is None:
-                        continue
-                    sched.step(metric)
-                else:
-                    sched.step()
-            return
+            # Legacy fallback: raw torch schedulers still follow trainer-level interval/monitor.
+            legacy_interval = "batch" if self.scheduler_interval in {"batch", "step"} else "epoch"
+            if interval != legacy_interval:
+                continue
+            if isinstance(sched, ReduceLROnPlateau):
+                metric = self._pick_scheduler_metric(logs)
+                if metric is None:
+                    continue
+                sched.step(metric)
+            else:
+                sched.step()
 
     def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> Dict[str, Any]:
         best_val_metric = float("-inf")
@@ -194,8 +197,7 @@ class Trainer:
                     denom = max(1.0, float(ep_samples))
                     iterator.set_postfix(loss=(ep_loss_sum / denom), metric=(ep_metric_sum / denom))
 
-                if self.scheduler_interval in ("batch", "step"):
-                    self._step_schedulers(interval="batch")
+                self._step_schedulers(interval="batch", logs=stats)
 
                 for cb in self.callbacks:
                     cb.on_batch_end(self, state, logs=stats)
@@ -265,8 +267,7 @@ class Trainer:
             for cb in self.callbacks:
                 cb.on_epoch_end(self, ep, logs, state)
 
-            if self.scheduler_interval in ("epoch",):
-                self._step_schedulers(interval="epoch", logs=logs)
+            self._step_schedulers(interval="epoch", logs=logs)
 
             if self.stop_training:
                 break
