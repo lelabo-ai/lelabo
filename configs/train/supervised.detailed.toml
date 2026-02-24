@@ -48,8 +48,6 @@ val_frac = 0.1
 input_noise_training = 0.0
 input_noise_dataset = 0.0
 noise_on_test = false
-bp_alignment_every = 1
-bp_alignment_eps = 1e-12
 
 [early_stopping]
 name = "default"
@@ -76,14 +74,8 @@ model = "bert-base-uncased"
 trust_remote_code = false
 max_length = 128
 
-[[metrics]]
-name = "acc"
-
-[[metrics]]
-name = "loss"
-
-# Metric-specific params are supported with:
+# Optional custom metric plugins:
 # [[metrics]]
-# name = "bp_alignment"
+# name = "my_metric"
 # [metrics.params]
-# every = 10
+# alpha = 0.5

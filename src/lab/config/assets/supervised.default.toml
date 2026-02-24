@@ -42,8 +42,6 @@ val_frac = 0.1
 input_noise_training = 0.0
 input_noise_dataset = 0.0
 noise_on_test = false
-bp_alignment_every = 1
-bp_alignment_eps = 1e-12
 
 [early_stopping]
 name = "default"

@@ -162,10 +162,10 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         )
 
     rule_extra = {
-        "requested_metrics": requested_metrics,
-        "bp_alignment_every": max(1, int(getattr(args, "bp_alignment_every", 1))),
-        "bp_alignment_eps": float(getattr(args, "bp_alignment_eps", 1e-12)),
         "update_rule_params": dict(getattr(args, "update_rule_params", {}) or {}),
+    }
+    metric_extra = {
+        "requested_metrics": requested_metrics,
         "metric_params": dict(getattr(args, "metric_params", {}) or {}),
     }
     ctx = UpdateRuleContext(
@@ -183,7 +183,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         mode="supervised",
         dataset=args.dataset,
         algo=args.algo,
-        extra=rule_extra,
+        extra=metric_extra,
     )
     metric_probes = [build_metric(name, metric_ctx) for name in requested_metrics]
 

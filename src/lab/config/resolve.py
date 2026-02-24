@@ -208,8 +208,6 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
                 ("input_noise_training", ["train", "input_noise_training"]),
                 ("input_noise_dataset", ["train", "input_noise_dataset"]),
                 ("noise_on_test", ["train", "noise_on_test"]),
-                ("bp_alignment_every", ["train", "bp_alignment_every"]),
-                ("bp_alignment_eps", ["train", "bp_alignment_eps"]),
                 ("robustness", ["robustness", "mode"]),
                 ("noise_trials", ["robustness", "trials"]),
                 ("robustness_max_samples", ["robustness", "max_samples"]),
@@ -295,8 +293,6 @@ def _validate_supervised(cfg: SupervisedConfig) -> None:
         raise ValueError("train.batch must be > 0.")
     if not (0.0 <= float(cfg.train.val_frac) < 1.0):
         raise ValueError("train.val_frac must satisfy 0 <= val_frac < 1.")
-    if cfg.train.bp_alignment_every <= 0:
-        raise ValueError("train.bp_alignment_every must be > 0.")
     if cfg.robustness.trials <= 0:
         raise ValueError("robustness.trials must be > 0.")
     if cfg.robustness.max_samples < 0:
@@ -380,8 +376,6 @@ def resolve_supervised_config(
         input_noise_training=float(train_raw.get("input_noise_training", 0.0)),
         input_noise_dataset=float(train_raw.get("input_noise_dataset", 0.0)),
         noise_on_test=bool(train_raw.get("noise_on_test", False)),
-        bp_alignment_every=int(train_raw.get("bp_alignment_every", 1)),
-        bp_alignment_eps=float(train_raw.get("bp_alignment_eps", 1e-12)),
     )
 
     early_raw = _as_dict(merged.get("early_stopping", {}), where="early_stopping")
@@ -529,8 +523,6 @@ def to_supervised_namespace(
         "algo": cfg.update_rule.name,
         "metrics": ",".join(metric_names),
         "metric_params": metric_params,
-        "bp_alignment_every": int(cfg.train.bp_alignment_every),
-        "bp_alignment_eps": float(cfg.train.bp_alignment_eps),
         "epochs": int(cfg.train.epochs),
         "batch": int(cfg.train.batch),
         "lr_scheduler": cfg.scheduler.name,

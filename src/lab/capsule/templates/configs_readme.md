@@ -46,7 +46,9 @@ Use `name + params` for extensible components:
 - `optimizer`
 - `scheduler`
 - `early_stopping`
-- `metrics` (list)
+- `metrics` (optional list of custom metric plugins)
+
+Core training logs already include `loss` and task metrics like `acc`; add `metrics` only for plugin probes.
 
 Top-level version fields are recommended in every file:
 

@@ -43,8 +43,6 @@ class SupervisedTrainSpec:
     input_noise_training: float = 0.0
     input_noise_dataset: float = 0.0
     noise_on_test: bool = False
-    bp_alignment_every: int = 1
-    bp_alignment_eps: float = 1e-12
 
 
 @dataclass(frozen=True)
