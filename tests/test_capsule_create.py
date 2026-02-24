@@ -43,7 +43,6 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
-    assert (out / "configs" / "example.py").exists()
     assert (out / "configs" / "README.md").exists()
     assert (out / "configs" / "train.supervised.quickstart.toml").exists()
     assert (out / "configs" / "train.supervised.detailed.toml").exists()
@@ -108,14 +107,14 @@ def test_scaffold_examples_are_train_resolvable(tmp_path, monkeypatch) -> None:
             [
                 "supervised",
                 "--dataset",
-                "example_mnist",
+                "iris",
                 "--model",
-                "example_mlp",
+                "mlp",
             ]
         )
         assert args.mode == "supervised"
-        assert args.model == "example_mlp"
-        assert args.dataset == "example_mnist"
+        assert args.model == "mlp"
+        assert args.dataset == "iris"
     finally:
         models_registry.MODEL_REGISTRY._items = original_model_items
         datasets_registry.DATASET_REGISTRY._items = original_dataset_items

@@ -16,12 +16,17 @@ from typing import Optional
 
 import torch
 from torch.utils.data import random_split
-from torchvision.datasets import MNIST
-from torchvision import transforms
 
 from lab.supervised.datasets.base import DataBundle, dataset_to_tensors, make_loader
 from lab.supervised.datasets.registry import register_dataset
 from lab.supervised.datasets.paths import dataset_dir
+
+try:  # optional dependency for this example only
+    from torchvision.datasets import MNIST
+    from torchvision import transforms
+except Exception:  # pragma: no cover - handled at runtime in factory
+    MNIST = None
+    transforms = None
 
 
 # Dataset registration
@@ -47,6 +52,10 @@ def make_example_mnist(
 
     Must return a DataBundle.
     """
+    if MNIST is None or transforms is None:
+        raise RuntimeError(
+            "example_mnist requires torchvision. Install it to use this dataset template."
+        )
 
     torch.manual_seed(seed)
 
