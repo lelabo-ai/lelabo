@@ -41,7 +41,7 @@ class AutogradUpdateRule(UpdateRule):
         self.optimizer = optimizer
         self.grad_clip = grad_clip
 
-    def train_step(self, model, task, batch, device, state=None) -> Dict[str, float]:
+    def train_step(self, model, task, batch, device, state=None) -> Dict[str, Any]:
         model.train()
         self.optimizer.zero_grad(set_to_none=True)
 

@@ -50,11 +50,15 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "configs" / "train.rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
+    metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
     cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
+    assert "register_metric" in metric_example
+    assert "register_metric_fn" in metric_example
+    assert "ClassificationMetricBase" in metric_example
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick

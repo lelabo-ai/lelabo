@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .base import UpdateRule
+from ..core.steps import metric_payload_from_outputs
 
 class LocalProbeBERT(UpdateRule):
     """
@@ -124,6 +125,7 @@ class LocalProbeBERT(UpdateRule):
                 pred = head_logits.argmax(dim=-1)
                 acc = (pred == labels).float().mean().item()
             stats["acc"] = acc
+        stats.update(metric_payload_from_outputs(head_logits, labels))
 
         # optional: log average local probe loss too
         stats["local_probe_loss"] = total_local_loss / max(1, n_layers)

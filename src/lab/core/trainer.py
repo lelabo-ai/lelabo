@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 import torch
@@ -12,6 +13,7 @@ from .utils.logger import RunLogger
 from .batch import infer_batch_size
 from .steps import compute_loss_and_stats
 from .state import TrainState
+from ..metrics.payload import is_metric_payload_key
 
 try:
     from tqdm.auto import tqdm
@@ -53,6 +55,13 @@ class Trainer:
         self.stop_training = False
         self.stop_reason = None
         self.state: TrainState | None = None
+
+    @staticmethod
+    def _call_probe_hook(probe: Any, hook: str, *args) -> Any:
+        fn = getattr(probe, hook, None)
+        if not callable(fn):
+            return None
+        return fn(*args)
 
     def log(self, record: Dict[str, Any]) -> None:
         self.logger.log(record)
@@ -113,7 +122,7 @@ class Trainer:
 
         self.learner.on_train_start(self.model, self.task, self.device, state)
         for probe in self.metric_probes:
-            probe.on_train_start(self, state)
+            self._call_probe_hook(probe, "on_train_start", self, state)
 
         total_loss_sum = 0.0
         total_metric_sum = 0.0
@@ -146,7 +155,7 @@ class Trainer:
             for cb in self.callbacks:
                 cb.on_epoch_start(self, state)
             for probe in self.metric_probes:
-                probe.on_epoch_start(self, ep, state)
+                self._call_probe_hook(probe, "on_epoch_start", self, ep, state)
 
             iterator = train_loader
             use_bar = show_progress and (tqdm is not None)
@@ -171,10 +180,10 @@ class Trainer:
                 if not isinstance(stats, dict):
                     stats = {}
                 for probe in self.metric_probes:
-                    probe.on_batch_end(self, stats, int(max(1, bs)), state)
+                    self._call_probe_hook(probe, "on_batch_end", self, stats, int(max(1, bs)), state)
 
                 loss = float(stats.get("loss", 0.0))
-                metric = float(stats.get("acc", stats.get("agg", 0.0)))
+                metric = float(stats.get("acc", stats.get("agg", stats.get("metric", 0.0))))
 
                 w = float(bs if bs > 0 else 1)
                 ep_loss_sum += loss * w
@@ -215,7 +224,7 @@ class Trainer:
 
             epoch_custom_metrics: dict[str, float] = {}
             for probe in self.metric_probes:
-                out = probe.on_epoch_end(self, ep, state)
+                out = self._call_probe_hook(probe, "on_epoch_end", self, ep, state)
                 if not isinstance(out, dict):
                     continue
                 for key, value in out.items():
@@ -236,8 +245,11 @@ class Trainer:
                 vloss = float(val_res.get("loss", 0.0))
                 vmetric = float(val_res.get("acc", val_res.get("agg", val_res.get("metric", 0.0))))
 
-                logs["val.loss"] = vloss
-                logs["val.metric"] = vmetric
+                for key, value in val_res.items():
+                    if isinstance(value, (int, float)):
+                        logs[f"val.{key}"] = float(value)
+                logs.setdefault("val.loss", vloss)
+                logs.setdefault("val.metric", vmetric)
 
                 for cb in self.callbacks:
                     cb.on_eval_end(self, val_res, state)
@@ -274,7 +286,7 @@ class Trainer:
 
         final_custom_metrics: dict[str, float] = {}
         for probe in self.metric_probes:
-            out = probe.on_train_end(self, state)
+            out = self._call_probe_hook(probe, "on_train_end", self, state)
             if not isinstance(out, dict):
                 continue
             for key, value in out.items():
@@ -306,25 +318,63 @@ class Trainer:
     def evaluate(self, loader, split: Optional[str] = None) -> Dict[str, Any]:
         self.model.eval()
 
-        if hasattr(self.task, "evaluate"):
-            res = self.task.evaluate(self.model, loader, self.device)
-        else:
-            total_n = 0
-            total_loss = 0.0
-            total_acc = 0.0
+        for probe in self.metric_probes:
+            self._call_probe_hook(probe, "on_eval_start", self, split, self.state)
 
-            for batch in loader:
-                bs = infer_batch_size(batch)
-                loss, stats = compute_loss_and_stats(self.model, self.task, batch, self.device)
-                w = float(bs if bs > 0 else 1)
-                total_loss += float(loss.item()) * w
-                if "acc" in stats:
-                    total_acc += float(stats["acc"]) * w
-                total_n += int(bs if bs > 0 else 1)
+        total_n = 0
+        total_loss = 0.0
+        scalar_sums: dict[str, float] = {}
 
-            res = {"loss": float(total_loss / max(1, total_n)), "acc": float(total_acc / max(1, total_n)), "metric": float(total_acc / max(1, total_n))}
+        for batch in loader:
+            bs = infer_batch_size(batch)
+            w = float(bs if bs > 0 else 1.0)
+            loss, stats = compute_loss_and_stats(self.model, self.task, batch, self.device)
+            if not isinstance(stats, Mapping):
+                stats = {}
+            stats_dict = dict(stats)
+
+            total_loss += float(loss.item()) * w
+            total_n += int(w)
+
+            for key, value in stats_dict.items():
+                if is_metric_payload_key(str(key)):
+                    continue
+                if isinstance(value, (int, float)):
+                    scalar_sums[str(key)] = float(scalar_sums.get(str(key), 0.0) + (float(value) * w))
+
+            for probe in self.metric_probes:
+                self._call_probe_hook(
+                    probe,
+                    "on_eval_batch_end",
+                    self,
+                    split,
+                    stats_dict,
+                    int(max(1, bs)),
+                    self.state,
+                )
+
+        denom = float(max(1, total_n))
+        res: Dict[str, Any] = {"loss": float(total_loss / denom)}
+        for key, weighted_sum in scalar_sums.items():
+            if key == "loss":
+                continue
+            res[str(key)] = float(weighted_sum / denom)
+        if "metric" not in res:
+            if "acc" in res:
+                res["metric"] = float(res["acc"])
+            elif "agg" in res:
+                res["metric"] = float(res["agg"])
+
+        for probe in self.metric_probes:
+            out = self._call_probe_hook(probe, "on_eval_end", self, split, self.state)
+            if not isinstance(out, dict):
+                continue
+            for key, value in out.items():
+                if isinstance(value, (int, float)):
+                    res[str(key)] = float(value)
 
         self.log({"t": "eval", "split": split, **{k: float(v) for k, v in res.items() if isinstance(v, (int, float))}})
         if self.verbose:
-            print(f"Eval {split or ''} | loss={res.get('loss', 0.0):.4f} | acc={res.get('acc', 0.0):.4f}")
+            acc = float(res["acc"]) if "acc" in res and isinstance(res["acc"], (int, float)) else 0.0
+            print(f"Eval {split or ''} | loss={res.get('loss', 0.0):.4f} | acc={acc:.4f}")
         return res

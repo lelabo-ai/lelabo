@@ -74,8 +74,10 @@ model = "bert-base-uncased"
 trust_remote_code = false
 max_length = 128
 
-# Optional custom metric plugins:
-# [[metrics]]
-# name = "my_metric"
-# [metrics.params]
-# alpha = 0.5
+[[metrics]]
+name = "accuracy"
+
+[[metrics]]
+name = "f1"
+[metrics.params]
+average = "macro"

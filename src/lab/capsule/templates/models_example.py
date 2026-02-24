@@ -18,9 +18,10 @@ from lab.models.blocks import LeModule, BlockSpec
 from lab.models.registry import register_model, ModelContext
 
 
-# ============================================================
-# 1️⃣ Model definition (inherits from LeModule)
-# ============================================================
+# Model definition (inherits from LeModule)
+# LeModules provide automatic block discovery and cache collection to become usable for update rules.
+# If you don't need these features, you can inherit from nn.Module instead. But we strongly recommend 
+# inheriting from LeModule for better integration with the rest of the framework.
 
 class ExampleMLP(LeModule):
     """
@@ -44,11 +45,12 @@ class ExampleMLP(LeModule):
         return x
 
 
-# ============================================================
-# 2️⃣ Model registry
-# ============================================================
+# Model registry
 
-@register_model("example_mlp")
+# To make this model available in the command line interface, we need to register it.
+# Please uncomment the @register_model decorator and implement the build_example_mlp function.
+
+#@register_model("example_mlp")
 def build_example_mlp(ctx: ModelContext, args):
     """
     Factory used by:
@@ -70,9 +72,13 @@ def build_example_mlp(ctx: ModelContext, args):
     )
 
 
-# ============================================================
-# 3️⃣ Optional: custom block definition
-# ============================================================
+# Optional: custom block definition to override automatic block discovery
+# This is only needed if you want to have fine control over what is considered a block and what is not.
+# Particularly if you want more granular control over the cache collection (e.g. you want to collect activations 
+# from non-linearities or other operations that are not automatically considered blocks).
+# Or you want to build an update rules that relies on cache that we (for the moment) don't 
+# automatically collect. We encourage you to create an issues if you have a use case that 
+# is not covered by the automatic block discovery and cache collection, so we can add it to the framework.
 
 class CustomBlockMLP(LeModule):
     """

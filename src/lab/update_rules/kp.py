@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from .registry import UpdateRuleContext, register_update_rule
 from ..core.batch import to_device
-from ..core.steps import maybe_accuracy_from_logits
+from ..core.steps import maybe_accuracy_from_logits, metric_payload_from_outputs
 
 
 class KP(UpdateRule):
@@ -283,19 +283,21 @@ class KP(UpdateRule):
     # ============================================================
 
     def _loss_and_stats(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, float]]:
-        stats: Dict[str, float] = {}
+        stats: Dict[str, Any] = {}
 
         # HF outputs with .loss
         if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
             loss = out.loss
             if hasattr(out, "logits") and y is not None and torch.is_tensor(y):
                 stats["acc"] = maybe_accuracy_from_logits(out.logits, y)
+                stats.update(metric_payload_from_outputs(out.logits, y))
             return loss, stats
 
         logits = out.logits if hasattr(out, "logits") else out
         loss = task.loss(logits, y)
         if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
             stats["acc"] = maybe_accuracy_from_logits(logits, y)
+            stats.update(metric_payload_from_outputs(logits, y))
         return loss, stats
 
     # ============================================================

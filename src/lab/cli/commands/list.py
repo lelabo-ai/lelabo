@@ -12,7 +12,7 @@ from ...core.utils.capsule_plugins import (
     load_installed_capsule_plugins,
     reset_capsule_plugin_cache,
 )
-from ...metrics.registry import get_metric_names
+from ...metrics.registry import get_metric_details, get_metric_names
 from ...models.registry import get_model_names
 from ...supervised.datasets.registry import get_dataset_names
 from ...update_rules.registry import get_update_rule_names
@@ -41,6 +41,7 @@ Examples:
   lelabo list update-rules
   lelabo list datasets --json
   lelabo list models --capsule my_capsule_alias
+  lelabo list metrics --details
 
 Notes:
   - `lelabo list` automatically includes built-ins + installed capsules.
@@ -81,7 +82,7 @@ def _collect(
     *,
     capsules_dir: Path | None,
     explicit_capsule_roots: Sequence[Path] | None = None,
-) -> dict[str, list[str]]:
+) -> dict[str, object]:
     extra_roots = list(explicit_capsule_roots or [])
     if target == "all":
         return _collect_all_single_refresh(
@@ -108,6 +109,16 @@ def _collect(
         "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
         "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
     }
+
+
+def _collect_metric_details(
+    *,
+    capsules_dir: Path | None,
+    explicit_capsule_roots: Sequence[Path] | None = None,
+) -> list[dict[str, object]]:
+    extra_roots = list(explicit_capsule_roots or [])
+    details = get_metric_details(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
+    return sorted(details, key=lambda row: str(row.get("name", "")))
 
 
 def _normalize_capsule_roots(roots: Sequence[Path] | None) -> tuple[Path, ...]:
@@ -233,6 +244,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
+        "--details",
+        action="store_true",
+        help="Metrics-only: include kind/output_key/params metadata.",
+    )
+    parser.add_argument(
         "--capsule",
         action="append",
         default=[],
@@ -267,6 +283,33 @@ def main(argv: Sequence[str]) -> int:
         )
     except ValueError as exc:
         raise SystemExit(str(exc))
+
+    if bool(parsed.details) and target != "metrics":
+        raise SystemExit("--details is only supported with target 'metrics'.")
+
+    if bool(parsed.details):
+        details = _collect_metric_details(capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
+        if bool(parsed.json):
+            print(json.dumps({"metrics": details}, indent=2, ensure_ascii=False))
+        else:
+            print(f"metrics ({len(details)})")
+            for row in details:
+                name = str(row.get("name", ""))
+                kind = str(row.get("kind", ""))
+                output_key = row.get("output_key", None)
+                params = row.get("params", {})
+                description = str(row.get("description", "")).strip()
+                print(f"- {name}")
+                print(f"  kind: {kind or 'unknown'}")
+                if output_key:
+                    print(f"  output_key: {output_key}")
+                if isinstance(params, dict) and params:
+                    print(f"  params: {sorted(params.keys())}")
+                else:
+                    print("  params: []")
+                if description:
+                    print(f"  description: {description}")
+        return 0
 
     rows = _collect(target, capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
     if bool(parsed.json):

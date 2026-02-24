@@ -8,6 +8,8 @@ import torch
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 
+from ..metrics.payload import build_metric_payload
+
 
 # ============================================================
 # Utils
@@ -31,10 +33,18 @@ class ClassificationTask:
         return F.cross_entropy(logits, y)
 
     @torch.no_grad()
-    def metrics(self, logits: torch.Tensor, y: torch.Tensor) -> Dict[str, float]:
+    def metrics(self, logits: torch.Tensor, y: torch.Tensor) -> Dict[str, Any]:
         preds = logits.argmax(dim=1)
         acc = (preds == y).float().mean().item()
-        return {"acc": float(acc)}
+        out: Dict[str, Any] = {"acc": float(acc)}
+        out.update(
+            build_metric_payload(
+                y_true=y,
+                y_pred=preds,
+                kind="classification",
+            )
+        )
+        return out
 
     @torch.no_grad()
     def output_deltas(self, logits: torch.Tensor, y: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -67,7 +77,7 @@ class GLUETask:
         return F.cross_entropy(logits, y.long())
 
     @torch.no_grad()
-    def metrics(self, outputs_or_logits: Any, y: torch.Tensor) -> Dict[str, float]:
+    def metrics(self, outputs_or_logits: Any, y: torch.Tensor) -> Dict[str, Any]:
         logits = outputs_or_logits.logits if hasattr(outputs_or_logits, "logits") else outputs_or_logits
         if not torch.is_tensor(logits):
             return {}
@@ -76,11 +86,27 @@ class GLUETask:
             targets = y.view(-1).float()
             mse = F.mse_loss(preds, targets).item()
             mae = F.l1_loss(preds, targets).item()
-            return {"mse": float(mse), "mae": float(mae), "metric": float(-mse)}
+            out: Dict[str, Any] = {"mse": float(mse), "mae": float(mae), "metric": float(-mse)}
+            out.update(
+                build_metric_payload(
+                    y_true=targets,
+                    y_pred=preds,
+                    kind="regression",
+                )
+            )
+            return out
 
         preds = logits.argmax(dim=-1)
         acc = (preds == y.long()).float().mean().item()
-        return {"acc": float(acc), "metric": float(acc)}
+        out = {"acc": float(acc), "metric": float(acc)}
+        out.update(
+            build_metric_payload(
+                y_true=y.long(),
+                y_pred=preds,
+                kind="classification",
+            )
+        )
+        return out
 
     @torch.no_grad()
     def evaluate(self, model, loader, device: str) -> Dict[str, float]:

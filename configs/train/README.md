@@ -26,6 +26,24 @@ lelabo train supervised --config configs/train/supervised.quickstart.toml
 lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris --set early_stopping.patience=20
 ```
 
+Built-in supervised metrics you can request in `[[metrics]]`:
+
+- `accuracy` / `acc`
+- `precision`, `recall`, `f1` (`average = macro|micro|weighted|binary`)
+- `mse`, `mae`, `rmse`, `r2`
+
+Example monitor:
+
+```toml
+[early_stopping]
+monitor = "val.f1_macro"
+```
+
+For custom metric plugins inside a capsule, use `metrics/example.py` patterns:
+
+1. Function metric with `register_metric_fn`
+2. Advanced class metric with `ClassificationMetricBase` / `RegressionMetricBase`
+
 ```bash
 lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1
 ```

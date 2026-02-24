@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from .base import UpdateRule
 from .helpers import to_device, set_grad_
+from ..core.steps import metric_payload_from_outputs
 
 
 class TargetPropagation(UpdateRule):
@@ -442,11 +443,21 @@ class TargetPropagation(UpdateRule):
             self.fwd_optimizer.step()
 
         # stats (best-effort)
-        stats: Dict[str, float] = {}
+        stats: Dict[str, Any] = {}
         try:
             loss = task.loss(out, y) if isinstance(y, Mapping) else task.loss(out, y)
             if torch.is_tensor(loss):
                 stats["loss"] = float(loss.item())
+            if hasattr(task, "metrics"):
+                met = task.metrics(out, y)
+                if isinstance(met, Mapping):
+                    for key, value in met.items():
+                        if isinstance(value, (int, float)):
+                            stats[str(key)] = float(value)
+                        elif str(key).startswith("__metric_"):
+                            stats[str(key)] = value
+            if isinstance(y, torch.Tensor):
+                stats.update(metric_payload_from_outputs(out, y))
         except Exception:
             pass
 

@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from .base import UpdateRule
 from ..core.batch import to_device
-from ..core.steps import maybe_accuracy_from_logits
+from ..core.steps import maybe_accuracy_from_logits, metric_payload_from_outputs
 
 from ..models.imported.deep_softhebb import SoftHebbBlock
 
@@ -401,8 +401,8 @@ class SoftHebb(UpdateRule):
     # Loss helper
     # ---------------------------
 
-    def _loss_from_outputs(self, task, out: Any, y: Any) -> tuple[torch.Tensor, Dict[str, float]]:
-        stats: Dict[str, float] = {}
+    def _loss_from_outputs(self, task, out: Any, y: Any) -> tuple[torch.Tensor, Dict[str, Any]]:
+        stats: Dict[str, Any] = {}
         logits = out.logits if hasattr(out, "logits") else out
         res = task.loss(logits, y)
 
@@ -421,6 +421,7 @@ class SoftHebb(UpdateRule):
 
         if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
             stats["acc"] = maybe_accuracy_from_logits(logits, y)
+            stats.update(metric_payload_from_outputs(logits, y))
         return loss, stats
 
     # ---------------------------

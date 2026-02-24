@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from .base import UpdateRule
 from ..core.batch import to_device
-from ..core.steps import maybe_accuracy_from_logits
+from ..core.steps import maybe_accuracy_from_logits, metric_payload_from_outputs
 from ..models.imported.deep_softhebb import SoftHebbBlock
 
 
@@ -463,13 +463,14 @@ class SoftContrastiveLearning(UpdateRule):
     # Loss / stats helper
     # ============================================================
 
-    def _loss_from_outputs(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, float]]:
-        stats: Dict[str, float] = {}
+    def _loss_from_outputs(self, task, out: Any, y: Any) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        stats: Dict[str, Any] = {}
 
         if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
             loss = out.loss
             if hasattr(out, "logits") and y is not None and torch.is_tensor(y):
                 stats["acc"] = maybe_accuracy_from_logits(out.logits, y)
+                stats.update(metric_payload_from_outputs(out.logits, y))
             return loss, stats
 
         logits = out.logits if hasattr(out, "logits") else out
@@ -479,11 +480,14 @@ class SoftContrastiveLearning(UpdateRule):
             loss = res
             if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
                 stats["acc"] = maybe_accuracy_from_logits(logits, y)
+                stats.update(metric_payload_from_outputs(logits, y))
             return loss, stats
 
         if isinstance(res, tuple) and len(res) == 2 and torch.is_tensor(res[0]) and isinstance(res[1], Mapping):
             loss = res[0]
             stats.update({k: float(v) for k, v in res[1].items() if isinstance(v, (int, float))})
+            if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
+                stats.update(metric_payload_from_outputs(logits, y))
             return loss, stats
 
         if isinstance(res, Mapping) and "loss" in res:
@@ -491,6 +495,8 @@ class SoftContrastiveLearning(UpdateRule):
             if not torch.is_tensor(loss):
                 loss = torch.tensor(float(loss), device=logits.device if torch.is_tensor(logits) else None)
             stats.update({k: float(v) for k, v in res.items() if k != "loss" and isinstance(v, (int, float))})
+            if torch.is_tensor(logits) and y is not None and torch.is_tensor(y):
+                stats.update(metric_payload_from_outputs(logits, y))
             return loss, stats
 
         raise TypeError(f"Unsupported loss return type from task.loss: {type(res)}")

@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+import importlib
+import sys
+from argparse import Namespace
+
+import pytest
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+from conftest import REPO_ROOT
+
+
+sys.path.insert(0, str(REPO_ROOT / "src"))
+metrics_api = importlib.import_module("lab.metrics")
+metrics_payload = importlib.import_module("lab.metrics.payload")
+trainer_api = importlib.import_module("lab.core.trainer")
+task_api = importlib.import_module("lab.core.task")
+backprop_api = importlib.import_module("lab.update_rules.backprop")
+
+
+def test_builtin_metric_names_are_registered() -> None:
+    names = set(metrics_api.get_metric_names())
+    for required in {"accuracy", "acc", "precision", "recall", "f1", "mse", "mae", "rmse", "r2"}:
+        assert required in names
+
+
+def test_builtin_f1_macro_probe_computes_from_payload() -> None:
+    ctx = metrics_api.MetricContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="iris",
+        algo="bp",
+        extra={"metric_params": {"f1": {"average": "macro"}}},
+    )
+    probe = metrics_api.build_metric("f1", ctx)
+    probe.on_epoch_start(None, 1, None)
+    probe.on_batch_end(
+        None,
+        stats={
+            metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1, 1, 0]),
+            metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([0, 1, 0, 0]),
+            metrics_payload.METRIC_KIND_KEY: "classification",
+        },
+        batch_size=4,
+        state=None,
+    )
+    out = probe.on_epoch_end(None, 1, None)
+    assert "f1_macro" in out
+    assert out["f1_macro"] == pytest.approx((0.8 + (2.0 / 3.0)) / 2.0, rel=1e-6)
+
+
+def test_trainer_reports_builtin_eval_metrics() -> None:
+    torch.manual_seed(0)
+    x = torch.randn(24, 4)
+    y = (x[:, 0] > 0).long()
+    ds = TensorDataset(x, y)
+    train_loader = DataLoader(ds, batch_size=8, shuffle=False)
+    val_loader = DataLoader(ds, batch_size=8, shuffle=False)
+
+    model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+    task = task_api.ClassificationTask(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+    learner = backprop_api.Backprop(optimizer=optimizer)
+
+    ctx = metrics_api.MetricContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="iris",
+        algo="bp",
+        extra={"metric_params": {"f1": {"average": "macro"}}},
+    )
+    probe = metrics_api.build_metric("f1", ctx)
+
+    trainer = trainer_api.Trainer(
+        model=model,
+        task=task,
+        learner=learner,
+        device="cpu",
+        verbose=False,
+        metric_probes=[probe],
+    )
+
+    train_out = trainer.fit(train_loader, epochs=1, show_progress=False, val_loader=val_loader)
+    assert "final_custom_metrics" in train_out
+    assert "f1_macro" in train_out["final_custom_metrics"]
+
+    eval_out = trainer.evaluate(val_loader, split="val")
+    assert "f1_macro" in eval_out
+

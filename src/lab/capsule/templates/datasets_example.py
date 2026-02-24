@@ -24,11 +24,12 @@ from lab.supervised.datasets.registry import register_dataset
 from lab.supervised.datasets.paths import dataset_dir
 
 
-# ============================================================
-# 1️⃣ Dataset registration
-# ============================================================
+# Dataset registration
+# To make this dataset available in the command line interface, we need to register it.
+# Please uncomment the @register_dataset decorator if you want to use this dataset
+# in the command line interface.
 
-@register_dataset("example_mnist")
+#@register_dataset("example_mnist")
 def make_example_mnist(
     *,
     batch_size: int = 128,
@@ -49,9 +50,7 @@ def make_example_mnist(
 
     torch.manual_seed(seed)
 
-    # --------------------------------------------------------
-    # 2️⃣ Transforms
-    # --------------------------------------------------------
+    # Transforms
 
     tfms = [
         transforms.ToTensor(),
@@ -63,18 +62,14 @@ def make_example_mnist(
 
     transform = transforms.Compose(tfms)
 
-    # --------------------------------------------------------
-    # 3️⃣ Load datasets
-    # --------------------------------------------------------
+    # Load datasets
 
     data_root = str(dataset_dir("mnist"))
 
     train_full = MNIST(root=data_root, train=True, download=True, transform=transform)
     test_ds = MNIST(root=data_root, train=False, download=True, transform=transform)
 
-    # --------------------------------------------------------
-    # 4️⃣ Train / validation split
-    # --------------------------------------------------------
+    # Train / validation split
 
     n_total = len(train_full)
     n_val = int(val_frac * n_total)
@@ -82,9 +77,7 @@ def make_example_mnist(
 
     train_ds, val_ds = random_split(train_full, [n_train, n_val])
 
-    # --------------------------------------------------------
-    # 5️⃣ DataLoaders
-    # --------------------------------------------------------
+    # DataLoaders
 
     train_loader = make_loader(
         train_ds,
@@ -116,9 +109,7 @@ def make_example_mnist(
         pin_memory=pin_memory,
     )
 
-    # --------------------------------------------------------
-    # 6️⃣ Metadata for models
-    # --------------------------------------------------------
+    # Metadata for models
 
     x_test, y_test = dataset_to_tensors(test_ds)
 

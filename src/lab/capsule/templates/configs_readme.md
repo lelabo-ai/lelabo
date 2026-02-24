@@ -46,9 +46,53 @@ Use `name + params` for extensible components:
 - `optimizer`
 - `scheduler`
 - `early_stopping`
-- `metrics` (optional list of custom metric plugins)
+- `metrics` (optional list of built-ins + custom metric plugins)
 
-Core training logs already include `loss` and task metrics like `acc`; add `metrics` only for plugin probes.
+Built-in supervised metrics include:
+
+- `accuracy` / `acc`
+- `precision`, `recall`, `f1` (supports `average = "macro" | "micro" | "weighted" | "binary"`)
+- `mse`, `mae`, `rmse`, `r2`
+
+For a custom metric plugin starter, see:
+
+- `metrics/example.py`
+  This file includes:
+  - a function metric (`register_metric_fn`)
+  - an advanced class metric (`ClassificationMetricBase`)
+
+Quick custom metric snippets:
+
+```toml
+[[metrics]]
+name = "example_fn_accuracy"
+```
+
+```toml
+[[metrics]]
+name = "example_error_rate"
+[metrics.params]
+key = "example_error_rate"
+ignore_label = -100
+min_samples = 16
+as_percent = true
+```
+
+Example:
+
+```toml
+[[metrics]]
+name = "f1"
+[metrics.params]
+average = "macro"
+```
+
+Then you can monitor directly:
+
+```toml
+[early_stopping]
+monitor = "val.f1_macro"
+```
 
 Top-level version fields are recommended in every file:
 

@@ -19,7 +19,13 @@ from ..robustness import test_with_noise
 from ...models.registry import build_model, ModelContext
 
 from ...update_rules import UpdateRuleContext, build_update_rule
-from ...metrics import MetricContext, build_metric, get_metric_names, parse_metric_names
+from ...metrics import (
+    MetricContext,
+    build_metric,
+    get_metric_names,
+    parse_metric_names,
+    validate_metric_requests,
+)
 from ..utils.seed import derive_seed
 
 from ..callbacks import EarlyStopping, EarlyStoppingConfig
@@ -184,6 +190,11 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         dataset=args.dataset,
         algo=args.algo,
         extra=metric_extra,
+    )
+    validate_metric_requests(
+        requested_metrics,
+        ctx=metric_ctx,
+        task_kind="regression" if bool(is_regression) else "classification",
     )
     metric_probes = [build_metric(name, metric_ctx) for name in requested_metrics]
 
