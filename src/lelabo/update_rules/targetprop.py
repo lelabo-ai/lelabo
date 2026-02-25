@@ -162,6 +162,21 @@ class TargetPropagation(UpdateRule):
     # Decoders
     # ============================================================
 
+    @staticmethod
+    def _attach_params_to_optimizer(
+        optimizer: torch.optim.Optimizer,
+        params: List[torch.nn.Parameter],
+    ) -> None:
+        existing = {
+            id(p)
+            for group in optimizer.param_groups
+            for p in list(group.get("params", []))
+            if isinstance(p, torch.nn.Parameter)
+        }
+        missing = [p for p in params if id(p) not in existing]
+        if missing:
+            optimizer.add_param_group({"params": missing})
+
     def _ensure_decoders(self, dims: List[Tuple[int, int]], device, dtype):
         """
         dims: list of (in_dim, out_dim) for each decoder Linear(out_dim -> in_dim)
@@ -181,8 +196,13 @@ class TargetPropagation(UpdateRule):
             self.decoders.append(dec)
 
         if self.inv_optimizer is not None:
-            self.inv_optimizer.param_groups = []
-            self.inv_optimizer.add_param_group({"params": list(self.decoders.parameters())})
+            dec_params = list(self.decoders.parameters())
+            if self.inv_optimizer is self.fwd_optimizer:
+                # Shared optimizer case: keep existing model params and append decoders only if missing.
+                self._attach_params_to_optimizer(self.inv_optimizer, dec_params)
+            else:
+                self.inv_optimizer.param_groups = []
+                self.inv_optimizer.add_param_group({"params": dec_params})
 
     def _train_inverse(self, h_list: List[torch.Tensor], out_cat: torch.Tensor):
         """

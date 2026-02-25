@@ -20,6 +20,18 @@ def _parse_int_list(val: Any) -> list[int]:
     return [int(val)]
 
 
+def _parse_float_list(val: Any) -> list[float]:
+    if val is None:
+        return []
+    if isinstance(val, str):
+        if val.strip() == "":
+            return []
+        return [float(x) for x in val.split(",") if x.strip()]
+    if isinstance(val, Sequence):
+        return [float(x) for x in val]
+    return [float(val)]
+
+
 def _resolve_epoch_or_batch_horizon(ctx: SchedulerContext, *, fallback: int = 10) -> int:
     interval = str(ctx.interval).strip().lower()
     if interval in {"batch", "step"}:
@@ -46,7 +58,39 @@ def build_step_lr(ctx: SchedulerContext):
 @register_scheduler("multisteplr")
 def build_multistep_lr(ctx: SchedulerContext):
     kwargs = ctx.scheduler_params()
-    milestones = _parse_int_list(kwargs.pop("milestones", None))
+    milestones_raw = kwargs.pop("milestones", None)
+    ratio_raw = kwargs.pop("milestone_ratios", None)
+    if milestones_raw is not None and ratio_raw is not None:
+        raise ValueError("MultiStepLR accepts either 'milestones' or 'milestone_ratios', not both.")
+
+    milestones = _parse_int_list(milestones_raw)
+    if ratio_raw is not None:
+        ratios = _parse_float_list(ratio_raw)
+        if not ratios:
+            raise ValueError("MultiStepLR received empty milestone_ratios.")
+        horizon_raw = kwargs.pop("milestone_horizon", None)
+        if horizon_raw is None:
+            if ctx.epochs is None:
+                raise ValueError(
+                    "MultiStepLR with milestone_ratios requires epochs or milestone_horizon."
+                )
+            try:
+                horizon = int(ctx.epochs)
+            except Exception as exc:
+                raise ValueError(
+                    f"Invalid epochs value for milestone_ratios: {ctx.epochs!r}"
+                ) from exc
+        else:
+            horizon = int(horizon_raw)
+        if horizon <= 0:
+            raise ValueError(f"milestone_horizon must be > 0, got {horizon}.")
+        offset = int(kwargs.pop("milestone_offset", 0))
+        derived = {int(horizon * float(r)) + offset for r in ratios}
+        milestones = sorted(m for m in derived if m > 0)
+    else:
+        kwargs.pop("milestone_horizon", None)
+        kwargs.pop("milestone_offset", None)
+
     if not milestones:
         milestones = [30, 60]
     gamma = float(kwargs.pop("gamma", 0.1))

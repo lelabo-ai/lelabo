@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from collections.abc import Mapping
 
 import torch
 
@@ -24,6 +25,17 @@ def _extra(ctx: UpdateRuleContext, key: str, default: Any = _MISSING):
     if key in ctx.extra:
         return ctx.extra[key]
     return default
+
+
+def _rule_params(ctx: UpdateRuleContext) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    from_extra = _extra(ctx, "update_rule_params", {})
+    if isinstance(from_extra, Mapping):
+        params.update(dict(from_extra))
+    from_args = getattr(ctx.args, "update_rule_params", None)
+    if isinstance(from_args, Mapping):
+        params.update(dict(from_args))
+    return params
 
 
 def _grad_clip_for_dataset(dataset: str | None) -> float | None:
@@ -61,24 +73,46 @@ def build_scl(ctx: UpdateRuleContext):
 
 @register_update_rule("softhebb")
 def build_softhebb(ctx: UpdateRuleContext):
-    return SoftHebb(head_lr=ctx.args.lr)
+    params = _rule_params(ctx)
+    allowed_keys = {
+        "base_lr",
+        "lr_conv1",
+        "lr_conv2",
+        "lr_conv3",
+        "power_lr",
+        "unsup_epochs",
+        "sup_epochs",
+        "steps_per_epoch",
+        "eps_norm",
+        "conv_t_invert",
+    }
+    unknown_keys = sorted(k for k in params if k not in allowed_keys)
+    if unknown_keys:
+        raise ValueError(
+            f"Unsupported softhebb update_rule.params keys: {unknown_keys}. "
+            f"Allowed keys: {sorted(allowed_keys)}"
+        )
+    kwargs: dict[str, Any] = {
+        # Reuse optimizer created in supervised/rl runner.
+        "head_optimizer": ctx.optimizer,
+    }
+    for key in sorted(allowed_keys):
+        if key in params:
+            kwargs[key] = params[key]
+    return SoftHebb(**kwargs)
 
 
 @register_update_rule("tp")
 def build_targetprop(ctx: UpdateRuleContext):
-    if ctx.mode == "supervised":
-        dummy = torch.nn.Parameter(torch.zeros(()), requires_grad=True)
-        inv_optim = torch.optim.SGD([dummy], lr=ctx.args.lr)
-        return TargetPropagation(
-            fwd_optimizer=ctx.optimizer,
-            inv_optimizer=inv_optim,
-            beta=1.0,
-            noise_std=0.1,
-        )
+    params = _rule_params(ctx)
     return TargetPropagation(
-        fwd_lr=ctx.args.lr,
-        inv_lr=ctx.args.lr,
+        fwd_lr=float(params.get("fwd_lr", ctx.args.lr)),
+        inv_lr=float(params.get("inv_lr", ctx.args.lr)),
+        beta=float(params.get("beta", 1.0)),
+        noise_std=float(params.get("noise_std", 0.1)),
+        eps=float(params.get("eps", 1e-8)),
         fwd_optimizer=ctx.optimizer,
+        # User requirement: share the exact same optimizer object.
         inv_optimizer=ctx.optimizer,
     )
 

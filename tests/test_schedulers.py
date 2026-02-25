@@ -73,3 +73,52 @@ def test_scheduler_can_be_loaded_from_capsule_plugin(tmp_path, monkeypatch) -> N
     assert scheduler is not None
     scheduler.step_epoch({"train.loss": 1.0})
     assert float(optimizer.param_groups[0]["lr"]) == pytest.approx(0.09, rel=1e-8)
+
+
+def test_multistep_ratio_offset_matches_legacy_softhebb_schedule() -> None:
+    optimizer = _make_optimizer()
+    scheduler = schedulers_api.make_scheduler(
+        "multistep",
+        optimizer,
+        epochs=51,
+        interval="epoch",
+        gamma=0.5,
+        milestone_ratios=[0.2, 0.35, 0.5, 0.6, 0.7, 0.8, 0.9],
+        milestone_offset=1,
+    )
+    assert scheduler is not None
+
+    changed_at: list[int] = []
+    prev_lr = float(optimizer.param_groups[0]["lr"])
+    for ep in range(1, 52):
+        scheduler.step_epoch({"train.loss": 1.0})
+        cur_lr = float(optimizer.param_groups[0]["lr"])
+        if abs(cur_lr - prev_lr) > 1e-12:
+            changed_at.append(ep)
+            prev_lr = cur_lr
+
+    assert changed_at == [11, 18, 26, 31, 36, 41, 46]
+
+
+def test_multistep_rejects_mixed_milestones_and_ratios() -> None:
+    optimizer = _make_optimizer()
+    with pytest.raises(ValueError):
+        schedulers_api.make_scheduler(
+            "multisteplr",
+            optimizer,
+            epochs=10,
+            interval="epoch",
+            milestones=[3, 6],
+            milestone_ratios=[0.5],
+        )
+
+
+def test_multistep_ratios_require_epochs_or_explicit_horizon() -> None:
+    optimizer = _make_optimizer()
+    with pytest.raises(ValueError):
+        schedulers_api.make_scheduler(
+            "multistep",
+            optimizer,
+            interval="epoch",
+            milestone_ratios=[0.5],
+        )

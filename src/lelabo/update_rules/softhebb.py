@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Dict, Optional, Sequence, Tuple, List
+from typing import Any, Dict, Optional, Sequence, List
 
 import torch
 import torch.nn as nn
@@ -13,22 +13,6 @@ from ..core.batch import to_device
 from ..core.steps import maybe_accuracy_from_logits, metric_payload_from_outputs
 
 from ..models.imported.deep_softhebb import SoftHebbBlock
-
-
-class CustomStepLR(torch.optim.lr_scheduler._LRScheduler):
-    def __init__(self, optimizer, nb_epochs: int):
-        self.nb_epochs = int(nb_epochs)
-        threshold_ratios = [0.2, 0.35, 0.5, 0.6, 0.7, 0.8, 0.9]
-        self.step_threshold = {int(self.nb_epochs * r) for r in threshold_ratios}
-        super().__init__(optimizer)
-
-    def get_lr(self):
-        # IMPORTANT: utiliser le LR courant (comme l'officiel), pas base_lrs
-        if self.last_epoch in self.step_threshold:
-            return [group["lr"] * 0.5 for group in self.optimizer.param_groups]
-        return [group["lr"] for group in self.optimizer.param_groups]
-
-
 
 class SoftHebb(UpdateRule):
     """
@@ -56,9 +40,8 @@ class SoftHebb(UpdateRule):
         unsup_epochs: int = 1,          # demo does ~1 epoch pass
         sup_epochs: int = 50,           # demo trains head for 50
         steps_per_epoch: Optional[int] = None,  # only needed if trainer doesn't call epoch hooks
-        # head optimizer
-        head_lr: float = 1e-3,
-        head_weight_decay: float = 0.0,
+        # Reuse optimizer created by the runner.
+        head_optimizer: Optional[torch.optim.Optimizer] = None,
         eps_norm: float = 1e-10,
         conv_t_invert: float = 12.0,
     ):
@@ -76,13 +59,9 @@ class SoftHebb(UpdateRule):
         self.sup_epochs = int(sup_epochs)
         self.steps_per_epoch = None if steps_per_epoch is None else int(steps_per_epoch)
 
-        self.head_lr = float(head_lr)
-        self.head_weight_decay = float(head_weight_decay)
         self.conv_t_invert = float(conv_t_invert)
 
-        self._head_optimizer: Optional[torch.optim.Optimizer] = None
-        self._head_scheduler: Optional[CustomStepLR] = None
-        self._head_param_ids: Optional[Tuple[int, ...]] = None
+        self._head_optimizer: Optional[torch.optim.Optimizer] = head_optimizer
 
         # epoch tracking
         self._epoch: int = 0
@@ -101,9 +80,6 @@ class SoftHebb(UpdateRule):
 
     def on_epoch_end(self, epoch: int):
         self._epoch = int(epoch)
-        if self._head_scheduler is not None and self._epoch >= self.unsup_epochs:
-            sup_ep = self._epoch - self.unsup_epochs
-            self._head_scheduler.step(sup_ep)
 
     def _infer_epoch_if_needed(self) -> int:
         # If epoch hooks aren't used, try to infer from global_step
@@ -188,19 +164,15 @@ class SoftHebb(UpdateRule):
     def _ensure_head_optim(self, head_params: Sequence[nn.Parameter]):
         if not head_params:
             self._head_optimizer = None
-            self._head_scheduler = None
-            self._head_param_ids = None
             return
 
-        param_ids = tuple(sorted(id(p) for p in head_params))
-        if self._head_optimizer is not None and self._head_param_ids == param_ids:
+        if self._head_optimizer is not None:
             return
 
-        self._head_param_ids = param_ids
-        self._head_optimizer = torch.optim.Adam(
-            head_params, lr=self.head_lr, weight_decay=self.head_weight_decay
+        raise RuntimeError(
+            "SoftHebb requires an external optimizer provided by the runner. "
+            "Pass head_optimizer when building the update rule."
         )
-        self._head_scheduler = CustomStepLR(self._head_optimizer, nb_epochs=self.sup_epochs)
 
     # ---------------------------
     # Demo SoftHebb conv and linear updates
