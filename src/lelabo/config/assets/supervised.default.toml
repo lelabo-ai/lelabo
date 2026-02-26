@@ -43,16 +43,16 @@ input_noise_training = 0.0
 input_noise_dataset = 0.0
 noise_on_test = false
 
-[early_stopping]
-name = "default"
+[[callbacks]]
+name = "earlystopping"
 enabled = true
+[callbacks.params]
 monitor = "val.acc"
 mode = "auto"
 patience = 5
 min_delta = 0.0
 warmup = 5
 restore_best = true
-[early_stopping.params]
 
 [robustness]
 mode = "none"

@@ -8,8 +8,8 @@ from typing import Any, Iterable, Mapping
 
 from .defaults import DEFAULT_RL_CONFIG, DEFAULT_SUPERVISED_CONFIG
 from .schema import (
+    CallbackSpec,
     ComponentSpec,
-    EarlyStoppingSpec,
     HFSpec,
     MetricSpec,
     RLConfig,
@@ -184,6 +184,63 @@ def _normalize_metrics(raw: Any) -> tuple[MetricSpec, ...]:
     return tuple(out)
 
 
+def _normalize_callbacks(raw: Any) -> tuple[CallbackSpec, ...]:
+    if raw is None:
+        return ()
+
+    out: list[CallbackSpec] = []
+
+    if isinstance(raw, str):
+        tokens = [tok.strip() for tok in raw.split(",") if tok.strip()]
+        return tuple(CallbackSpec(name=tok, enabled=True, params={}) for tok in tokens)
+
+    if isinstance(raw, Mapping):
+        for key, val in raw.items():
+            params = _as_dict(val, where=f"callbacks.{key}")
+            out.append(CallbackSpec(name=str(key).strip(), enabled=True, params=params))
+        return tuple(out)
+
+    if not isinstance(raw, list):
+        raise ValueError("Expected 'callbacks' to be a list, string, or table.")
+
+    for idx, item in enumerate(raw):
+        if isinstance(item, str):
+            out.append(CallbackSpec(name=item.strip(), enabled=True, params={}))
+            continue
+        if not isinstance(item, Mapping):
+            raise ValueError(f"Expected callbacks[{idx}] to be a table or string.")
+        node = dict(item)
+        name = str(node.get("name", "")).strip()
+        if not name:
+            raise ValueError(f"Expected callbacks[{idx}].name to be non-empty.")
+        enabled = bool(node.get("enabled", True))
+        params = _as_dict(node.get("params", {}), where=f"callbacks[{idx}].params")
+        extras = {str(k): v for k, v in node.items() if str(k) not in {"name", "enabled", "params"}}
+        merged = dict(params)
+        merged.update(extras)
+        out.append(CallbackSpec(name=name, enabled=enabled, params=merged))
+    return tuple(out)
+
+
+def _reject_legacy_callback_config(merged: Mapping[str, Any]) -> None:
+    legacy_keys = {
+        "early_stopping",
+        "early_stop",
+        "early_monitor",
+        "early_mode",
+        "early_patience",
+        "early_min_delta",
+        "early_warmup",
+        "early_restore_best",
+    }
+    present = sorted(k for k in legacy_keys if k in merged)
+    if present:
+        raise ValueError(
+            "Legacy early-stopping config keys are no longer supported: "
+            f"{present}. Use [[callbacks]] with name='earlystopping'."
+        )
+
+
 def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
     # Shared aliases for scalar top-level convenience.
     aliases: list[tuple[str, list[str]]] = [
@@ -215,13 +272,6 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
                 ("hf_model", ["hf", "model"]),
                 ("hf_trust_remote_code", ["hf", "trust_remote_code"]),
                 ("max_length", ["hf", "max_length"]),
-                ("early_stop", ["early_stopping", "enabled"]),
-                ("early_monitor", ["early_stopping", "monitor"]),
-                ("early_mode", ["early_stopping", "mode"]),
-                ("early_patience", ["early_stopping", "patience"]),
-                ("early_min_delta", ["early_stopping", "min_delta"]),
-                ("early_warmup", ["early_stopping", "warmup"]),
-                ("early_restore_best", ["early_stopping", "restore_best"]),
                 ("lr_scheduler", ["scheduler", "name"]),
                 ("lr_scheduler_interval", ["scheduler", "interval"]),
                 ("lr_scheduler_monitor", ["scheduler", "monitor"]),
@@ -297,14 +347,20 @@ def _validate_supervised(cfg: SupervisedConfig) -> None:
         raise ValueError("robustness.trials must be > 0.")
     if cfg.robustness.max_samples < 0:
         raise ValueError("robustness.max_samples must be >= 0.")
-    if cfg.early_stopping.patience < 0:
-        raise ValueError("early_stopping.patience must be >= 0.")
-    if cfg.early_stopping.warmup < 0:
-        raise ValueError("early_stopping.warmup must be >= 0.")
     if str(cfg.scheduler.interval).lower() not in {"epoch", "batch"}:
         raise ValueError("scheduler.interval must be one of: epoch, batch.")
-    if str(cfg.early_stopping.mode).lower() not in {"auto", "min", "max"}:
-        raise ValueError("early_stopping.mode must be one of: auto, min, max.")
+    for idx, cb in enumerate(cfg.callbacks):
+        name = str(cb.name).strip()
+        if not name:
+            raise ValueError(f"callbacks[{idx}].name must be non-empty.")
+        if not isinstance(cb.params, dict):
+            raise ValueError(f"callbacks[{idx}].params must be a table/object.")
+        name_norm = name.lower()
+        if name_norm in {"early_stopping", "earlystop", "es"}:
+            raise ValueError(
+                "Legacy callback name "
+                f"'{name}' is not supported. Use 'earlystopping'."
+            )
     if str(cfg.runtime.determinism).lower() not in {"off", "relaxed", "strict"}:
         raise ValueError("runtime.determinism must be one of: off, relaxed, strict.")
 
@@ -343,6 +399,7 @@ def resolve_supervised_config(
 
     merged = _normalize_keys(merged)
     _apply_aliases(merged, mode="supervised")
+    _reject_legacy_callback_config(merged)
     config_version = resolve_config_version(merged.get("config_version", TRAIN_CONFIG_SCHEMA_VERSION))
     lelabo_version = resolve_lelabo_version(merged.get("lelabo_version", "auto"))
 
@@ -378,19 +435,6 @@ def resolve_supervised_config(
         noise_on_test=bool(train_raw.get("noise_on_test", False)),
     )
 
-    early_raw = _as_dict(merged.get("early_stopping", {}), where="early_stopping")
-    early = EarlyStoppingSpec(
-        name=str(early_raw.get("name", "default")).strip(),
-        enabled=bool(early_raw.get("enabled", True)),
-        monitor=str(early_raw.get("monitor", "val.acc")).strip(),
-        mode=str(early_raw.get("mode", "auto")).strip(),
-        patience=int(early_raw.get("patience", 5)),
-        min_delta=float(early_raw.get("min_delta", 0.0)),
-        warmup=int(early_raw.get("warmup", 5)),
-        restore_best=bool(early_raw.get("restore_best", True)),
-        params=_as_dict(early_raw.get("params", {}), where="early_stopping.params"),
-    )
-
     robust_raw = _as_dict(merged.get("robustness", {}), where="robustness")
     robustness = RobustnessSpec(
         mode=str(robust_raw.get("mode", "none")).strip(),
@@ -408,6 +452,7 @@ def resolve_supervised_config(
     )
 
     metrics = _normalize_metrics(merged.get("metrics", []))
+    callbacks = _normalize_callbacks(merged.get("callbacks", []))
 
     cfg = SupervisedConfig(
         config_version=config_version,
@@ -420,10 +465,10 @@ def resolve_supervised_config(
         scheduler=scheduler,
         runtime=runtime,
         train=train,
-        early_stopping=early,
         robustness=robustness,
         hf=hf,
         metrics=metrics,
+        callbacks=callbacks,
     )
     _validate_supervised(cfg)
     return cfg
@@ -502,13 +547,17 @@ def to_supervised_namespace(
     dataset_params = dict(cfg.dataset.params)
     update_rule_params = dict(cfg.update_rule.params)
     scheduler_params = dict(cfg.scheduler.params)
+    callback_specs = [
+        {
+            "name": cb.name,
+            "enabled": bool(cb.enabled),
+            "params": dict(cb.params),
+        }
+        for cb in cfg.callbacks
+    ]
 
     metric_names = [m.name for m in cfg.metrics]
     metric_params = {m.name: dict(m.params) for m in cfg.metrics}
-
-    early_mode = str(cfg.early_stopping.mode).strip().lower()
-    if early_mode == "auto":
-        early_mode = "max" if "acc" in cfg.early_stopping.monitor else "min"
 
     device = str(cfg.runtime.device).strip().lower()
     resolved_device = device_resolver() if device in {"", "auto", "default"} else str(cfg.runtime.device)
@@ -533,15 +582,7 @@ def to_supervised_namespace(
         "input_noise_dataset": float(cfg.train.input_noise_dataset),
         "noise_on_test": int(bool(cfg.train.noise_on_test)),
         "val_frac": float(cfg.train.val_frac),
-        "early_stop": bool(cfg.early_stopping.enabled),
-        "early_monitor": cfg.early_stopping.monitor,
-        "early_mode": early_mode,
-        "early_patience": int(cfg.early_stopping.patience),
-        "early_min_delta": float(cfg.early_stopping.min_delta),
-        "early_warmup": int(cfg.early_stopping.warmup),
-        "early_restore_best": bool(cfg.early_stopping.restore_best),
-        "early_stopping_name": cfg.early_stopping.name,
-        "early_stopping_params": dict(cfg.early_stopping.params),
+        "callbacks": callback_specs,
         "robustness": cfg.robustness.mode,
         "noise_trials": int(cfg.robustness.trials),
         "robustness_max_samples": int(cfg.robustness.max_samples),
@@ -574,7 +615,6 @@ def to_supervised_namespace(
         update_rule_params,
         optimizer_params,
         scheduler_params,
-        cfg.early_stopping.params,
         cfg.robustness.params,
     ):
         for key, value in bucket.items():

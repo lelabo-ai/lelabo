@@ -7,8 +7,8 @@ from .resolve import (
     to_supervised_namespace,
 )
 from .schema import (
+    CallbackSpec,
     ComponentSpec,
-    EarlyStoppingSpec,
     HFSpec,
     MetricSpec,
     RLConfig,
@@ -24,10 +24,10 @@ from .schema import (
 __all__ = [
     "ComponentSpec",
     "MetricSpec",
+    "CallbackSpec",
     "SchedulerSpec",
     "RuntimeSpec",
     "SupervisedTrainSpec",
-    "EarlyStoppingSpec",
     "RobustnessSpec",
     "HFSpec",
     "SupervisedConfig",

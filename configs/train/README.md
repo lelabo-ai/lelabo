@@ -23,7 +23,7 @@ lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
 
 ```bash
-lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris --set early_stopping.patience=20
+lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris --set scheduler.params.gamma=0.5
 ```
 
 Built-in supervised metrics you can request in `[[metrics]]`:
@@ -35,7 +35,9 @@ Built-in supervised metrics you can request in `[[metrics]]`:
 Example monitor:
 
 ```toml
-[early_stopping]
+[[callbacks]]
+name = "earlystopping"
+[callbacks.params]
 monitor = "val.f1_macro"
 ```
 
@@ -49,6 +51,9 @@ with `register_scheduler`.
 
 For custom optimizer plugins inside a capsule, use `optimizers/example.py`
 with `register_optimizer`.
+
+For custom callbacks inside a capsule, use `callbacks/example.py`
+with `register_callback`.
 
 ```bash
 lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1

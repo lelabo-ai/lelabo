@@ -146,7 +146,7 @@ lelabo train supervised
 ```
 
 ```bash
-lelabo train supervised --dataset iris --set early_stopping.patience=20 --set model.params.hidden=1024
+lelabo train supervised --dataset iris --set scheduler.params.gamma=0.5 --set model.params.hidden=1024
 ```
 
 ```bash

@@ -16,18 +16,20 @@ from ...metrics.registry import get_metric_names
 from ...models.registry import get_model_names
 from ...optimizers.registry import get_optimizer_names
 from ...schedulers.registry import get_scheduler_names
+from ...callbacks.registry import get_callback_names
 from ...supervised.datasets.registry import get_dataset_names
 from ...update_rules.registry import get_update_rule_names
 from ...metrics import registry as metrics_registry
 from ...models import registry as models_registry
 from ...optimizers import registry as optimizers_registry
 from ...schedulers import registry as schedulers_registry
+from ...callbacks import registry as callbacks_registry
 from ...supervised.datasets import registry as datasets_registry
 from ...update_rules import registry as update_rules_registry
 
 
 LIST_HELP = """\
-List available LeLabo registries (update_rules, datasets, models, optimizers, metrics, schedulers).
+List available LeLabo registries (update_rules, datasets, models, optimizers, metrics, schedulers, callbacks).
 
 Usage:
   lelabo list [target] [--json]
@@ -41,6 +43,7 @@ Targets:
   optimizers Show optimizer names
   metrics    Show metric names
   schedulers Show scheduler names
+  callbacks  Show callback names
 
 Examples:
   lelabo list
@@ -73,6 +76,8 @@ _TARGET_ALIASES = {
     "metrics": "metrics",
     "scheduler": "schedulers",
     "schedulers": "schedulers",
+    "callback": "callbacks",
+    "callbacks": "callbacks",
 }
 
 
@@ -81,7 +86,7 @@ def _normalized_target(raw: str) -> str:
     target = _TARGET_ALIASES.get(key)
     if target is None:
         raise ValueError(
-            f"Unknown list target '{raw}'. Use one of: all, update-rules, datasets, models, optimizers, metrics, schedulers."
+            f"Unknown list target '{raw}'. Use one of: all, update-rules, datasets, models, optimizers, metrics, schedulers, callbacks."
         )
     return target
 
@@ -122,6 +127,12 @@ def _collect(
                 get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
             )
         }
+    if target == "callbacks":
+        return {
+            "callbacks": sorted(
+                get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
+            )
+        }
     return {
         "update_rules": sorted(
             get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
@@ -131,6 +142,7 @@ def _collect(
         "optimizers": sorted(get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
         "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
         "schedulers": sorted(get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+        "callbacks": sorted(get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
     }
 
 
@@ -152,6 +164,7 @@ def _collect_all_single_refresh(
     optimizers_registry._ensure_optimizer_baseline()
     metrics_registry._ensure_metric_baseline()
     schedulers_registry._ensure_scheduler_baseline()
+    callbacks_registry._ensure_callback_baseline()
 
     update_rules_registry.UPDATE_RULE_REGISTRY._items = dict(update_rules_registry._BASE_UPDATE_RULE_ITEMS or {})
     datasets_registry.DATASET_REGISTRY._items = dict(datasets_registry._BASE_DATASET_ITEMS or {})
@@ -159,9 +172,10 @@ def _collect_all_single_refresh(
     optimizers_registry.OPTIMIZER_REGISTRY._items = dict(optimizers_registry._BASE_OPTIMIZER_ITEMS or {})
     metrics_registry.METRIC_REGISTRY._items = dict(metrics_registry._BASE_METRIC_ITEMS or {})
     schedulers_registry.SCHEDULER_REGISTRY._items = dict(schedulers_registry._BASE_SCHEDULER_ITEMS or {})
+    callbacks_registry.CALLBACK_REGISTRY._items = dict(callbacks_registry._BASE_CALLBACK_ITEMS or {})
 
     reset_capsule_plugin_cache()
-    kinds = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers")
+    kinds = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers", "callbacks")
     load_capsule_plugins(kinds=kinds)
     for root in roots:
         load_capsule_plugins(kinds=kinds, capsule_root=root)
@@ -201,6 +215,11 @@ def _collect_all_single_refresh(
         extra_capsule_roots=roots,
     )
     schedulers_registry._LAST_SCHEDULER_ITEMS = dict(schedulers_registry.SCHEDULER_REGISTRY._items)
+    callbacks_registry._LAST_CALLBACK_REFRESH_KEY = callbacks_registry._build_refresh_key(
+        capsules_dir=capsules_dir,
+        extra_capsule_roots=roots,
+    )
+    callbacks_registry._LAST_CALLBACK_ITEMS = dict(callbacks_registry.CALLBACK_REGISTRY._items)
 
     return {
         "update_rules": update_rules_registry.UPDATE_RULE_REGISTRY.names(),
@@ -209,6 +228,7 @@ def _collect_all_single_refresh(
         "optimizers": optimizers_registry.OPTIMIZER_REGISTRY.names(),
         "metrics": metrics_registry.METRIC_REGISTRY.names(),
         "schedulers": schedulers_registry.SCHEDULER_REGISTRY.names(),
+        "callbacks": callbacks_registry.CALLBACK_REGISTRY.names(),
     }
 
 
@@ -247,7 +267,7 @@ def _resolve_explicit_capsule_roots(
 
 
 def _print_text(rows: dict[str, list[str]]) -> None:
-    order = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers")
+    order = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers", "callbacks")
     first = True
     for key in order:
         if key not in rows:
@@ -269,7 +289,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "target",
         nargs="?",
         default="all",
-        help="all|update-rules|datasets|models|optimizers|metrics|schedulers",
+        help="all|update-rules|datasets|models|optimizers|metrics|schedulers|callbacks",
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(

@@ -28,7 +28,7 @@ from ...metrics import (
 )
 from ..utils.seed import derive_seed
 
-from ..callbacks import EarlyStopping, EarlyStoppingConfig
+from ...callbacks import build_configured_callbacks
 
 
 def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
@@ -47,26 +47,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             f"Unknown metric(s): {unknown_metrics}. "
             f"Available: {sorted(available_metrics)}"
         )
-
-    callbacks = []
-    if bool(args.early_stop):
-        early_name = str(getattr(args, "early_stopping_name", "default")).strip().lower()
-        if early_name not in {"", "default"}:
-            raise ValueError(
-                f"Unsupported early_stopping.name '{early_name}'. "
-                "Only 'default' is currently available."
-            )
-        early_mode = str(getattr(args, "early_mode", "auto")).strip().lower()
-        if early_mode == "auto":
-            early_mode = "max" if "acc" in args.early_monitor else "min"
-        callbacks.append(EarlyStopping(EarlyStoppingConfig(
-            monitor=args.early_monitor,
-            mode=early_mode,
-            patience=args.early_patience,
-            min_delta=args.early_min_delta,
-            warmup_epochs=max(0, args.early_warmup),
-            restore_best=bool(getattr(args, "early_restore_best", True)),
-        )))
 
     flatten = (args.model == "mlp")
     dataset_seed = derive_seed(args.seed, "supervised", "dataset", args.dataset)
@@ -170,6 +150,15 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             monitor=getattr(args, "lr_scheduler_monitor", "val.loss"),
             **sched_kwargs,
         )
+    schedulers = [scheduler] if scheduler is not None else []
+    callbacks = build_configured_callbacks(
+        args=args,
+        mode="supervised",
+        dataset=args.dataset,
+        model=model,
+        optimizer=optimizer,
+        schedulers=schedulers,
+    )
 
     rule_extra = {
         "update_rule_params": dict(getattr(args, "update_rule_params", {}) or {}),
@@ -211,7 +200,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         verbose=bool(args.verbose),
         callbacks=callbacks,
         logger=logger,
-        schedulers=[scheduler] if scheduler is not None else None,
+        schedulers=schedulers,
         scheduler_interval=getattr(args, "lr_scheduler_interval", "epoch"),
         scheduler_monitor=getattr(args, "lr_scheduler_monitor", "val.loss"),
         metric_probes=metric_probes,

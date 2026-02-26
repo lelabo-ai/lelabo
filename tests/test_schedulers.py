@@ -78,7 +78,7 @@ def test_scheduler_can_be_loaded_from_capsule_plugin(tmp_path, monkeypatch) -> N
 def test_multistep_ratio_offset_matches_legacy_softhebb_schedule() -> None:
     optimizer = _make_optimizer()
     scheduler = schedulers_api.make_scheduler(
-        "multistep",
+        "multisteplr",
         optimizer,
         epochs=51,
         interval="epoch",
@@ -117,7 +117,7 @@ def test_multistep_ratios_require_epochs_or_explicit_horizon() -> None:
     optimizer = _make_optimizer()
     with pytest.raises(ValueError):
         schedulers_api.make_scheduler(
-            "multistep",
+            "multisteplr",
             optimizer,
             interval="epoch",
             milestone_ratios=[0.5],

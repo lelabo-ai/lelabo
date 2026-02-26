@@ -19,6 +19,13 @@ class MetricSpec:
 
 
 @dataclass(frozen=True)
+class CallbackSpec:
+    name: str
+    enabled: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class SchedulerSpec:
     name: str = "none"
     interval: str = "epoch"
@@ -43,19 +50,6 @@ class SupervisedTrainSpec:
     input_noise_training: float = 0.0
     input_noise_dataset: float = 0.0
     noise_on_test: bool = False
-
-
-@dataclass(frozen=True)
-class EarlyStoppingSpec:
-    name: str = "default"
-    enabled: bool = True
-    monitor: str = "val.acc"
-    mode: str = "auto"
-    patience: int = 5
-    min_delta: float = 0.0
-    warmup: int = 5
-    restore_best: bool = True
-    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -86,10 +80,10 @@ class SupervisedConfig:
     scheduler: SchedulerSpec
     runtime: RuntimeSpec
     train: SupervisedTrainSpec
-    early_stopping: EarlyStoppingSpec
     robustness: RobustnessSpec
     hf: HFSpec
     metrics: tuple[MetricSpec, ...] = ()
+    callbacks: tuple[CallbackSpec, ...] = ()
 
 
 @dataclass(frozen=True)

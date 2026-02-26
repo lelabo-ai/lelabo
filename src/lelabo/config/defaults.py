@@ -47,6 +47,7 @@ def _load_default_bundle() -> tuple[dict[str, Any], dict[str, Any]]:
     supervised["lelabo_version"] = resolve_lelabo_version(supervised.get("lelabo_version", "auto"))
     rl["lelabo_version"] = resolve_lelabo_version(rl.get("lelabo_version", "auto"))
     supervised.setdefault("metrics", [])
+    supervised.setdefault("callbacks", [])
     return supervised, rl
 
 

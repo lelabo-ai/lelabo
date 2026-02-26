@@ -78,7 +78,7 @@ def _add_config_args(parser: argparse.ArgumentParser) -> None:
         metavar="KEY=VALUE",
         help=(
             "Advanced nested override (repeatable), e.g. "
-            "--set model.params.hidden=1024 --set early_stopping.patience=12"
+            "--set model.params.hidden=1024 --set scheduler.params.gamma=0.5"
         ),
     )
 

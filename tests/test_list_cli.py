@@ -15,6 +15,7 @@ plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
 models_registry = importlib.import_module("lelabo.models.registry")
 optimizers_registry = importlib.import_module("lelabo.optimizers.registry")
 schedulers_registry = importlib.import_module("lelabo.schedulers.registry")
+callbacks_registry = importlib.import_module("lelabo.callbacks.registry")
 datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
 capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
@@ -30,6 +31,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
             "optimizers": ["adamw"],
             "metrics": ["acc"],
             "schedulers": ["step"],
+            "callbacks": ["earlystopping"],
         },
     )
 
@@ -43,6 +45,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
     assert "optimizers (1)" in out
     assert "metrics (1)" in out
     assert "schedulers (1)" in out
+    assert "callbacks (1)" in out
 
 
 def test_list_cli_single_target_json(monkeypatch, capsys) -> None:
@@ -92,6 +95,17 @@ def test_list_cli_optimizers_target_json(monkeypatch, capsys) -> None:
     payload = json.loads(out)
     assert sorted(payload.keys()) == ["optimizers"]
     assert payload["optimizers"] == ["adamw", "sgd"]
+
+
+def test_list_cli_callbacks_target_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_callback_names", lambda **kwargs: ["earlystopping", "my_cb"])
+
+    rc = list_cli.main(["callbacks", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["callbacks"]
+    assert payload["callbacks"] == ["earlystopping", "my_cb"]
 
 
 def test_list_cli_can_include_capsule_models_from_path(tmp_path, capsys) -> None:
@@ -287,4 +301,31 @@ def test_list_cli_can_include_capsule_optimizers_from_path(tmp_path, capsys) -> 
         assert "capsule_list_optimizer" in payload["optimizers"]
     finally:
         optimizers_registry.OPTIMIZER_REGISTRY._items = original_optimizer_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_list_cli_can_include_capsule_callbacks_from_path(tmp_path, capsys) -> None:
+    capsule_root = tmp_path / "capsule_callbacks"
+    (capsule_root / "callbacks").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_callbacks\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "callbacks" / "extra_callback.py").write_text(
+        "from lelabo.callbacks import register_callback\n\n"
+        "@register_callback('capsule_list_callback')\n"
+        "def build_capsule_list_callback(ctx):\n"
+        "    return object()\n",
+        encoding="utf-8",
+    )
+
+    original_callback_items = dict(callbacks_registry.CALLBACK_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    try:
+        rc = list_cli.main(["callbacks", "--capsule", str(capsule_root), "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "capsule_list_callback" in payload["callbacks"]
+    finally:
+        callbacks_registry.CALLBACK_REGISTRY._items = original_callback_items
         plugins.reset_capsule_plugin_cache()

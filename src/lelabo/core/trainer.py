@@ -64,6 +64,13 @@ class Trainer:
             return None
         return fn(*args)
 
+    @staticmethod
+    def _call_callback_hook(callback: Any, hook: str, *args, **kwargs) -> Any:
+        fn = getattr(callback, hook, None)
+        if not callable(fn):
+            return None
+        return fn(*args, **kwargs)
+
     def log(self, record: Dict[str, Any]) -> None:
         self.logger.log(record)
 
@@ -121,7 +128,7 @@ class Trainer:
         self.state = state
 
         for cb in self.callbacks:
-            cb.on_train_start(self, state)
+            self._call_callback_hook(cb, "on_train_start", self, state)
 
         self.learner.on_train_start(self.model, self.task, self.device, state)
         for probe in self.metric_probes:
@@ -156,7 +163,7 @@ class Trainer:
             ep_batches = 0
 
             for cb in self.callbacks:
-                cb.on_epoch_start(self, state)
+                self._call_callback_hook(cb, "on_epoch_start", self, state)
             for probe in self.metric_probes:
                 self._call_probe_hook(probe, "on_epoch_start", self, ep, state)
 
@@ -168,7 +175,7 @@ class Trainer:
             for batch_idx, batch in enumerate(iterator, start=1):
                 state.batch_idx = int(batch_idx)
                 for cb in self.callbacks:
-                    cb.on_batch_start(self, state)
+                    self._call_callback_hook(cb, "on_batch_start", self, state)
                 bs = infer_batch_size(batch)
                 ep_samples += bs
 
@@ -200,7 +207,7 @@ class Trainer:
                 self._step_schedulers(interval="batch", logs=stats)
 
                 for cb in self.callbacks:
-                    cb.on_batch_end(self, state, logs=stats)
+                    self._call_callback_hook(cb, "on_batch_end", self, state, logs=stats)
 
                 state.bump_step(1)
 
@@ -254,7 +261,7 @@ class Trainer:
                 logs.setdefault("val.metric", vmetric)
 
                 for cb in self.callbacks:
-                    cb.on_eval_end(self, val_res, state)
+                    self._call_callback_hook(cb, "on_eval_end", self, val_res, state)
 
                 if vmetric > best_val_metric:
                     best_val_metric = vmetric
@@ -265,7 +272,7 @@ class Trainer:
                 final_val_loss = vloss
 
             for cb in self.callbacks:
-                cb.on_epoch_end(self, ep, logs, state)
+                self._call_callback_hook(cb, "on_epoch_end", self, ep, logs, state)
 
             self._step_schedulers(interval="epoch", logs=logs)
 
@@ -297,7 +304,7 @@ class Trainer:
             final_custom_metrics = dict(last_epoch_custom_metrics)
 
         for cb in self.callbacks:
-            cb.on_train_end(self, {"last_epoch": float(last_epoch_ran)}, state)
+            self._call_callback_hook(cb, "on_train_end", self, {"last_epoch": float(last_epoch_ran)}, state)
 
         result = {
             "best_train_loss": float(best_train_loss),

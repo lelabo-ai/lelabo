@@ -21,6 +21,7 @@ _SCAFFOLD_DIRS = (
     "metrics",
     "optimizers",
     "schedulers",
+    "callbacks",
     "configs",
     "runs",
 )
@@ -32,6 +33,7 @@ _EXAMPLE_TEMPLATE_MAP = {
     "metrics/example.py": "metrics_example.py",
     "optimizers/example.py": "optimizers_example.py",
     "schedulers/example.py": "schedulers_example.py",
+    "callbacks/example.py": "callbacks_example.py",
     "configs/README.md": "configs_readme.md",
     "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
     "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
@@ -64,6 +66,7 @@ def _readme_template(name: str) -> str:
         "- `metrics/`: local training metrics\n"
         "- `optimizers/`: local optimizer builders\n"
         "- `schedulers/`: local learning-rate schedulers\n"
+        "- `callbacks/`: local trainer callbacks\n"
         "- `configs/`: experiment configs\n"
         "- `runs/`: local run artifacts\n"
         "\n"
@@ -72,7 +75,7 @@ def _readme_template(name: str) -> str:
         "## Local Registries\n\n"
         "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"
         "`models/*.py`, `update_rules/*.py`, `datasets/*.py`, `metrics/*.py`,\n"
-        "`optimizers/*.py`, and `schedulers/*.py`.\n"
+        "`optimizers/*.py`, `schedulers/*.py`, and `callbacks/*.py`.\n"
         "Use the standard decorators in these files:\n\n"
         "- `from lelabo.models.registry import register_model`\n"
         "- `from lelabo.update_rules.registry import register_update_rule`\n"
@@ -80,6 +83,7 @@ def _readme_template(name: str) -> str:
         "- `from lelabo.metrics.registry import register_metric`\n"
         "- `from lelabo.optimizers import register_optimizer`\n"
         "- `from lelabo.schedulers import register_scheduler`\n"
+        "- `from lelabo.callbacks import register_callback`\n"
     )
 
 
@@ -154,6 +158,7 @@ def _template_files(name: str) -> dict[str, str]:
         "metrics/__init__.py": '"""Custom metrics for this capsule."""\n',
         "optimizers/__init__.py": '"""Custom optimizers for this capsule."""\n',
         "schedulers/__init__.py": '"""Custom schedulers for this capsule."""\n',
+        "callbacks/__init__.py": '"""Custom callbacks for this capsule."""\n',
     }
     templates.update(
         {

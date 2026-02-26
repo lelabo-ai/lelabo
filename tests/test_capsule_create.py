@@ -35,6 +35,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "metrics").is_dir()
     assert (out / "optimizers").is_dir()
     assert (out / "schedulers").is_dir()
+    assert (out / "callbacks").is_dir()
     assert (out / "configs").is_dir()
     assert (out / "runs").is_dir()
     assert (out / "README.md").exists()
@@ -47,6 +48,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "metrics" / "example.py").exists()
     assert (out / "optimizers" / "example.py").exists()
     assert (out / "schedulers" / "example.py").exists()
+    assert (out / "callbacks" / "example.py").exists()
     assert (out / "configs" / "README.md").exists()
     assert (out / "configs" / "train.supervised.quickstart.toml").exists()
     assert (out / "configs" / "train.supervised.detailed.toml").exists()
@@ -64,6 +66,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_metric_fn" in metric_example
     assert "ClassificationMetricBase" in metric_example
     assert "register_optimizer" in readme_text
+    assert "register_callback" in readme_text
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick

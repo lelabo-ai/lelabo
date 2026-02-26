@@ -33,7 +33,7 @@ lelabo train rl --config configs/train.rl.detailed.toml --env CartPole-v1
 ```
 
 ```bash
-lelabo train supervised --set model.params.hidden=1024 --set early_stopping.patience=20
+lelabo train supervised --set model.params.hidden=1024 --set scheduler.params.gamma=0.5
 ```
 
 ## Config schema style
@@ -45,7 +45,7 @@ Use `name + params` for extensible components:
 - `update_rule`
 - `optimizer`
 - `scheduler`
-- `early_stopping`
+- `callbacks`
 - `metrics` (optional list of built-ins + custom metric plugins)
 
 Built-in supervised metrics include:
@@ -95,6 +95,26 @@ T_max = 50
 eta_min = 0.0
 ```
 
+Quick built-in early stopping callback snippet:
+
+```toml
+[[callbacks]]
+name = "earlystopping"
+enabled = true
+[callbacks.params]
+monitor = "val.f1_macro"
+mode = "auto"
+patience = 10
+min_delta = 0.0
+warmup = 5
+restore_best = true
+```
+
+For a custom callback plugin starter, see:
+
+- `callbacks/example.py`
+  This file shows how to register callbacks with `register_callback`.
+
 Quick custom metric snippets:
 
 ```toml
@@ -124,7 +144,9 @@ average = "macro"
 Then you can monitor directly:
 
 ```toml
-[early_stopping]
+[[callbacks]]
+name = "earlystopping"
+[callbacks.params]
 monitor = "val.f1_macro"
 ```
 
