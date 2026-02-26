@@ -5,6 +5,10 @@ import json
 import sys
 from argparse import Namespace
 
+import pytest
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
 from conftest import REPO_ROOT
 
 
@@ -15,6 +19,7 @@ core_callbacks = importlib.import_module("lelabo.core.callbacks")
 plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
 trainer_api = importlib.import_module("lelabo.core.trainer")
 train_api = importlib.import_module("lelabo.api.train")
+datasets_base = importlib.import_module("lelabo.supervised.datasets.base")
 
 
 def test_builtin_callbacks_include_early_stopping() -> None:
@@ -72,7 +77,51 @@ def test_trainer_callback_hook_is_duck_typed() -> None:
     assert trainer_api.Trainer._call_callback_hook(object(), "on_epoch_end", None) is None
 
 
-def test_early_stopping_integration_stops_iris_training_early(tmp_path) -> None:
+def test_early_stopping_integration_stops_iris_training_early(tmp_path, monkeypatch) -> None:
+    iris_mod = importlib.import_module("lelabo.supervised.datasets.tabular.iris")
+
+    def _make_tiny_iris_dataset(
+        *,
+        batch_size: int = 32,
+        seed: int = 42,
+        **_: object,
+    ):
+        g = torch.Generator().manual_seed(int(seed))
+        x = torch.randn(60, 4, generator=g)
+        y = torch.randint(0, 3, (60,), generator=g)
+
+        x_tr, y_tr = x[:40], y[:40]
+        x_va, y_va = x[40:50], y[40:50]
+        x_te, y_te = x[50:], y[50:]
+
+        train_loader = DataLoader(
+            TensorDataset(x_tr, y_tr),
+            batch_size=min(int(batch_size), int(x_tr.size(0))),
+            shuffle=False,
+        )
+        val_loader = DataLoader(
+            TensorDataset(x_va, y_va),
+            batch_size=min(int(batch_size), int(x_va.size(0))),
+            shuffle=False,
+        )
+        test_loader = DataLoader(
+            TensorDataset(x_te, y_te),
+            batch_size=min(int(batch_size), int(x_te.size(0))),
+            shuffle=False,
+        )
+        return datasets_base.DataBundle(
+            train_loader=train_loader,
+            val_loader=val_loader,
+            test_loader=test_loader,
+            num_classes=3,
+            in_dim=4,
+            input_shape=None,
+            x_test=x_te,
+            y_test=y_te,
+        )
+
+    monkeypatch.setattr(iris_mod, "make_iris_dataset", _make_tiny_iris_dataset)
+
     run_dir = tmp_path / "run_es_iris"
     cfg = tmp_path / "train.supervised.toml"
     cfg.write_text(
