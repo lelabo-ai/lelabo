@@ -8,10 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-try:
-    from ..core.batch import to_device, unpack_batch, extract_loss_and_stats
-except Exception:
-    from batch import to_device, unpack_batch, extract_loss_and_stats
+from ..core.batch import to_device
 
 
 def set_grad_(param: torch.nn.Parameter, grad: torch.Tensor, scale: float = 1.0):

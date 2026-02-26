@@ -6,10 +6,7 @@ from typing import Dict, Optional, Any
 
 import torch
 
-try:
-    from ..core.steps import compute_loss_and_stats
-except Exception:
-    from lelabo.core.steps import compute_loss_and_stats
+from ..core.steps import compute_loss_and_stats
 
 
 class UpdateRule(ABC):

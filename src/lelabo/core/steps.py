@@ -7,11 +7,7 @@ from typing import Any, Dict, Tuple
 import torch
 
 from ..metrics.payload import build_metric_payload, is_metric_payload_key
-
-try:
-    from .batch import to_device, extract_loss_and_stats
-except Exception:
-    from batch import to_device, extract_loss_and_stats
+from .batch import to_device, extract_loss_and_stats
 
 
 def maybe_accuracy_from_logits(logits: torch.Tensor, labels: Any) -> float:

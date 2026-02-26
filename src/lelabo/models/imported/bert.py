@@ -6,10 +6,7 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.nn as nn
 
-try:
-    from ..blocks import LeModule, BlockSpec
-except Exception:  # pragma: no cover
-    from blocks import LeModule, BlockSpec
+from ..blocks import LeModule, BlockSpec
 
 from ..registry import register_model, ModelContext
 

@@ -12,9 +12,7 @@ import importlib
 __all__ = [
     "batch",
     "callbacks",
-    "ppo_trainer",
     "replay_buffer",
-    "rl_trainer",
     "robustness",
     "steps",
     "state",

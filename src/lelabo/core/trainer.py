@@ -43,7 +43,6 @@ class Trainer:
         self.input_noise_training = float(input_noise_training)
 
         self.learner = learner
-        self.algorithm = learner  # compat
 
         self.device = device
         self.verbose = verbose
