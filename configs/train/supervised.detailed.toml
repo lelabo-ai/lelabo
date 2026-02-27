@@ -11,7 +11,7 @@ name = "mnist"
 name = "mlp"
 [model.params]
 hidden = 2048
-layers = 4
+layers = 2
 
 [update_rule]
 name = "bp"
@@ -55,7 +55,7 @@ enabled = true
 [callbacks.params]
 monitor = "val.acc"
 mode = "auto"
-patience = 5
+patience = 10
 min_delta = 0.0
 warmup = 5
 restore_best = true

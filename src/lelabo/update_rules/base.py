@@ -1,27 +1,27 @@
-# lab/update_rules/base.py
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any
+from collections.abc import Iterable
+from typing import Any, Dict
 
 import torch
 
-from ..core.steps import compute_loss_and_stats
-
 
 class UpdateRule(ABC):
-    def __init__(self):
+    """Common contract for all update rules."""
+
+    def __init__(self) -> None:
         self.global_step = 0
 
-    def on_train_start(self, model, task, device, state=None):
+    def on_train_start(self, model, task, device, state=None) -> None:
         pass
 
     @abstractmethod
-    def train_step(self, model, task, batch, device, state=None) -> dict:
+    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
         raise NotImplementedError
 
     @torch.no_grad()
-    def on_eval_start(self, model, task, device, state=None):
+    def on_eval_start(self, model, task, device, state=None) -> None:
         model.eval()
 
     def state_dict(self) -> Dict[str, Any]:
@@ -31,35 +31,41 @@ class UpdateRule(ABC):
         if "global_step" in state:
             self.global_step = int(state["global_step"])
 
+    def _mark_step_done(self) -> None:
+        self.global_step += 1
 
-class AutogradUpdateRule(UpdateRule):
-    def __init__(self, optimizer: torch.optim.Optimizer, grad_clip: Optional[float] = None):
+
+class OptimizerUpdateRule(UpdateRule):
+    """Base class for update rules driven by a torch optimizer."""
+
+    def __init__(self, optimizer: torch.optim.Optimizer, grad_clip: float | None = None) -> None:
         super().__init__()
         self.optimizer = optimizer
         self.grad_clip = grad_clip
 
-    def train_step(self, model, task, batch, device, state=None) -> Dict[str, Any]:
-        model.train()
+    def zero_grad(self) -> None:
         self.optimizer.zero_grad(set_to_none=True)
 
-        loss, stats = compute_loss_and_stats(model, task, batch, device)
-        loss.backward()
+    def _optimizer_params(self) -> list[torch.nn.Parameter]:
+        params: list[torch.nn.Parameter] = []
+        for group in self.optimizer.param_groups:
+            for p in group.get("params", []):
+                if isinstance(p, torch.nn.Parameter):
+                    params.append(p)
+        return params
 
+    def step(self, params_for_clip: Iterable[torch.nn.Parameter] | None = None) -> None:
         if self.grad_clip is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
-
+            params = list(params_for_clip) if params_for_clip is not None else self._optimizer_params()
+            if params:
+                torch.nn.utils.clip_grad_norm_(params, float(self.grad_clip))
         self.optimizer.step()
 
-        out = dict(stats)
-        out["loss"] = float(loss.item())
-        self.global_step += 1
-        return out
-
     def state_dict(self) -> Dict[str, Any]:
-        d = super().state_dict()
-        d["optimizer"] = self.optimizer.state_dict()
-        d["grad_clip"] = self.grad_clip
-        return d
+        out = super().state_dict()
+        out["optimizer"] = self.optimizer.state_dict()
+        out["grad_clip"] = self.grad_clip
+        return out
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
         super().load_state_dict(state)

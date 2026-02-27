@@ -16,7 +16,7 @@ from ..core.utils.capsule_plugins import (
 )
 
 
-UPDATE_RULE_REGISTRY = Registry("update_rules", package="lelabo.update_rules")
+UPDATE_RULE_REGISTRY = Registry("update_rules", package="lelabo.update_rules.builtins")
 _BASE_UPDATE_RULE_ITEMS: dict[str, Any] | None = None
 _LAST_UPDATE_RULE_REFRESH_KEY: tuple[Any, ...] | None = None
 _LAST_UPDATE_RULE_ITEMS: dict[str, Any] | None = None
