@@ -169,7 +169,7 @@ def test_builtin_model_names_include_expected_defaults() -> None:
 
 def test_mlp_classifier_cache_contract() -> None:
     torch = importlib.import_module("torch")
-    mlp_mod = importlib.import_module("lelabo.models.imported.mlp")
+    mlp_mod = importlib.import_module("lelabo.models.builtins.mlp")
     model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
 
     x = torch.randn(6, 8)
@@ -184,7 +184,7 @@ def test_mlp_classifier_cache_contract() -> None:
 
 def test_convnet_classifier_cache_contract() -> None:
     torch = importlib.import_module("torch")
-    conv_mod = importlib.import_module("lelabo.models.imported.convnet")
+    conv_mod = importlib.import_module("lelabo.models.builtins.convnet")
     model = conv_mod.ConvNetClassifier(
         in_channels=1,
         num_classes=10,
@@ -205,7 +205,7 @@ def test_convnet_classifier_cache_contract() -> None:
 
 def test_deep_softhebb_classifier_cache_contract() -> None:
     torch = importlib.import_module("torch")
-    deep_mod = importlib.import_module("lelabo.models.imported.deep_softhebb")
+    deep_mod = importlib.import_module("lelabo.models.builtins.deep_softhebb")
     model = deep_mod.DeepSoftHebbClassifier(in_channels=3, num_classes=10)
 
     x = torch.randn(2, 3, 32, 32)

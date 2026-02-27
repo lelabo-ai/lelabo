@@ -40,23 +40,23 @@ class SchedulerController:
     def _step(self, logs: Mapping[str, Any] | None = None) -> bool:
         if isinstance(self.scheduler, ReduceLROnPlateau):
             metric = self._pick_metric(logs)
-            if metric is None:
-                return False
             self.scheduler.step(metric)
             return True
         self.scheduler.step()
         return True
 
-    def _pick_metric(self, logs: Mapping[str, Any] | None) -> float | None:
-        if not logs:
-            return None
+    def _pick_metric(self, logs: Mapping[str, Any] | None) -> float:
         key = self.monitor
-        if key in logs and isinstance(logs[key], (int, float)):
-            return float(logs[key])
-        for fallback in ("val.loss", "train.loss", "val.metric", "train.metric", "loss", "metric", "acc"):
-            if fallback in logs and isinstance(logs[fallback], (int, float)):
-                return float(logs[fallback])
-        return None
+        if not logs:
+            raise ValueError(
+                f"Scheduler monitor '{key}' is required for ReduceLROnPlateau, but logs are missing."
+            )
+        value = logs.get(key)
+        if not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Scheduler monitor '{key}' must be a numeric value in logs for ReduceLROnPlateau."
+            )
+        return float(value)
 
     def state_dict(self) -> dict[str, Any]:
         if hasattr(self.scheduler, "state_dict"):

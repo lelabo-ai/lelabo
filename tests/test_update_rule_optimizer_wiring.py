@@ -10,7 +10,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-builders = importlib.import_module("lelabo.update_rules.builders")
+builtins = importlib.import_module("lelabo.update_rules.builtins")
 registry_api = importlib.import_module("lelabo.update_rules.registry")
 optimizers_api = importlib.import_module("lelabo.optimizers")
 
@@ -44,7 +44,7 @@ def _make_ctx(*, optimizer_name: str = "adamw", mode: str = "supervised"):
 
 def test_softhebb_reuses_runner_optimizer_instance() -> None:
     ctx, _ = _make_ctx(optimizer_name="sgd", mode="supervised")
-    learner = builders.build_softhebb(ctx)
+    learner = builtins.build_softhebb(ctx)
     head_params = [torch.nn.Parameter(torch.ones(2), requires_grad=True)]
     learner._ensure_head_optim(head_params)
     assert learner._head_optimizer is ctx.optimizer
@@ -54,7 +54,7 @@ def test_softhebb_rejects_head_lr_and_head_weight_decay_params() -> None:
     ctx, _ = _make_ctx(optimizer_name="sgd", mode="supervised")
     ctx.extra = {"update_rule_params": {"head_lr": 1e-3}}
     try:
-        builders.build_softhebb(ctx)
+        builtins.build_softhebb(ctx)
         assert False, "Expected ValueError for deprecated softhebb head params"
     except ValueError as exc:
         message = str(exc)
@@ -65,14 +65,14 @@ def test_softhebb_rejects_head_lr_and_head_weight_decay_params() -> None:
 
 def test_targetprop_reuses_same_optimizer_for_forward_and_inverse() -> None:
     ctx, _ = _make_ctx(optimizer_name="adamw", mode="supervised")
-    learner = builders.build_targetprop(ctx)
+    learner = builtins.build_targetprop(ctx)
     assert learner.fwd_optimizer is ctx.optimizer
     assert learner.inv_optimizer is ctx.optimizer
 
 
 def test_targetprop_shared_optimizer_keeps_existing_params_when_adding_decoders() -> None:
     ctx, base_param = _make_ctx(optimizer_name="adamw", mode="supervised")
-    learner = builders.build_targetprop(ctx)
+    learner = builtins.build_targetprop(ctx)
     assert learner.inv_optimizer is ctx.optimizer
 
     existing_ids_before = {

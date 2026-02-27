@@ -2,21 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import os
 import re
 import sys
-import warnings
 from pathlib import Path
 from typing import Sequence
 
 
 _SUPPORTED_KINDS = ("models", "update_rules", "datasets", "metrics", "schedulers", "optimizers", "callbacks")
 _LOADED_BY_FILE: dict[str, str] = {}
-
-
-def _strict_plugin_loading() -> bool:
-    raw = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
 
 
 def find_active_capsule_root(start: Path | None = None) -> Path | None:
@@ -134,22 +127,12 @@ def load_installed_capsule_plugins(
         try:
             loaded.extend(load_capsule_plugins(kinds=kinds, capsule_root=root))
         except Exception as exc:
-            # Keep built-ins usable even if one installed capsule is stale or broken.
             failures.append((root, str(exc)))
             continue
 
     if failures:
-        if _strict_plugin_loading():
-            rendered = "; ".join(f"{path}: {msg}" for path, msg in failures)
-            raise RuntimeError(f"Failed to load installed capsule plugins: {rendered}")
-        sample = "; ".join(f"{path.name}: {msg}" for path, msg in failures[:3])
-        if len(failures) > 3:
-            sample += f"; ... (+{len(failures) - 3} more)"
-        warnings.warn(
-            f"Some installed capsule plugins failed to load ({len(failures)}): {sample}",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        rendered = "; ".join(f"{path}: {msg}" for path, msg in failures)
+        raise RuntimeError(f"Failed to load installed capsule plugins: {rendered}")
     return loaded
 
 

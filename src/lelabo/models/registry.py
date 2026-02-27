@@ -15,7 +15,7 @@ from ..core.utils.capsule_plugins import (
     reset_capsule_plugin_cache,
 )
 
-MODEL_REGISTRY = Registry("models", package="lelabo.models.imported")
+MODEL_REGISTRY = Registry("models", package="lelabo.models.builtins")
 _BASE_MODEL_ITEMS: dict[str, Any] | None = None
 _LAST_MODEL_REFRESH_KEY: tuple[Any, ...] | None = None
 _LAST_MODEL_ITEMS: dict[str, Any] | None = None

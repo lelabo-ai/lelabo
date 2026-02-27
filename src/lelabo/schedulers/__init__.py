@@ -10,7 +10,7 @@ from .registry import (
 )
 
 # Force built-in scheduler registrations.
-from . import builders  # noqa: F401
+from . import builtins  # noqa: F401
 
 __all__ = [
     "SchedulerController",

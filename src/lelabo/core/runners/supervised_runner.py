@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict
-import json
 
 import torch
 from ..trainer import Trainer
@@ -130,15 +129,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     scheduler = None
     if getattr(args, "lr_scheduler", "none") not in (None, "none", "null", "off", ""):
         sched_kwargs = dict(getattr(args, "scheduler_params", {}) or {})
-        if getattr(args, "lr_scheduler_kwargs", None):
-            try:
-                loaded = json.loads(args.lr_scheduler_kwargs)
-            except Exception as exc:
-                raise ValueError("lr-scheduler-kwargs must be valid JSON.") from exc
-            if not isinstance(loaded, dict):
-                raise ValueError("lr-scheduler-kwargs must decode to a JSON object.")
-            sched_kwargs.update(loaded)
-
         steps_per_epoch = len(train_loader) if hasattr(train_loader, "__len__") else None
         scheduler = make_scheduler(
             args.lr_scheduler,

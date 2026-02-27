@@ -19,9 +19,9 @@ def test_validate_manifest_ok() -> None:
         "created_at": "2026-02-20T12:00:00Z",
         "kind": "single_run",
         "source": {"path": "/tmp/x", "type": "directory"},
-        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo.main"]}],
+        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo"]}],
         "artifacts": {},
-        "replay": {"command": ["python", "-m", "lelabo.main"]},
+        "replay": {"command": ["python", "-m", "lelabo"]},
     }
     out = schema.validate_manifest(manifest)
     assert out["capsule_id"] == "demo"
@@ -39,9 +39,9 @@ def test_validate_manifest_rejects_unsafe_capsule_id() -> None:
         "created_at": "2026-02-20T12:00:00Z",
         "kind": "single_run",
         "source": {"path": "/tmp/x", "type": "directory"},
-        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo.main"]}],
+        "entrypoints": [{"name": "run", "cmd": ["python", "-m", "lelabo"]}],
         "artifacts": {},
-        "replay": {"command": ["python", "-m", "lelabo.main"]},
+        "replay": {"command": ["python", "-m", "lelabo"]},
     }
     with pytest.raises(Exception):
         schema.validate_manifest(manifest)

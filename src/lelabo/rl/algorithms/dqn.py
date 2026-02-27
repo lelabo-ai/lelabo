@@ -25,15 +25,9 @@ class DQNConfig:
     eps_end: float = 0.05
     eps_decay_steps: int = 50_000
 
-
-_DQN_CONFIG_ALIASES = {
-    "rl_batch_size": "batch_size",
-}
-
-
 def get_config_contract() -> tuple[str, ...]:
     """Return accepted override keys for DQN config resolution."""
-    return list_contract_keys(DQNConfig(), aliases=_DQN_CONFIG_ALIASES)
+    return list_contract_keys(DQNConfig(), aliases=None)
 
 
 def resolve_config_overrides(overrides: dict[str, str]) -> DQNConfig:
@@ -41,7 +35,7 @@ def resolve_config_overrides(overrides: dict[str, str]) -> DQNConfig:
     return resolve_dataclass_overrides(
         DQNConfig(),
         overrides,
-        aliases=_DQN_CONFIG_ALIASES,
+        aliases=None,
         allow_none_float_paths=set(),
         algo_label="DQN",
     )

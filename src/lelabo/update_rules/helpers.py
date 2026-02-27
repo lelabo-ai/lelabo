@@ -81,15 +81,6 @@ def collect_linear_cache(model, x: torch.Tensor):
                 raise
         if isinstance(out_with_cache, tuple) and len(out_with_cache) == 2:
             logits, cache = out_with_cache
-            if isinstance(cache, dict) and "inputs" in cache and "preacts" in cache:
-                linears = list(model.linears)
-                layer_cache = []
-                for i, layer in enumerate(linears):
-                    x_l = cache["inputs"][i]
-                    z_l = cache["preacts"][i]
-                    layer_cache.append((x_l.detach(), z_l.detach(), layer))
-                return logits, layer_cache
-
             if (
                 isinstance(cache, dict)
                 and "block_inputs" in cache

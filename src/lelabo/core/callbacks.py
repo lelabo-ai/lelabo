@@ -81,10 +81,7 @@ class EarlyStopping(Callback):
             for sched in list(getattr(trainer, "schedulers", []) or []):
                 state_dict = getattr(sched, "state_dict", None)
                 if callable(state_dict):
-                    try:
-                        sched_states.append(dict(state_dict()))
-                    except Exception:
-                        sched_states.append(None)
+                    sched_states.append(dict(state_dict()))
                 else:
                     sched_states.append(None)
             payload["schedulers"] = sched_states
@@ -121,10 +118,7 @@ class EarlyStopping(Callback):
                     continue
                 load_state = getattr(schedulers[idx], "load_state_dict", None)
                 if callable(load_state):
-                    try:
-                        load_state(state)
-                    except Exception:
-                        continue
+                    load_state(state)
 
         train_state_payload = payload.get("train_state")
         state = getattr(trainer, "state", None)

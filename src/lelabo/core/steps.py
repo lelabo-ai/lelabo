@@ -68,18 +68,15 @@ def compute_loss_and_stats(model, task, batch, device: str, *, hf_outputs_to_sta
 
         stats: Dict[str, Any] = {}
         if hf_outputs_to_stats:
-            try:
-                if hasattr(outputs, "logits") and "labels" in b:
-                    if hasattr(task, "metrics"):
-                        met = task.metrics(outputs.logits, b["labels"])
-                        if isinstance(met, Mapping):
-                            _merge_metric_stats(stats, met)
-                    if "acc" not in stats:
-                        stats["acc"] = maybe_accuracy_from_logits(outputs.logits, b["labels"])
-                    if not any(is_metric_payload_key(k) for k in stats.keys()):
-                        _merge_metric_stats(stats, metric_payload_from_outputs(outputs.logits, b["labels"]))
-            except Exception:
-                pass
+            if hasattr(outputs, "logits") and "labels" in b:
+                if hasattr(task, "metrics"):
+                    met = task.metrics(outputs.logits, b["labels"])
+                    if isinstance(met, Mapping):
+                        _merge_metric_stats(stats, met)
+                if "acc" not in stats:
+                    stats["acc"] = maybe_accuracy_from_logits(outputs.logits, b["labels"])
+                if not any(is_metric_payload_key(k) for k in stats.keys()):
+                    _merge_metric_stats(stats, metric_payload_from_outputs(outputs.logits, b["labels"]))
         return loss, stats
 
     if not isinstance(batch, (tuple, list)) or len(batch) != 2:
@@ -93,12 +90,9 @@ def compute_loss_and_stats(model, task, batch, device: str, *, hf_outputs_to_sta
         stats = dict(stats) if isinstance(stats, Mapping) else {}
 
     if hasattr(task, "metrics"):
-        try:
-            met = task.metrics(out, y)
-            if isinstance(met, Mapping):
-                _merge_metric_stats(stats, met)
-        except Exception:
-            pass
+        met = task.metrics(out, y)
+        if isinstance(met, Mapping):
+            _merge_metric_stats(stats, met)
     if not any(is_metric_payload_key(k) for k in stats.keys()):
         _merge_metric_stats(stats, metric_payload_from_outputs(out, y))
 

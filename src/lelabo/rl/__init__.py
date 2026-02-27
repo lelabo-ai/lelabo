@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 
-__all__ = ["algorithms", "runner"]
+__all__ = ["algorithms"]
 
 
 def __getattr__(name: str):

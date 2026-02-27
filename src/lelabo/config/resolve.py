@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 from argparse import Namespace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -26,10 +25,7 @@ from .versioning import (
     resolve_lelabo_version,
 )
 
-try:
-    import tomllib  # type: ignore[attr-defined]
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
-    import tomli as tomllib  # type: ignore[no-redef]
+import tomllib
 
 
 def _normalize_key(key: str) -> str:
@@ -295,38 +291,6 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
             continue
         _set_path(data, target_path, data[alias_key])
 
-    if mode == "supervised" and "lr_scheduler_kwargs" in data:
-        kwargs_raw = data["lr_scheduler_kwargs"]
-        if isinstance(kwargs_raw, str):
-            try:
-                parsed_kwargs = json.loads(kwargs_raw)
-            except Exception as exc:
-                raise ValueError("lr_scheduler_kwargs must be valid JSON.") from exc
-            if not isinstance(parsed_kwargs, Mapping):
-                raise ValueError("lr_scheduler_kwargs must decode to a JSON object.")
-            scheduler_node = _as_dict(data.get("scheduler", {}), where="scheduler")
-            current = _as_dict(scheduler_node.get("params", {}), where="scheduler.params")
-            merged_kwargs = dict(current)
-            merged_kwargs.update(dict(parsed_kwargs))
-            _set_path(data, ["scheduler", "params"], merged_kwargs)
-
-    if mode == "rl" and "rl_param" in data:
-        from ..api.train_rl_config import parse_rl_param_overrides
-
-        raw_rl = data["rl_param"]
-        if isinstance(raw_rl, str):
-            entries = [raw_rl]
-        elif isinstance(raw_rl, list):
-            entries = [str(x) for x in raw_rl]
-        else:
-            entries = [str(raw_rl)]
-        rl_node = _as_dict(data.get("rl", {}), where="rl")
-        current = _as_dict(rl_node.get("params", {}), where="rl.params")
-        merged = dict(current)
-        merged.update(parse_rl_param_overrides(entries))
-        _set_path(data, ["rl", "params"], merged)
-
-
 def _validate_supervised(cfg: SupervisedConfig) -> None:
     if str(cfg.config_version).strip() != TRAIN_CONFIG_SCHEMA_VERSION:
         raise ValueError(
@@ -529,14 +493,6 @@ def resolve_rl_config(
     return cfg
 
 
-def _render_rl_param_entry(key: str, value: Any) -> str:
-    if isinstance(value, (int, float)):
-        return f"{key}={value}"
-    if isinstance(value, str):
-        return f"{key}={value}"
-    return f"{key}={json.dumps(value, ensure_ascii=False)}"
-
-
 def to_supervised_namespace(
     cfg: SupervisedConfig,
     *,
@@ -577,7 +533,6 @@ def to_supervised_namespace(
         "lr_scheduler": cfg.scheduler.name,
         "lr_scheduler_interval": cfg.scheduler.interval,
         "lr_scheduler_monitor": cfg.scheduler.monitor,
-        "lr_scheduler_kwargs": json.dumps(scheduler_params) if scheduler_params else None,
         "input_noise_training": float(cfg.train.input_noise_training),
         "input_noise_dataset": float(cfg.train.input_noise_dataset),
         "noise_on_test": int(bool(cfg.train.noise_on_test)),
@@ -648,7 +603,6 @@ def to_rl_namespace(
         "rl_algo": cfg.rl.algo,
         "rl_steps": int(cfg.rl.steps),
         "rl_eval_episodes": int(cfg.rl.eval_episodes),
-        "rl_param": [_render_rl_param_entry(str(k), v) for k, v in rl_params.items()],
         "hidden": int(model_params.get("hidden", 2048)),
         "layers": int(model_params.get("layers", 4)),
         "lr": float(optimizer_params.get("lr", 1e-3)),

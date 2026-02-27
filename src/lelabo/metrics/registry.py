@@ -62,12 +62,8 @@ def register_metric(
     name: str,
     *,
     kind: str | None = None,
-    output_key: str | None = None,  # kept for API compatibility
-    description: str | None = None,  # kept for API compatibility
     params: Mapping[str, str] | None = None,
 ):
-    _ = output_key, description
-
     def _decorator(builder):
         registered = METRIC_REGISTRY.register(name)(builder)
         setattr(registered, "__metric_kind__", _normalize_kind(kind))
@@ -83,7 +79,6 @@ def register_metric_fn(
     kind: str = "classification",
     fn: Callable[..., float] | None = None,
     output_key: str | None = None,
-    description: str | None = None,  # kept for API compatibility
     params: Mapping[str, str] | None = None,
 ):
     """
@@ -94,8 +89,6 @@ def register_metric_fn(
       - regression: fn(y_true, y_pred, metric_params) -> float
       - scalar: fn(value_sum, weight_sum, metric_params) -> float
     """
-    _ = description
-
     def _decorate(user_fn: Callable[..., float]) -> Callable[..., float]:
         normalized_kind = _normalize_kind(kind)
         key_name = str(output_key or name)

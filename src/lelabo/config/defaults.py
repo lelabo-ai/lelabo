@@ -4,17 +4,13 @@ import copy
 from functools import lru_cache
 from importlib import resources
 from typing import Any, Mapping
+import tomllib
 
 from .versioning import (
     TRAIN_CONFIG_SCHEMA_VERSION,
     resolve_config_version,
     resolve_lelabo_version,
 )
-
-try:
-    import tomllib  # type: ignore[attr-defined]
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
-    import tomli as tomllib  # type: ignore[no-redef]
 
 
 def _normalize_keys(value: Any) -> Any:

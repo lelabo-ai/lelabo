@@ -8,9 +8,6 @@ from typing import Sequence
 from ...capsule.registry import get_capsule
 from ...core.utils.capsule_plugins import (
     find_active_capsule_root,
-    load_capsule_plugins,
-    load_installed_capsule_plugins,
-    reset_capsule_plugin_cache,
 )
 from ...metrics.registry import get_metric_names
 from ...models.registry import get_model_names
@@ -19,13 +16,6 @@ from ...schedulers.registry import get_scheduler_names
 from ...callbacks.registry import get_callback_names
 from ...supervised.datasets.registry import get_dataset_names
 from ...update_rules.registry import get_update_rule_names
-from ...metrics import registry as metrics_registry
-from ...models import registry as models_registry
-from ...optimizers import registry as optimizers_registry
-from ...schedulers import registry as schedulers_registry
-from ...callbacks import registry as callbacks_registry
-from ...supervised.datasets import registry as datasets_registry
-from ...update_rules import registry as update_rules_registry
 
 
 LIST_HELP = """\
@@ -99,10 +89,21 @@ def _collect(
 ) -> dict[str, object]:
     extra_roots = list(explicit_capsule_roots or [])
     if target == "all":
-        return _collect_all_single_refresh(
-            capsules_dir=capsules_dir,
-            explicit_capsule_roots=extra_roots,
-        )
+        return {
+            "update_rules": sorted(
+                get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
+            ),
+            "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+            "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+            "optimizers": sorted(get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+            "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+            "schedulers": sorted(
+                get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
+            ),
+            "callbacks": sorted(
+                get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
+            ),
+        }
     if target == "update_rules":
         return {
             "update_rules": sorted(
@@ -133,103 +134,7 @@ def _collect(
                 get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
             )
         }
-    return {
-        "update_rules": sorted(
-            get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-        ),
-        "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-        "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-        "optimizers": sorted(get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-        "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-        "schedulers": sorted(get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-        "callbacks": sorted(get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-    }
-
-
-def _normalize_capsule_roots(roots: Sequence[Path] | None) -> tuple[Path, ...]:
-    return tuple(sorted({Path(root).resolve() for root in list(roots or [])}, key=str))
-
-
-def _collect_all_single_refresh(
-    *,
-    capsules_dir: Path | None,
-    explicit_capsule_roots: Sequence[Path] | None = None,
-) -> dict[str, list[str]]:
-    roots = _normalize_capsule_roots(explicit_capsule_roots)
-
-    # Reset each registry to built-in baseline once, then load plugins once for all kinds.
-    update_rules_registry._ensure_update_rule_baseline()
-    datasets_registry._ensure_dataset_baseline()
-    models_registry._ensure_model_baseline()
-    optimizers_registry._ensure_optimizer_baseline()
-    metrics_registry._ensure_metric_baseline()
-    schedulers_registry._ensure_scheduler_baseline()
-    callbacks_registry._ensure_callback_baseline()
-
-    update_rules_registry.UPDATE_RULE_REGISTRY._items = dict(update_rules_registry._BASE_UPDATE_RULE_ITEMS or {})
-    datasets_registry.DATASET_REGISTRY._items = dict(datasets_registry._BASE_DATASET_ITEMS or {})
-    models_registry.MODEL_REGISTRY._items = dict(models_registry._BASE_MODEL_ITEMS or {})
-    optimizers_registry.OPTIMIZER_REGISTRY._items = dict(optimizers_registry._BASE_OPTIMIZER_ITEMS or {})
-    metrics_registry.METRIC_REGISTRY._items = dict(metrics_registry._BASE_METRIC_ITEMS or {})
-    schedulers_registry.SCHEDULER_REGISTRY._items = dict(schedulers_registry._BASE_SCHEDULER_ITEMS or {})
-    callbacks_registry.CALLBACK_REGISTRY._items = dict(callbacks_registry._BASE_CALLBACK_ITEMS or {})
-
-    reset_capsule_plugin_cache()
-    kinds = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers", "callbacks")
-    load_capsule_plugins(kinds=kinds)
-    for root in roots:
-        load_capsule_plugins(kinds=kinds, capsule_root=root)
-    load_installed_capsule_plugins(kinds=kinds, capsules_dir=capsules_dir)
-
-    # Keep per-registry caches hot for subsequent calls in the same process.
-    update_rules_registry._LAST_UPDATE_RULE_REFRESH_KEY = update_rules_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    update_rules_registry._LAST_UPDATE_RULE_ITEMS = dict(update_rules_registry.UPDATE_RULE_REGISTRY._items)
-
-    datasets_registry._LAST_DATASET_REFRESH_KEY = datasets_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    datasets_registry._LAST_DATASET_ITEMS = dict(datasets_registry.DATASET_REGISTRY._items)
-
-    models_registry._LAST_MODEL_REFRESH_KEY = models_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    models_registry._LAST_MODEL_ITEMS = dict(models_registry.MODEL_REGISTRY._items)
-    optimizers_registry._LAST_OPTIMIZER_REFRESH_KEY = optimizers_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    optimizers_registry._LAST_OPTIMIZER_ITEMS = dict(optimizers_registry.OPTIMIZER_REGISTRY._items)
-
-    metrics_registry._LAST_METRIC_REFRESH_KEY = metrics_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    metrics_registry._LAST_METRIC_ITEMS = dict(metrics_registry.METRIC_REGISTRY._items)
-    schedulers_registry._LAST_SCHEDULER_REFRESH_KEY = schedulers_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    schedulers_registry._LAST_SCHEDULER_ITEMS = dict(schedulers_registry.SCHEDULER_REGISTRY._items)
-    callbacks_registry._LAST_CALLBACK_REFRESH_KEY = callbacks_registry._build_refresh_key(
-        capsules_dir=capsules_dir,
-        extra_capsule_roots=roots,
-    )
-    callbacks_registry._LAST_CALLBACK_ITEMS = dict(callbacks_registry.CALLBACK_REGISTRY._items)
-
-    return {
-        "update_rules": update_rules_registry.UPDATE_RULE_REGISTRY.names(),
-        "datasets": datasets_registry.DATASET_REGISTRY.names(),
-        "models": models_registry.MODEL_REGISTRY.names(),
-        "optimizers": optimizers_registry.OPTIMIZER_REGISTRY.names(),
-        "metrics": metrics_registry.METRIC_REGISTRY.names(),
-        "schedulers": schedulers_registry.SCHEDULER_REGISTRY.names(),
-        "callbacks": callbacks_registry.CALLBACK_REGISTRY.names(),
-    }
+    raise ValueError(f"Unknown list target '{target}'.")
 
 
 def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:

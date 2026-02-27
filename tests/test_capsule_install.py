@@ -16,7 +16,7 @@ registry = importlib.import_module("lelabo.capsule.registry")
 def test_install_capsule_updates_registry(tmp_path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo.main"]}), encoding="utf-8")
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps({"acc": 0.9}), encoding="utf-8")
 
     bundle = pack.pack_capsule(source=run_dir, out_path=tmp_path / "capsule.tar.gz", capsule_id="cap_install")

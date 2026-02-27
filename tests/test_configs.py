@@ -8,9 +8,9 @@ from conftest import REPO_ROOT
 
 
 def test_all_experiment_configs_have_required_keys() -> None:
-    cfg_dir = REPO_ROOT / "experiments" / "configs"
+    cfg_dir = REPO_ROOT / "experiments" / "sweeps"
     cfg_files = sorted(cfg_dir.glob("*.yaml"))
-    assert cfg_files, "No YAML configs found in experiments/configs."
+    assert cfg_files, "No YAML configs found in experiments/sweeps."
 
     for path in cfg_files:
         cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -21,7 +21,7 @@ def test_all_experiment_configs_have_required_keys() -> None:
 
 
 def test_grid_values_are_lists() -> None:
-    cfg_dir = REPO_ROOT / "experiments" / "configs"
+    cfg_dir = REPO_ROOT / "experiments" / "sweeps"
     for path in sorted(cfg_dir.glob("*.yaml")):
         cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
         for key, value in cfg.get("grid", {}).items():

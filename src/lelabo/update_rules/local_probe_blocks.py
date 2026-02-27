@@ -13,10 +13,11 @@ class LocalProbeBlocks(UpdateRule):
         self.probe_optim = None
 
     def on_train_start(self, model, task, device, state=None):
-        if not hasattr(model, "local_blocks"):
-            raise ValueError("Model has no local_blocks attribute; cannot use LocalProbeBlocks.")
+        get_blocks = getattr(model, "get_blocks", None)
+        if not callable(get_blocks):
+            raise ValueError("Model has no get_blocks() method; cannot use LocalProbeBlocks.")
 
-        self._specs = model.local_blocks
+        self._specs = list(get_blocks())
         self.probes = nn.ModuleDict()
         self.probe_optim = None  # lazy init on first batch
 
@@ -32,13 +33,13 @@ class LocalProbeBlocks(UpdateRule):
         # Lazy init probes when we see real shapes
         if self.probe_optim is None:
             for spec in self._specs:
-                if spec.get("is_output", False):
+                if bool(getattr(spec, "is_output", False)):
                     continue
-                name = spec["name"]
-                rep = spec.get("rep", "identity")
+                name = str(spec.name)
+                rep = str(getattr(spec, "rep", "identity"))
 
                 x_in = cache["block_inputs"][name].to(device)
-                out = spec["module"](x_in)  # builds a graph for probe init? forces params grad, ok
+                out = spec.module(x_in)  # builds a graph for probe init? forces params grad, ok
 
                 if out.dim() == 4 and rep == "gap":
                     dim = out.size(1)  # channels
@@ -55,10 +56,10 @@ class LocalProbeBlocks(UpdateRule):
 
         # Local losses (these MUST track grads)
         for spec in self._specs:
-            name = spec["name"]
-            block = spec["module"]
-            is_out = spec.get("is_output", False)
-            rep = spec.get("rep", "identity")
+            name = str(spec.name)
+            block = spec.module
+            is_out = bool(getattr(spec, "is_output", False))
+            rep = str(getattr(spec, "rep", "identity"))
 
             x_in = cache["block_inputs"][name].to(device)  # no grad history, fine
             out = block(x_in)                              # params require grad → graph exists

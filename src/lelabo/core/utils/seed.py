@@ -95,8 +95,10 @@ def _set_deterministic_algorithms(enabled: bool) -> bool:
     torch = _require_torch()
     try:
         torch.use_deterministic_algorithms(enabled)
-    except Exception:
-        return False
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to set torch deterministic algorithms to {bool(enabled)}."
+        ) from exc
 
     if hasattr(torch, "are_deterministic_algorithms_enabled"):
         return bool(torch.are_deterministic_algorithms_enabled())

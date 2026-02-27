@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 import torch
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .callbacks import Callback
 from .utils.logger import RunLogger
@@ -77,40 +76,20 @@ class Trainer:
         if isinstance(self.device, str) and self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
 
-    def _pick_scheduler_metric(self, logs: Optional[Dict[str, Any]]) -> Optional[float]:
-        if not logs:
-            return None
-        key = self.scheduler_monitor
-        if key and key in logs and isinstance(logs[key], (int, float)):
-            return float(logs[key])
-        for fallback in ("val.loss", "train.loss", "val.metric", "train.metric"):
-            if fallback in logs and isinstance(logs[fallback], (int, float)):
-                return float(logs[fallback])
-        return None
-
     def _step_schedulers(self, *, interval: str, logs: Optional[Dict[str, Any]] = None) -> None:
         if not self.schedulers:
             return
         interval = str(interval).lower()
         for sched in self.schedulers:
-            if isinstance(sched, SchedulerController):
-                if interval == "batch":
-                    sched.step_batch(logs=logs)
-                elif interval == "epoch":
-                    sched.step_epoch(logs=logs)
-                continue
-
-            # Legacy fallback: raw torch schedulers still follow trainer-level interval/monitor.
-            legacy_interval = "batch" if self.scheduler_interval in {"batch", "step"} else "epoch"
-            if interval != legacy_interval:
-                continue
-            if isinstance(sched, ReduceLROnPlateau):
-                metric = self._pick_scheduler_metric(logs)
-                if metric is None:
-                    continue
-                sched.step(metric)
-            else:
-                sched.step()
+            if not isinstance(sched, SchedulerController):
+                raise TypeError(
+                    "Trainer.schedulers expects SchedulerController instances. "
+                    "Build schedulers via lelabo.schedulers.make_scheduler(...)."
+                )
+            if interval == "batch":
+                sched.step_batch(logs=logs)
+            elif interval == "epoch":
+                sched.step_epoch(logs=logs)
 
     def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> Dict[str, Any]:
         best_val_metric = float("-inf")

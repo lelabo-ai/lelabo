@@ -9,18 +9,15 @@ from ..core.runners.rl_runner import RLRunner
 from ..core.utils.envs import make_env, make_vec_env
 from ..core.utils.logger import RunLogger
 from ..optimizers import make_optimizer
-from ..models.imported.actor_critic import ActorCriticDiscrete
-from ..models.imported.qnet import QNet
+from ..models.builtins.actor_critic import ActorCriticDiscrete
+from ..models.builtins.qnet import QNet
 from ..core.utils.seed import derive_seed
-from .train_rl_config import build_rl_algo_config, parse_rl_param_overrides
+from .train_rl_config import build_rl_algo_config
 
 
 def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
     device = args.device
-    raw_rl_params = list(getattr(args, "rl_param", []) or [])
     rl_overrides = dict(getattr(args, "rl_params", {}) or {})
-    if raw_rl_params:
-        rl_overrides.update(parse_rl_param_overrides(raw_rl_params))
     optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
     lr = float(optimizer_params.pop("lr", args.lr))
     weight_decay = float(optimizer_params.pop("weight_decay", args.weight_decay))

@@ -24,10 +24,6 @@ class PPOAlgoConfig:
 
 
 _PPO_CONFIG_ALIASES = {
-    "ppo_num_envs": "num_envs",
-    "ppo_num_steps": "num_steps",
-    "ppo_update_epochs": "update_epochs",
-    "ppo_num_minibatches": "num_minibatches",
     "clip_coef": "ppo.clip_coef",
     "ent_coef": "ppo.ent_coef",
     "vf_coef": "ppo.vf_coef",

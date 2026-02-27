@@ -9,7 +9,7 @@ import torch
 
 from ...core.replay_buffer import ReplayBuffer
 from ...core.task import SACActorTask, SACCriticTask
-from ...models.imported.actor_critic import SquashedGaussianActor, DoubleQCritic
+from ...models.builtins.actor_critic import SquashedGaussianActor, DoubleQCritic
 
 
 @dataclass

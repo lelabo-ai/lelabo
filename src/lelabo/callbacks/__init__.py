@@ -10,7 +10,7 @@ from .registry import (
 from .utils import build_configured_callbacks
 
 # Force built-in callback registrations.
-from . import builders  # noqa: F401
+from . import builtins  # noqa: F401
 
 __all__ = [
     "Callback",

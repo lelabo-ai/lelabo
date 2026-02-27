@@ -225,20 +225,6 @@ class LeModule(nn.Module):
     def blocks(self) -> list[BlockSpec]:
         return list(self.get_blocks())
 
-    @property
-    def local_blocks(self):
-        # Backward compat
-        return [
-            {
-                "name": b.name,
-                "module": b.module,
-                "rep": b.rep,
-                "is_output": b.is_output,
-                "group": b.group,
-            }
-            for b in self.blocks
-        ]
-
     # -------------------------
     # return_cache plumbing
     # -------------------------
@@ -428,11 +414,11 @@ class LeModule(nn.Module):
             runtime_specs = specs
 
         cache: dict[str, Any] = {
-            "block_inputs": block_inputs,  # compat: last occurrence
-            "block_outputs": block_outputs,  # compat: last occurrence
-            "block_inputs_all": dict(block_inputs_all),  # robust: list per name
-            "block_outputs_all": dict(block_outputs_all),  # robust: list per name
-            "block_specs_runtime": runtime_specs,  # robust: corrected output marking
+            "block_inputs": block_inputs,
+            "block_outputs": block_outputs,
+            "block_inputs_all": dict(block_inputs_all),
+            "block_outputs_all": dict(block_outputs_all),
+            "block_specs_runtime": runtime_specs,
         }
         if self.auto_cache_include_steps:
             cache["steps"] = steps

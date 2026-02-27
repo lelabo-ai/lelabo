@@ -90,13 +90,6 @@ def default_capsules_dir() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
 
-    # Backward-compatible legacy project-local location.
-    cwd = Path.cwd().resolve()
-    for candidate in (cwd, *cwd.parents):
-        maybe = candidate / ".lelabo" / "capsules"
-        if maybe.exists():
-            return maybe.resolve()
-
     return _user_data_capsules_dir()
 
 

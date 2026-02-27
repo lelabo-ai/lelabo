@@ -32,9 +32,7 @@ def test_get_rl_algo_contract_lists_expected_keys() -> None:
     dqn_contract = set(rl_cfg.get_rl_algo_contract("dqn"))
     ppo_contract = set(rl_cfg.get_rl_algo_contract("ppo"))
     assert "batch_size" in dqn_contract
-    assert "rl_batch_size" in dqn_contract
     assert "num_steps" in ppo_contract
-    assert "ppo_num_steps" in ppo_contract
 
 
 def test_get_rl_algo_contract_rejects_unknown_algo() -> None:
@@ -55,9 +53,9 @@ def test_build_dqn_config_overrides_defaults() -> None:
     assert cfg.eps_end == pytest.approx(0.01)
 
 
-def test_build_dqn_config_accepts_legacy_alias() -> None:
-    cfg = rl_cfg.build_dqn_config({"rl_batch_size": "96"})
-    assert cfg.batch_size == 96
+def test_build_dqn_config_rejects_legacy_alias() -> None:
+    with pytest.raises(ValueError, match="Unsupported DQN override"):
+        rl_cfg.build_dqn_config({"rl_batch_size": "96"})
 
 
 def test_build_dqn_config_rejects_unknown_key() -> None:
@@ -82,9 +80,9 @@ def test_build_ppo_config_overrides_top_and_nested_defaults() -> None:
     assert cfg.ppo.target_kl == pytest.approx(0.02)
 
 
-def test_build_ppo_config_accepts_legacy_alias() -> None:
-    cfg = rl_cfg.build_ppo_config({"ppo_num_minibatches": "8"})
-    assert cfg.num_minibatches == 8
+def test_build_ppo_config_rejects_legacy_alias() -> None:
+    with pytest.raises(ValueError, match="Unsupported PPO override"):
+        rl_cfg.build_ppo_config({"ppo_num_minibatches": "8"})
 
 
 def test_build_ppo_config_accepts_explicit_none_for_optional_float() -> None:

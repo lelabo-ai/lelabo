@@ -3,14 +3,21 @@ from __future__ import annotations
 
 import argparse
 import gc
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from ..models import *
-from ..core.task import *
-from ..update_rules import UpdateRuleContext, build_update_rule
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from lelabo.core.task import ClassificationTask, PPOConfig, PPOTask
+from lelabo.models import ActorCriticDiscrete, MLPClassifier
+from lelabo.update_rules import UpdateRuleContext, build_update_rule
 
 # -----------------------------
 # Robust imports (package or local)

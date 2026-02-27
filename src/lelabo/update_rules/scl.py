@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from .base import UpdateRule
 from ..core.batch import to_device
 from ..core.steps import maybe_accuracy_from_logits, metric_payload_from_outputs
-from ..models.imported.deep_softhebb import SoftHebbBlock
+from ..models.builtins.deep_softhebb import SoftHebbBlock
 
 
 class SoftContrastiveLearning(UpdateRule):

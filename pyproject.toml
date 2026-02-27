@@ -7,7 +7,7 @@ name = "lelabo"
 version = "0.1.0"
 description = "Modular research lab for learning algorithms."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Adrien Kegreisz" }]
 dependencies = [
@@ -15,7 +15,6 @@ dependencies = [
     "pyyaml>=6",
     "zstandard>=0.22",
     "ano-optimizer>=1.0.0",
-    "tomli>=2; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

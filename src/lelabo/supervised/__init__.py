@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 
-__all__ = ["datasets", "runner"]
+__all__ = ["datasets"]
 
 
 def __getattr__(name: str):

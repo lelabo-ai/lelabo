@@ -57,12 +57,8 @@ def resolve_config_path(raw: str) -> Path:
         p_repo = root / p
         if p_repo.exists():
             return p_repo
-    if len(p.parts) >= 2 and p.parts[0] == "configs":
-        candidate = root / "experiments" / "configs" / p.parts[-1]
-        if candidate.exists():
-            return candidate
     if len(p.parts) == 1:
-        candidate = root / "experiments" / "configs" / p.name
+        candidate = root / "experiments" / "sweeps" / p.name
         if candidate.exists():
             return candidate
     return p
@@ -694,7 +690,7 @@ Paper
 Scaling (layers):
 
 python tools/plot_sweep.py \
-    --config experiments/configs/compare_mnist_noise.yaml \
+    --config experiments/sweeps/compare_mnist_noise.yaml \
     --mode sweep --xvar layers \
     --y eval.test.acc --hue algo \
     --where hidden=2048 --where input-noise-training=0.0 \
@@ -703,7 +699,7 @@ python tools/plot_sweep.py \
 Scaling (hidden):
 
 python tools/plot_sweep.py \
-    --config experiments/configs/compare_mnist_noise.yaml \
+    --config experiments/sweeps/compare_mnist_noise.yaml \
     --mode sweep --xvar hidden \
     --y eval.test.acc --hue algo \
     --where layers=2 --where input-noise-training=0.0 \
@@ -712,7 +708,7 @@ python tools/plot_sweep.py \
 Noise :
 
 python tools/plot_sweep.py \
-    --config experiments/configs/compare_mnist_noise.yaml \
+    --config experiments/sweeps/compare_mnist_noise.yaml \
     --mode sweep --xvar input-noise-training \
     --y eval.test.acc --hue algo \
     --where hidden=2048 --where layers=2 \
@@ -725,13 +721,13 @@ python tools/plot_sweep.py \
 EXAMPLES
 
 python tools/plot_sweep.py \
-  --config experiments/configs/compare_mnist_noise.yaml \
+  --config experiments/sweeps/compare_mnist_noise.yaml \
   --mode curve \
   --y eval.val.acc \
   --hue algo
   
 python tools/plot_sweep.py \
-  --config experiments/configs/compare_mnist_noise.yaml \
+  --config experiments/sweeps/compare_mnist_noise.yaml \
   --mode curve \
   --y eval.val.acc \
   --hue algo
@@ -748,7 +744,7 @@ python tools/plot_sweep.py \
 
 # 3) RL curve: rolling mean return vs total steps
 python tools/plot_sweep.py \
-  --config experiments/configs/compare_rl.yaml \
+  --config experiments/sweeps/compare_rl.yaml \
   --mode curve \
   --x total_steps \
   --y rl_update.roll_mean_return_20 \
@@ -757,7 +753,7 @@ python tools/plot_sweep.py \
 
 # 4) RL curve (field-only y): accept any t in metrics.jsonl
 python tools/plot_sweep.py \
-  --config experiments/configs/compare_rl.yaml \
+  --config experiments/sweeps/compare_rl.yaml \
   --mode curve \
   --x total_steps \
   --y roll_mean_return_20 \

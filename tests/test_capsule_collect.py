@@ -15,7 +15,7 @@ def test_collect_single_run(tmp_path, monkeypatch) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "meta.json").write_text(
-        json.dumps({"argv": ["python", "-m", "lelabo.main", "--seed", "1"]}),
+        json.dumps({"argv": ["python", "-m", "lelabo", "--seed", "1"]}),
         encoding="utf-8",
     )
     (run_dir / "summary.json").write_text(json.dumps({"ok": True}), encoding="utf-8")

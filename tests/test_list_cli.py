@@ -23,8 +23,8 @@ capsule_registry = importlib.import_module("lelabo.capsule.registry")
 def test_list_cli_all_text(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         list_cli,
-        "_collect_all_single_refresh",
-        lambda **kwargs: {
+        "_collect",
+        lambda *args, **kwargs: {
             "update_rules": ["bp", "fa"],
             "datasets": ["iris"],
             "models": ["cnn", "mlp"],

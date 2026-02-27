@@ -15,15 +15,11 @@ launch_grid = load_module_from_path(
 )
 
 
-def test_resolve_config_path_supports_legacy_and_new_paths() -> None:
-    resolved_new = launch_grid.resolve_config_path("experiments/configs/demo.yaml").resolve()
-    resolved_old = launch_grid.resolve_config_path("configs/demo.yaml").resolve()
-    resolved_bare = launch_grid.resolve_config_path("demo.yaml").resolve()
+def test_resolve_config_path_supports_repo_relative_path() -> None:
+    resolved_new = launch_grid.resolve_config_path("experiments/sweeps/demo.yaml").resolve()
 
-    expected = (launch_grid.REPO_ROOT / "experiments" / "configs" / "demo.yaml").resolve()
+    expected = (launch_grid.REPO_ROOT / "experiments" / "sweeps" / "demo.yaml").resolve()
     assert resolved_new == expected
-    assert resolved_old == expected
-    assert resolved_bare == expected
 
 
 def test_with_src_on_pythonpath_sets_required_env() -> None:
@@ -70,7 +66,7 @@ def test_launcher_dry_run_writes_plan(tmp_path: Path) -> None:
         sys.executable,
         str(launch_grid.REPO_ROOT / "experiments" / "launchers" / "launch_grid.py"),
         "--config",
-        "experiments/configs/demo.yaml",
+        "experiments/sweeps/demo.yaml",
         "--outdir",
         str(outdir),
         "--dry-run",

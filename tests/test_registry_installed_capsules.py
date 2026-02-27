@@ -109,7 +109,7 @@ def test_get_metric_names_includes_installed_capsules(tmp_path) -> None:
         plugins.reset_capsule_plugin_cache()
 
 
-def test_broken_installed_capsule_emits_warning_and_keeps_builtins(tmp_path) -> None:
+def test_broken_installed_capsule_raises_runtime_error(tmp_path) -> None:
     capsule_root = tmp_path / "capsule_broken"
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
@@ -130,10 +130,8 @@ def test_broken_installed_capsule_emits_warning_and_keeps_builtins(tmp_path) -> 
     original_items = dict(models_registry.MODEL_REGISTRY._items)
     plugins.reset_capsule_plugin_cache()
     try:
-        with pytest.warns(RuntimeWarning, match="failed to load"):
-            names = models_registry.get_model_names(capsules_dir=caps_dir)
-        assert isinstance(names, list)
-        assert names
+        with pytest.raises(RuntimeError, match="Failed to load installed capsule plugins"):
+            models_registry.get_model_names(capsules_dir=caps_dir)
     finally:
         models_registry.MODEL_REGISTRY._items = original_items
         plugins.reset_capsule_plugin_cache()

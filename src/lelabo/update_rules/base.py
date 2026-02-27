@@ -57,19 +57,13 @@ class AutogradUpdateRule(UpdateRule):
 
     def state_dict(self) -> Dict[str, Any]:
         d = super().state_dict()
-        try:
-            d["optimizer"] = self.optimizer.state_dict()
-        except Exception:
-            pass
+        d["optimizer"] = self.optimizer.state_dict()
         d["grad_clip"] = self.grad_clip
         return d
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
         super().load_state_dict(state)
         if "optimizer" in state:
-            try:
-                self.optimizer.load_state_dict(state["optimizer"])
-            except Exception:
-                pass
+            self.optimizer.load_state_dict(state["optimizer"])
         if "grad_clip" in state:
             self.grad_clip = state["grad_clip"]

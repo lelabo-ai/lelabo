@@ -50,7 +50,7 @@ def _load_update_rule_modules(monkeypatch: pytest.MonkeyPatch):
     importlib.import_module("torch")
 
     registry = importlib.import_module("lelabo.update_rules.registry")
-    importlib.import_module("lelabo.update_rules.builders")
+    importlib.import_module("lelabo.update_rules.builtins")
     return registry
 
 

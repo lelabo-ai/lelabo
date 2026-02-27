@@ -6,4 +6,4 @@ Conventions:
 - `name`: experiment folder name under `outputs/runs/`
 
 Typical usage:
-`python experiments/launchers/launch_grid.py --config experiments/configs/demo.yaml`
+`python experiments/launchers/launch_grid.py --config experiments/sweeps/demo.yaml`

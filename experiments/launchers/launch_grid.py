@@ -17,7 +17,6 @@ except Exception:
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_ROOT = REPO_ROOT / "experiments" / "configs"
 
 
 # --------------------------
@@ -59,16 +58,6 @@ def resolve_config_path(raw: str) -> Path:
         p_repo = REPO_ROOT / p
         if p_repo.exists():
             return p_repo
-    # Backward compatibility: "configs/foo.yaml" -> "experiments/configs/foo.yaml"
-    if len(p.parts) >= 2 and p.parts[0] == "configs":
-        candidate = CONFIG_ROOT / p.parts[-1]
-        if candidate.exists():
-            return candidate
-    # Convenience: "foo.yaml" -> "experiments/configs/foo.yaml"
-    if len(p.parts) == 1:
-        candidate = CONFIG_ROOT / p.name
-        if candidate.exists():
-            return candidate
     return p
 
 

@@ -45,14 +45,12 @@ class ModelCacheWrapper(LeModule):
         detach_cache: bool = True,
         cache_to_cpu: bool = False,
         include_steps: bool = True,
-        include_mlp_cache: bool = False,
     ):
         super().__init__()
         self.model = model
         self.detach_cache = bool(detach_cache)
         self.cache_to_cpu = bool(cache_to_cpu)
         self.include_steps = bool(include_steps)
-        self.include_mlp_cache = bool(include_mlp_cache)
 
         self._block_specs = self._build_block_specs(block_specs, block_filter)
         self._validate_specs(self._block_specs)
@@ -110,25 +108,6 @@ class ModelCacheWrapper(LeModule):
         if self.cache_to_cpu:
             t = t.cpu()
         return t
-
-    def _build_mlp_compat_cache(self, cache: dict[str, Any]) -> None:
-        names = [s.name for s in self._block_specs]
-        block_inputs = cache.get("block_inputs", {})
-        block_outputs = cache.get("block_outputs", {})
-        if not names:
-            return
-        if not all((n in block_inputs and n in block_outputs) for n in names):
-            return
-
-        inputs = [block_inputs[n] for n in names]
-        preacts = [block_outputs[n] for n in names]
-
-        acts = [block_inputs[names[i + 1]] for i in range(len(names) - 1)]
-        acts.append(preacts[-1])
-
-        cache["inputs"] = inputs
-        cache["preacts"] = preacts
-        cache["acts"] = acts
 
     def forward(self, *args, return_cache: bool = False, **kwargs):
         if not return_cache:
@@ -188,7 +167,5 @@ class ModelCacheWrapper(LeModule):
         }
         if self.include_steps:
             cache["steps"] = steps
-        if self.include_mlp_cache:
-            self._build_mlp_compat_cache(cache)
 
         return out, cache

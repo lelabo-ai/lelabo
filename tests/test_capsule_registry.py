@@ -43,25 +43,15 @@ def test_registry_add_and_resolve(tmp_path) -> None:
     assert registry.list_capsules(capsules_dir) == []
 
 
-def test_default_capsules_dir_resolves_parent_index(tmp_path, monkeypatch) -> None:
+def test_default_capsules_dir_ignores_legacy_project_local_capsules(tmp_path, monkeypatch) -> None:
     project_root = tmp_path / "project"
-    capsules_dir = project_root / ".lelabo" / "capsules"
-    cap_dir = project_root / "capsule_a"
-    cap_dir.mkdir(parents=True)
+    legacy_capsules_dir = project_root / ".lelabo" / "capsules"
+    legacy_capsules_dir.mkdir(parents=True)
 
+    monkeypatch.delenv("LELABO_CAPSULES_DIR", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg_data"))
     monkeypatch.chdir(project_root)
-    registry.add_capsule_entry(
-        capsule_id="cap_parent",
-        capsule_path=cap_dir,
-        manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": "x"}},
-        alias="cap_parent",
-        capsules_dir=capsules_dir,
-    )
-
-    nested = cap_dir / "models"
-    nested.mkdir(parents=True)
-    monkeypatch.chdir(nested)
-    assert registry.default_capsules_dir() == capsules_dir.resolve()
+    assert registry.default_capsules_dir() == (tmp_path / "xdg_data" / "lelabo" / "capsules").resolve()
 
 
 def test_default_capsules_dir_uses_user_data_when_no_legacy_dir(tmp_path, monkeypatch) -> None:

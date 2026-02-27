@@ -56,11 +56,11 @@ def _load_lab_modules(monkeypatch: pytest.MonkeyPatch):
     importlib.import_module("torch")
 
     registry = importlib.import_module("lelabo.update_rules.registry")
-    importlib.import_module("lelabo.update_rules.builders")
-    mlp_mod = importlib.import_module("lelabo.models.imported.mlp")
-    conv_mod = importlib.import_module("lelabo.models.imported.convnet")
-    deephebb_mod = importlib.import_module("lelabo.models.imported.deep_softhebb")
-    ac_mod = importlib.import_module("lelabo.models.imported.actor_critic")
+    importlib.import_module("lelabo.update_rules.builtins")
+    mlp_mod = importlib.import_module("lelabo.models.builtins.mlp")
+    conv_mod = importlib.import_module("lelabo.models.builtins.convnet")
+    deephebb_mod = importlib.import_module("lelabo.models.builtins.deep_softhebb")
+    ac_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
     task_mod = importlib.import_module("lelabo.core.task")
     return registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, task_mod
 
@@ -317,7 +317,7 @@ def _warn_execution_issue(algo: str, mode: str, exc: Exception) -> str:
         "requires model.get_blocks",
         "no fallback",
         "unsupported",
-        "has no local_blocks",
+        "has no get_blocks()",
         "missing",
     )
     if any(marker in lowered for marker in incompatible_markers):

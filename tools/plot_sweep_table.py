@@ -58,12 +58,8 @@ def resolve_config_path(raw: str) -> Path:
         p_repo = root / p
         if p_repo.exists():
             return p_repo
-    if len(p.parts) >= 2 and p.parts[0] == "configs":
-        candidate = root / "experiments" / "configs" / p.parts[-1]
-        if candidate.exists():
-            return candidate
     if len(p.parts) == 1:
-        candidate = root / "experiments" / "configs" / p.name
+        candidate = root / "experiments" / "sweeps" / p.name
         if candidate.exists():
             return candidate
     return p

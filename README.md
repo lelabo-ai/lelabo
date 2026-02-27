@@ -56,7 +56,7 @@ The repository is now split by responsibility:
 - **`src/lelabo/`**  
   Importable research code: models, datasets, algorithms, trainer/runner logic.
 
-- **`experiments/configs/`**  
+- **`experiments/sweeps/`**  
   YAML experiment definitions (grids, baselines, demos).
 
 - **`experiments/launchers/`**  
@@ -67,9 +67,6 @@ The repository is now split by responsibility:
 
 - **`outputs/`**  
   Generated artifacts (`outputs/runs/`, `outputs/figures/`).
-
-- **`scripts/` and `plots/`**  
-  Backward-compatible wrappers pointing to the new locations.
 
 The structure is designed to make it easy to answer questions like:
 
@@ -83,7 +80,7 @@ This repository is intended for **personal research use**.
 
 Typical workflow:
 1. Define or modify a **model / algorithm** in `src/lelabo/`
-2. Create or update a sweep config in `experiments/configs/`
+2. Create or update a sweep config in `experiments/sweeps/`
 3. Launch runs with `experiments/launchers/launch_grid.py`
 4. Analyze results with scripts in `tools/`
 
@@ -155,13 +152,13 @@ lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1 --rl-a
 
 ```bash
 python experiments/launchers/launch_grid.py \
-  --config experiments/configs/demo.yaml \
+  --config experiments/sweeps/demo.yaml \
   --max-parallel 4
 ```
 
 ```bash
 python tools/plot_sweep_table.py \
-  --config experiments/configs/demo.yaml \
+  --config experiments/sweeps/demo.yaml \
   --metric eval.test.acc
 ```
 

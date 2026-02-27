@@ -53,7 +53,7 @@ def test_resnet18_runtime_cache_heavy() -> None:
     torch = pytest.importorskip("torch")
     pytest.importorskip("torchvision")
 
-    resnet_mod = importlib.import_module("lelabo.models.imported.resnet")
+    resnet_mod = importlib.import_module("lelabo.models.builtins.resnet")
     model = resnet_mod.ResNet(num_classes=7, resnet_type="resnet18", pretrained=False)
 
     x = torch.randn(2, 3, 64, 64)
