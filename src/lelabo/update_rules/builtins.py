@@ -9,8 +9,6 @@ from .backprop import Backprop
 from .dfa import DirectFeedbackAlignment
 from .dni import DNI
 from .feedbackalignment import FeedbackAlignment
-from .local_probe_bert import LocalProbeBERT
-from .local_probe_blocks import LocalProbeBlocks
 from .scl import SoftContrastiveLearning
 from .softhebb import SoftHebb
 from .targetprop import TargetPropagation
@@ -56,15 +54,6 @@ def build_backprop(ctx: UpdateRuleContext):
     else:
         grad_clip = None
     return Backprop(optimizer=ctx.optimizer, grad_clip=grad_clip)
-
-
-@register_update_rule("lpl")
-def build_local_probe(ctx: UpdateRuleContext):
-    if ctx.mode != "supervised":
-        raise ValueError("lpl is only supported in supervised mode.")
-    if ctx.dataset == "glue":
-        return LocalProbeBERT(base_optimizer=ctx.optimizer, probe_lr=ctx.args.lr)
-    return LocalProbeBlocks(base_optimizer=ctx.optimizer, probe_lr=ctx.args.lr)
 
 @register_update_rule("scl")
 def build_scl(ctx: UpdateRuleContext):
