@@ -3,15 +3,17 @@ lelabo_version = "auto"
 task = "supervised"
 
 [dataset]
-name = "mnist"
+name = "cifar10"
 [dataset.params]
-# extra dataset-specific keys can be added here
+# CIFAR10/CIFAR100:
+# - augment=false (default) => no train-time augmentation
+# - augment=true => RandomCrop(32, padding=4) + RandomHorizontalFlip on train split only
+augment = true
+# num_workers = 2
+# pin_memory = true
 
 [model]
-name = "mlp"
-[model.params]
-hidden = 2048
-layers = 2
+name = "cnn"
 
 [update_rule]
 name = "bp"
@@ -23,8 +25,6 @@ name = "adamw"
 [optimizer.params]
 lr = 0.001
 weight_decay = 0.01
-# momentum is used by sgd+momentum
-momentum = 0.9
 
 [scheduler]
 name = "none"
@@ -43,7 +43,7 @@ verbose = 1
 
 [train]
 epochs = 50
-batch = 64
+batch = 32
 val_frac = 0.1
 input_noise_training = 0.0
 input_noise_dataset = 0.0

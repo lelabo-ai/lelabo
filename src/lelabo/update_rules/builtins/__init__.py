@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .backprop import Backprop, Backpropagation
 from .dfa import DirectFeedbackAlignment
+from .drtp import DirectRandomTargetProjection
 
 
 def build_backprop(ctx):
@@ -16,10 +17,18 @@ def build_dfa(ctx):
     return _build_dfa(ctx)
 
 
+def build_drtp(ctx):
+    from .builders import build_drtp as _build_drtp
+
+    return _build_drtp(ctx)
+
+
 __all__ = [
     "Backpropagation",
     "Backprop",
     "DirectFeedbackAlignment",
+    "DirectRandomTargetProjection",
     "build_backprop",
     "build_dfa",
+    "build_drtp",
 ]

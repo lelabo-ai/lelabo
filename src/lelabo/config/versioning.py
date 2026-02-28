@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from .. import __version__ as LELABO_VERSION
+try:
+    from .. import __version__ as LELABO_VERSION
+except Exception:  # pragma: no cover - fallback for namespace-stubbed test environments.
+    LELABO_VERSION = "0.0.0"
 
 
 TRAIN_CONFIG_SCHEMA_VERSION = "1.0"
@@ -19,4 +22,3 @@ def resolve_lelabo_version(raw: object) -> str:
     if text.lower() in _AUTO_TOKENS:
         return LELABO_VERSION
     return text
-

@@ -94,3 +94,49 @@ def assign_linear_grads_from_activations_(
     assign_param_grad_(layer.weight, d_weight)
     if layer.bias is not None and d_bias is not None:
         assign_param_grad_(layer.bias, d_bias)
+
+
+def assign_conv2d_grads_from_activations_(
+    layer: nn.Conv2d,
+    activations: torch.Tensor,
+    delta: torch.Tensor,
+    *,
+    average_batch: bool = False,
+    scale: float = 1.0,
+) -> None:
+    """Write Conv2d layer gradients from local activations and local delta."""
+    if activations.dim() != 4 or delta.dim() != 4:
+        raise ValueError("assign_conv2d_grads_from_activations_ expects 4D tensors.")
+    if activations.size(0) != delta.size(0):
+        raise ValueError("Batch size mismatch between activations and delta.")
+    if int(delta.size(1)) != int(layer.out_channels):
+        raise ValueError(
+            f"Delta channel mismatch for Conv2d: got {int(delta.size(1))}, "
+            f"expected {int(layer.out_channels)}."
+        )
+
+    batch_size = float(max(1, activations.size(0)))
+    d_weight = torch.nn.grad.conv2d_weight(
+        activations,
+        layer.weight.shape,
+        delta,
+        stride=layer.stride,
+        padding=layer.padding,
+        dilation=layer.dilation,
+        groups=layer.groups,
+    )
+    d_bias = delta.sum(dim=(0, 2, 3)) if layer.bias is not None else None
+
+    if average_batch:
+        d_weight = d_weight / batch_size
+        if d_bias is not None:
+            d_bias = d_bias / batch_size
+
+    if scale != 1.0:
+        d_weight = d_weight * float(scale)
+        if d_bias is not None:
+            d_bias = d_bias * float(scale)
+
+    assign_param_grad_(layer.weight, d_weight)
+    if layer.bias is not None and d_bias is not None:
+        assign_param_grad_(layer.bias, d_bias)

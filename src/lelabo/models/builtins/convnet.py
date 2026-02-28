@@ -1,7 +1,7 @@
 # lab/models/convnet.py
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import torch
 import torch.nn as nn
@@ -15,7 +15,29 @@ from ..registry import ModelContext, register_model
 def build_cnn(ctx: ModelContext, args):
     if ctx.in_channels is None:
         raise ValueError("CNN needs ctx.in_channels")
-    return ConvNetClassifier(in_channels=ctx.in_channels, num_classes=ctx.num_classes)
+
+    model_params = getattr(args, "model_params", None)
+    params = dict(model_params) if isinstance(model_params, Mapping) else {}
+
+    def _pick(name: str, default):
+        if name in params:
+            return params[name]
+        value = getattr(args, name, default)
+        return default if value is None else value
+
+    return ConvNetClassifier(
+        in_channels=ctx.in_channels,
+        num_classes=ctx.num_classes,
+        channels=_pick("channels", None),
+        depth=_pick("depth", 3),
+        base_width=_pick("base_width", 32),
+        width_factor=_pick("width_factor", 2),
+        kernel_sizes=_pick("kernel_sizes", 3),
+        use_bn=_pick("use_bn", True),
+        pool_every=_pick("pool_every", 1),
+        pools=_pick("pools", None),
+        pool_kernel=_pick("pool_kernel", 2),
+    )
 
 
 class ClassicCNN(nn.Module):
@@ -33,6 +55,7 @@ class ClassicCNN(nn.Module):
         pool_kernel: int,
     ):
         super().__init__()
+        self.activation_name = "relu"
         if not widths:
             raise ValueError("ClassicCNN requires at least one conv width.")
         if not (len(widths) == len(kernel_sizes) == len(pools)):
@@ -81,16 +104,77 @@ class ClassicCNN(nn.Module):
         specs.append(BlockSpec(name="head", module=self.head, rep="identity", is_output=True))
         return specs
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_cache: bool = False):
+        if not return_cache:
+            for i, conv_name in enumerate(self._conv_names, start=1):
+                bn_name = f"bn{i}"
+                pool_name = f"pool{i}"
+                x = getattr(self, conv_name)(x)
+                x = getattr(self, bn_name)(x)
+                x = F.relu(x, inplace=True)
+                x = getattr(self, pool_name)(x)
+            x = self.gap(x).flatten(1)
+            return self.head(x)
+
+        # --- cache path
+        block_inputs: dict[str, torch.Tensor] = {}
+        block_preacts: dict[str, torch.Tensor] = {}
+        block_outputs: dict[str, torch.Tensor] = {}
+        steps: list[dict[str, object]] = []
+
         for i, conv_name in enumerate(self._conv_names, start=1):
+            name = conv_name
             bn_name = f"bn{i}"
             pool_name = f"pool{i}"
-            x = getattr(self, conv_name)(x)
-            x = getattr(self, bn_name)(x)
-            x = F.relu(x, inplace=True)
-            x = getattr(self, pool_name)(x)
-        x = self.gap(x).flatten(1)
-        return self.head(x)
+
+            x_in = x
+            block_inputs[name] = x_in.detach()
+
+            u = getattr(self, conv_name)(x_in)          # conv output
+            u_bn = getattr(self, bn_name)(u)            # this is what ReLU sees => "preact"
+            h = F.relu(u_bn, inplace=False)             # avoid inplace messing with cached tensors
+            x = getattr(self, pool_name)(h)
+
+            block_preacts[name] = u_bn.detach()
+            block_outputs[name] = h.detach()
+
+            steps.append(
+                {
+                    "name": name,
+                    "type": "Conv2d",
+                    "is_output": False,
+                    "x_in": block_inputs[name],
+                    "preact": block_preacts[name],
+                    "out": block_outputs[name],
+                }
+            )
+
+        # head
+        feats = self.gap(x).flatten(1)
+        block_inputs["head"] = feats.detach()
+        logits = self.head(feats)
+        block_preacts["head"] = logits.detach()
+        block_outputs["head"] = logits.detach()
+        steps.append(
+            {
+                "name": "head",
+                "type": "Linear",
+                "is_output": True,
+                "x_in": block_inputs["head"],
+                "preact": block_preacts["head"],
+                "out": block_outputs["head"],
+            }
+        )
+
+        cache = {
+            "cache_version": "standard.v1",
+            "block_inputs": block_inputs,
+            "block_outputs": block_outputs,   # post-activation for conv blocks here
+            "block_preacts": block_preacts,
+            "block_specs_runtime": self.get_blocks(),
+            "steps": steps,
+        }
+        return logits, normalize_standard_cache(cache)
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:
@@ -109,8 +193,8 @@ class ConvNetClassifier(ClassicCNN):
         num_classes: int = 10,
         channels: Sequence[int] | None = None,
         depth: int | None = 3,
-        base_width: int = 96,
-        width_factor: int = 4,
+        base_width: int = 32,
+        width_factor: int = 2,
         kernel_sizes: int | Sequence[int] = 3,
         use_bn: bool = False,
         pool_every: int = 1,

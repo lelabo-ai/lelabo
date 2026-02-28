@@ -8,7 +8,10 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .. import __version__ as LELABO_VERSION
+try:
+    from .. import __version__ as LELABO_VERSION
+except Exception:  # pragma: no cover - fallback for namespace-stubbed test environments.
+    LELABO_VERSION = "0.0.0"
 from ..config.versioning import TRAIN_CONFIG_SCHEMA_VERSION
 from .registry import add_capsule_entry, default_capsules_dir
 from .schema import CAPSULE_SCHEMA_VERSION, validate_manifest

@@ -209,6 +209,37 @@ def test_convnet_classifier_cache_contract() -> None:
     assert tuple(cache["block_outputs"]["head"].shape) == (4, 10)
 
 
+def test_cnn_builder_forwards_model_params() -> None:
+    registry = _models_registry()
+    args = _default_args()
+    args.model_params = {
+        "channels": [4, 7],
+        "kernel_sizes": [5, 3],
+        "pools": [False, True],
+        "use_bn": False,
+        "pool_kernel": 3,
+    }
+    ctx = registry.ModelContext(
+        dataset="mnist",
+        num_classes=6,
+        in_dim=None,
+        in_channels=1,
+        input_shape=(1, 28, 28),
+    )
+    model = registry.build_model("cnn", ctx, args)
+
+    assert len(model.convs) == 2
+    assert model.convs[0].out_channels == 4
+    assert model.convs[0].kernel_size == (5, 5)
+    assert model.convs[1].out_channels == 7
+    assert model.convs[1].kernel_size == (3, 3)
+    assert model.head.out_features == 6
+    assert type(getattr(model, "bn1")).__name__ == "Identity"
+    assert type(getattr(model, "bn2")).__name__ == "Identity"
+    assert type(getattr(model, "pool1")).__name__ == "Identity"
+    assert type(getattr(model, "pool2")).__name__ == "MaxPool2d"
+
+
 def test_deep_softhebb_classifier_cache_contract() -> None:
     torch = importlib.import_module("torch")
     deep_mod = importlib.import_module("lelabo.models.builtins.deep_softhebb")
