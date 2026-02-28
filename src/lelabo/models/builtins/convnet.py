@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..blocks import LeModule, BlockSpec
+from ..blocks import BlockSpec
 from ..registry import ModelContext, register_model
 
 
@@ -18,7 +18,7 @@ def build_cnn(ctx: ModelContext, args):
     return ConvNetClassifier(in_channels=ctx.in_channels, num_classes=ctx.num_classes)
 
 
-class ClassicCNN(LeModule):
+class ClassicCNN(nn.Module):
     """CNN classique: (Conv -> BN -> ReLU -> Pool) x N -> GAP -> Linear."""
 
     def __init__(

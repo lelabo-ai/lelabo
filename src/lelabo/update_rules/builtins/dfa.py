@@ -8,12 +8,17 @@ import torch
 import torch.nn as nn
 
 from ..base import OptimizerUpdateRule
-from ..helpers import assign_linear_grads_from_activations_
+from ..helpers import (
+    activation_derivative_from_preact,
+    assign_linear_grads_from_activations_,
+    resolve_activation_name,
+)
 from ...core.batch import extract_loss_and_stats, to_device
+from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 
 class DirectFeedbackAlignment(OptimizerUpdateRule):
-    """Simple Linear-only DFA implementation."""
+    """DFA v1: supervised-only, single-head, linear-only."""
 
     def __init__(
         self,
@@ -21,33 +26,30 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         feedback_scale: float = 1.0,
         grad_clip: float | None = None,
         delta_scale: float = 1.0,
-        activation: str = "relu",
         average_grads: bool = False,
+        activation_name: str | None = None,
     ) -> None:
-        super().__init__(optimizer=optimizer, grad_clip=grad_clip)
+        super().__init__(
+            optimizer=optimizer,
+            grad_clip=grad_clip,
+            strict_require_grads=True,
+            check_finite_grads=True,
+        )
         self.feedback_scale = float(feedback_scale)
         self.delta_scale = float(delta_scale)
-        self.activation = str(activation).lower()
         self.average_grads = bool(average_grads)
+        self.activation_name = None if activation_name is None else str(activation_name).lower()
 
         self._feedback: dict[str, torch.Tensor] = {}
         self._feedback_shapes: dict[str, tuple[int, int]] = {}
 
-    def _to_2d(self, t: torch.Tensor) -> torch.Tensor:
-        return t if t.dim() == 2 else t.view(t.size(0), -1)
+    def on_train_start(self, model, task, device, state=None) -> None:
+        if self.activation_name is None:
+            self.activation_name = resolve_activation_name(model)
 
-    def _activation_grad(self, pre_activation: torch.Tensor) -> torch.Tensor:
-        if self.activation == "relu":
-            return (pre_activation > 0).to(pre_activation.dtype)
-        if self.activation == "tanh":
-            t = torch.tanh(pre_activation)
-            return 1.0 - t * t
-        if self.activation == "sigmoid":
-            s = torch.sigmoid(pre_activation)
-            return s * (1.0 - s)
-        if self.activation == "identity":
-            return torch.ones_like(pre_activation)
-        raise ValueError(f"Unsupported activation for DFA: '{self.activation}'.")
+    @staticmethod
+    def _to_2d(t: torch.Tensor) -> torch.Tensor:
+        return t if t.dim() == 2 else t.view(t.size(0), -1)
 
     def _ensure_feedback(self, key: str, out_dim: int, hidden_dim: int, device, dtype) -> torch.Tensor:
         shape = (int(out_dim), int(hidden_dim))
@@ -62,78 +64,25 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         self._feedback_shapes[key] = shape
         return mat
 
-    def _output_deltas(self, task, out: Any, y: Any) -> list[tuple[str, torch.Tensor]]:
+    def _output_delta_logits(self, task, out: Any, y: Any) -> torch.Tensor:
+        if isinstance(y, Mapping):
+            raise NotImplementedError("DFA v1 does not support RL/mapping labels.")
         if not hasattr(task, "output_deltas"):
             raise NotImplementedError("DFA requires task.output_deltas(out, y).")
         raw = task.output_deltas(out, y)
         if not isinstance(raw, Mapping):
             raise RuntimeError("task.output_deltas must return a dict[str, Tensor].")
-
-        out_deltas: list[tuple[str, torch.Tensor]] = []
-        for key, value in raw.items():
-            if not torch.is_tensor(value):
-                continue
-            d = self._to_2d(value)
-            if d.numel() > 0:
-                out_deltas.append((str(key), d))
-        if not out_deltas:
-            raise RuntimeError("DFA: task.output_deltas returned no usable tensors.")
-        return out_deltas
-
-    def _match_delta_for_head(
-        self,
-        *,
-        block_name: str,
-        block_group: str,
-        layer: nn.Linear,
-        deltas: list[tuple[str, torch.Tensor]],
-        used: set[str],
-    ) -> torch.Tensor:
-        target_dim = int(layer.out_features)
-        group_l = block_group.lower()
-        name_l = block_name.lower()
-        full_l = f"{group_l}.{name_l}"
-
-        def _score(delta_key: str) -> int:
-            key_l = delta_key.lower()
-            score = 0
-            if key_l in full_l or full_l in key_l:
-                score += 4
-            if key_l in name_l or name_l in key_l:
-                score += 2
-            if "actor" in group_l and "logits" in key_l:
-                score += 3
-            if "critic" in group_l and "value" in key_l:
-                score += 3
-            if ("q" in name_l or "head" in name_l) and "q_values" in key_l:
-                score += 3
-            if "logits" in name_l and "logits" in key_l:
-                score += 1
-            if "value" in name_l and "value" in key_l:
-                score += 1
-            return score
-
-        best_key: str | None = None
-        best_delta: torch.Tensor | None = None
-        best_score = -10_000
-
-        for key, delta in deltas:
-            if key in used or int(delta.size(1)) != target_dim:
-                continue
-            score = _score(key)
-            if score > best_score:
-                best_score = score
-                best_key = key
-                best_delta = delta
-
-        if best_delta is None or best_key is None:
-            raise RuntimeError(
-                f"DFA: unable to match output delta for block '{block_name}' "
-                f"(group='{block_group}', out_features={target_dim})."
-            )
-
-        used.add(best_key)
-        return best_delta
+        if "logits" not in raw:
+            raise RuntimeError("DFA v1 expects task.output_deltas(...) to contain key 'logits'.")
+        d = raw["logits"]
+        if not torch.is_tensor(d):
+            raise RuntimeError("DFA expects output_deltas['logits'] to be a tensor.")
+        d2 = self._to_2d(d)
+        if d2.numel() == 0:
+            raise RuntimeError("DFA output_deltas['logits'] is empty.")
+        if self.delta_scale != 1.0:
+            d2 = d2 * self.delta_scale
+        return d2
 
     @staticmethod
     def _best_effort_stats(task, out: Any, y: Any) -> dict[str, float]:
@@ -164,109 +113,93 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         model.train()
         self.zero_grad()
 
-        if isinstance(batch, Mapping):
-            raise NotImplementedError("DFA currently supports tuple batches only: (x, y).")
+        if not isinstance(batch, (tuple, list)) or len(batch) != 2:
+            raise RuntimeError(f"DFA v1 expects batch=(x, y), got {type(batch)}.")
+
+        if self.activation_name is None:
+            self.activation_name = resolve_activation_name(model)
 
         x, y = batch
         x = to_device(x, device)
         y = to_device(y, device)
 
-        if not hasattr(model, "get_blocks"):
-            raise NotImplementedError("DFA expects model.get_blocks().")
+        spec = CacheSpec(
+            require_block_inputs=True,
+            require_block_outputs=True,
+            require_single_call=True,
+            require_single_output=True,
+            require_linear_only=True,
+            require_ndim2_inputs=True,
+        )
+        out, cache, blocks = forward_with_standard_cache(model, x, cache_spec=spec)
 
-        out_cache = model(x, return_cache=True)
-        if not (isinstance(out_cache, tuple) and len(out_cache) == 2):
-            raise RuntimeError("DFA expects model(x, return_cache=True) -> (out, cache).")
-        out, cache = out_cache
-
-        if not isinstance(cache, Mapping):
-            raise RuntimeError("DFA expects cache to be a mapping.")
-        block_inputs = cache.get("block_inputs", None)
-        if not isinstance(block_inputs, Mapping):
-            raise RuntimeError("DFA expects cache['block_inputs'].")
-
-        runtime_blocks = cache.get("block_specs_runtime", None)
-        blocks = runtime_blocks if isinstance(runtime_blocks, list) else model.get_blocks()
         linear_blocks = [b for b in blocks if isinstance(getattr(b, "module", None), nn.Linear)]
-        if not linear_blocks:
-            raise RuntimeError("DFA found no Linear blocks.")
+        output_blocks = [b for b in linear_blocks if bool(getattr(b, "is_output", False))]
+        if len(output_blocks) != 1:
+            raise RuntimeError(f"DFA v1 expects exactly one Linear output block, got {len(output_blocks)}.")
 
-        deltas = self._output_deltas(task, out, y)
-        used_delta_keys: set[str] = set()
+        output_block = output_blocks[0]
+        output_name = str(getattr(output_block, "name", ""))
+        output_layer: nn.Linear = output_block.module  # type: ignore[assignment]
 
-        blocks_by_group: dict[str, list[Any]] = {}
-        for block in linear_blocks:
-            group = str(getattr(block, "group", "main") or "main")
-            blocks_by_group.setdefault(group, []).append(block)
+        block_inputs = cache["block_inputs"]
+        block_outputs = cache["block_outputs"]
 
-        for group_name, group_blocks in blocks_by_group.items():
-            hidden_blocks = [b for b in group_blocks if not bool(getattr(b, "is_output", False))]
-            output_blocks = [b for b in group_blocks if bool(getattr(b, "is_output", False))]
-            if not output_blocks:
-                continue
+        if output_name not in block_inputs:
+            raise RuntimeError(f"DFA missing cache['block_inputs'][{output_name!r}] for output block.")
+        x_out = block_inputs[output_name]
+        if not torch.is_tensor(x_out) or x_out.dim() != 2:
+            raise RuntimeError(f"DFA output block '{output_name}' expects a 2D input tensor.")
 
-            head_deltas: dict[str, torch.Tensor] = {}
-            for block in output_blocks:
-                name = str(getattr(block, "name", ""))
-                layer: nn.Linear = block.module  # type: ignore[assignment]
-                head_deltas[name] = self._match_delta_for_head(
-                    block_name=name,
-                    block_group=group_name,
-                    layer=layer,
-                    deltas=deltas,
-                    used=used_delta_keys,
-                )
-
-            delta_out_cat = torch.cat(
-                [head_deltas[str(getattr(block, "name", ""))] for block in output_blocks],
-                dim=1,
+        delta_logits = self._output_delta_logits(task, out, y)
+        if int(delta_logits.size(1)) != int(output_layer.out_features):
+            raise RuntimeError(
+                f"DFA logits delta shape mismatch: delta={tuple(delta_logits.shape)} "
+                f"vs out_features={output_layer.out_features} for output block '{output_name}'."
             )
-            if self.delta_scale != 1.0:
-                delta_out_cat = delta_out_cat * self.delta_scale
 
-            for block in hidden_blocks:
-                name = str(getattr(block, "name", ""))
-                layer: nn.Linear = block.module  # type: ignore[assignment]
-                if name not in block_inputs:
-                    raise RuntimeError(f"DFA missing cache['block_inputs'][{name!r}] for hidden block.")
-                x_hidden = block_inputs[name]
-                if not torch.is_tensor(x_hidden) or x_hidden.dim() != 2:
-                    raise RuntimeError(f"DFA hidden block '{name}' expects a 2D tensor input.")
+        assign_linear_grads_from_activations_(
+            output_layer,
+            x_out,
+            delta_logits,
+            average_batch=self.average_grads,
+        )
 
-                pre_activation = layer(x_hidden)
-                feedback = self._ensure_feedback(
-                    key=f"{group_name}:{name}",
-                    out_dim=int(delta_out_cat.size(1)),
-                    hidden_dim=int(layer.out_features),
-                    device=delta_out_cat.device,
-                    dtype=delta_out_cat.dtype,
-                )
-                delta_hidden = (delta_out_cat @ feedback) * self._activation_grad(pre_activation)
-                assign_linear_grads_from_activations_(
-                    layer,
-                    x_hidden,
-                    delta_hidden,
-                    average_batch=self.average_grads,
-                )
+        hidden_blocks = [b for b in linear_blocks if not bool(getattr(b, "is_output", False))]
+        for block in hidden_blocks:
+            name = str(getattr(block, "name", ""))
+            layer: nn.Linear = block.module  # type: ignore[assignment]
 
-            for block in output_blocks:
-                name = str(getattr(block, "name", ""))
-                layer: nn.Linear = block.module  # type: ignore[assignment]
-                if name not in block_inputs:
-                    raise RuntimeError(f"DFA missing cache['block_inputs'][{name!r}] for output block.")
-                x_out = block_inputs[name]
-                if not torch.is_tensor(x_out) or x_out.dim() != 2:
-                    raise RuntimeError(f"DFA output block '{name}' expects a 2D tensor input.")
+            if name not in block_inputs:
+                raise RuntimeError(f"DFA missing cache['block_inputs'][{name!r}] for hidden block.")
+            if name not in block_outputs:
+                raise RuntimeError(f"DFA missing cache['block_outputs'][{name!r}] for hidden block.")
 
-                assign_linear_grads_from_activations_(
-                    layer,
-                    x_out,
-                    head_deltas[name] * self.delta_scale,
-                    average_batch=self.average_grads,
-                )
+            x_hidden = block_inputs[name]
+            u_hidden = block_outputs[name]
+            if not torch.is_tensor(x_hidden) or x_hidden.dim() != 2:
+                raise RuntimeError(f"DFA hidden block '{name}' expects a 2D input tensor.")
+            if not torch.is_tensor(u_hidden) or u_hidden.dim() != 2:
+                raise RuntimeError(f"DFA hidden block '{name}' expects a 2D output tensor.")
 
-        self.step(model.parameters())
+            feedback = self._ensure_feedback(
+                key=name,
+                out_dim=int(delta_logits.size(1)),
+                hidden_dim=int(layer.out_features),
+                device=delta_logits.device,
+                dtype=delta_logits.dtype,
+            )
+            act_grad = activation_derivative_from_preact(self.activation_name, u_hidden)
+            delta_hidden = (delta_logits @ feedback) * act_grad
+
+            assign_linear_grads_from_activations_(
+                layer,
+                x_hidden,
+                delta_hidden,
+                average_batch=self.average_grads,
+            )
+
+        self.step(model.parameters(), require_grads=True, check_finite_grads=True)
         stats = self._best_effort_stats(task, out, y)
         self._mark_step_done()
         return stats
-

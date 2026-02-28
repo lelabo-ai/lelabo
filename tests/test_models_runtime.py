@@ -29,6 +29,11 @@ def _default_args() -> Namespace:
     )
 
 
+def _forward_with_cache(model, *args, **kwargs):
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+    return cache_provider.forward_with_standard_cache(model, *args, **kwargs)
+
+
 def _install_fake_torchvision(monkeypatch: pytest.MonkeyPatch) -> None:
     nn = importlib.import_module("torch.nn")
 
@@ -143,6 +148,7 @@ def _install_fake_transformers(monkeypatch: pytest.MonkeyPatch) -> None:
 def _assert_basic_cache_contract(model, out, cache) -> None:
     assert out is not None
     assert isinstance(cache, dict)
+    assert "cache_version" in cache
     assert "block_inputs" in cache
     assert "block_outputs" in cache
     assert isinstance(cache["block_inputs"], dict)
@@ -173,7 +179,7 @@ def test_mlp_classifier_cache_contract() -> None:
     model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
 
     x = torch.randn(6, 8)
-    out, cache = model(x, return_cache=True)
+    out, cache, _blocks = _forward_with_cache(model, x)
 
     assert tuple(out.shape) == (6, 3)
     _assert_basic_cache_contract(model, out, cache)
@@ -195,7 +201,7 @@ def test_convnet_classifier_cache_contract() -> None:
     )
 
     x = torch.randn(4, 1, 28, 28)
-    out, cache = model(x, return_cache=True)
+    out, cache, _blocks = _forward_with_cache(model, x)
 
     assert tuple(out.shape) == (4, 10)
     _assert_basic_cache_contract(model, out, cache)
@@ -209,7 +215,7 @@ def test_deep_softhebb_classifier_cache_contract() -> None:
     model = deep_mod.DeepSoftHebbClassifier(in_channels=3, num_classes=10)
 
     x = torch.randn(2, 3, 32, 32)
-    out, cache = model(x, return_cache=True)
+    out, cache, _blocks = _forward_with_cache(model, x)
 
     assert tuple(out.shape) == (2, 10)
     assert isinstance(cache, dict)
@@ -246,7 +252,7 @@ def test_hf_and_bert_builders_with_fake_transformers_cache(monkeypatch: pytest.M
         assert hasattr(out, "logits")
         assert tuple(out.logits.shape) == (3, 2)
 
-        out_cached, cache = model(return_cache=True, **batch)
+        out_cached, cache, _blocks = _forward_with_cache(model, **batch)
         assert tuple(out_cached.logits.shape) == (3, 2)
         assert "block_inputs" in cache
         assert "head" in cache["block_inputs"]
@@ -269,7 +275,7 @@ def test_resnet18_builder_with_fake_torchvision_cache(monkeypatch: pytest.Monkey
     model = registry.build_model("resnet18", ctx, _default_args())
 
     x = torch.randn(4, 3, 32, 32)
-    out, cache = model(x, return_cache=True)
+    out, cache, _blocks = _forward_with_cache(model, x)
     assert tuple(out.shape) == (4, 5)
     _assert_basic_cache_contract(model, out, cache)
     assert "head" in cache["block_outputs"]

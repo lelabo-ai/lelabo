@@ -4,20 +4,13 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from ..blocks import LeModule, BlockSpec
+from ..blocks import BlockSpec
 from .mlp import MLPStack
 
 
-class ActorCriticDiscrete(LeModule):
+class ActorCriticDiscrete(nn.Module):
     """
-    Standard Actor-Critic for discrete actions, built from TWO standard MLPStack.
-
-    - actor: outputs logits [B, n_actions]
-    - critic: outputs value [B] (from a Linear head of size 1)
-
-    This keeps everything compatible with block-based local rules:
-      - FA/DFA/TargetProp and related methods: rely on cache["block_inputs"] + get_blocks()
-      - SoftHebb/KP and any block-based rule: same contract
+    Standard Actor-Critic for discrete actions, built from two MLP stacks.
     """
 
     def __init__(
@@ -41,7 +34,6 @@ class ActorCriticDiscrete(LeModule):
         self.actor = MLPStack(actor_dims, activation=self.activation)
         self.critic = MLPStack(critic_dims, activation=self.activation)
 
-        # handy aliases (some algos / logs might like these)
         self.actor_linears = self.actor.linears
         self.critic_linears = self.critic.linears
         self.actor_head: nn.Linear = self.actor.head
@@ -50,47 +42,22 @@ class ActorCriticDiscrete(LeModule):
     def get_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
 
-        # Actor blocks (names MUST match cache["block_inputs"] keys below)
         for i, lin in enumerate(self.actor_linears):
-            is_out = (i == (len(self.actor_linears) - 1))
+            is_out = i == (len(self.actor_linears) - 1)
             name = f"actor.layer{i}" if not is_out else "actor.head"
             blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out, group="actor"))
 
-        # Critic blocks
         for i, lin in enumerate(self.critic_linears):
-            is_out = (i == (len(self.critic_linears) - 1))
+            is_out = i == (len(self.critic_linears) - 1)
             name = f"critic.layer{i}" if not is_out else "critic.head"
             blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out, group="critic"))
 
         return blocks
 
-    def forward(self, obs: torch.Tensor, return_cache: bool = False):
-        if not return_cache:
-            logits = self.actor(obs)
-            value = self.critic(obs).squeeze(-1)  # [B]
-            return {"logits": logits, "value": value}
-
-        logits, cacheA = self.actor(obs, return_cache=True)
-        value, cacheV = self.critic(obs, return_cache=True)
-        value = value.squeeze(-1)
-
-        # Merge block_inputs with stable prefixed keys
-        merged_block_inputs = {}
-
-        # actor cacheA["block_inputs"] has keys: "layer{i}", "head"
-        for k, v in cacheA.get("block_inputs", {}).items():
-            merged_block_inputs[f"actor.{k}"] = v
-
-        # critic cacheV["block_inputs"] has keys: "layer{i}", "head"
-        for k, v in cacheV.get("block_inputs", {}).items():
-            merged_block_inputs[f"critic.{k}"] = v
-
-        cache = {
-            "actor": cacheA,
-            "critic": cacheV,
-            "block_inputs": merged_block_inputs,
-        }
-        return {"logits": logits, "value": value}, cache
+    def forward(self, obs: torch.Tensor):
+        logits = self.actor(obs)
+        value = self.critic(obs).squeeze(-1)
+        return {"logits": logits, "value": value}
 
 
 # ============================================================
@@ -101,7 +68,7 @@ LOG_STD_MAX = 2.0
 LOG_STD_MIN = -5.0
 
 
-class SquashedGaussianActor(LeModule):
+class SquashedGaussianActor(nn.Module):
     """Actor SAC: Gaussian squashed par tanh + rescaling vers Box."""
 
     def __init__(
@@ -142,22 +109,15 @@ class SquashedGaussianActor(LeModule):
     def get_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
         for i, lin in enumerate(self.linears):
-            is_out = (i == (len(self.linears) - 1))
+            is_out = i == (len(self.linears) - 1)
             name = f"actor.layer{i}" if not is_out else "actor.head"
             blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out, group="actor"))
         return blocks
 
-    def forward(self, obs: torch.Tensor, return_cache: bool = False):
-        if not return_cache:
-            raw = self.net(obs)
-            mu, log_std = raw.chunk(2, dim=-1)
-            return {"mu": mu, "log_std": log_std, "raw": raw}
-
-        raw, cache = self.net(obs, return_cache=True)
+    def forward(self, obs: torch.Tensor):
+        raw = self.net(obs)
         mu, log_std = raw.chunk(2, dim=-1)
-        merged_block_inputs = {f"actor.{k}": v for k, v in cache.get("block_inputs", {}).items()}
-        cache = {"actor": cache, "block_inputs": merged_block_inputs}
-        return {"mu": mu, "log_std": log_std, "raw": raw}, cache
+        return {"mu": mu, "log_std": log_std, "raw": raw}
 
     def _squash(self, u: torch.Tensor) -> torch.Tensor:
         y = torch.tanh(u)
@@ -195,7 +155,7 @@ class SquashedGaussianActor(LeModule):
         return action, log_pi, mean_action
 
 
-class DoubleQCritic(LeModule):
+class DoubleQCritic(nn.Module):
     """Double Q-network (Q1, Q2) pour SAC."""
 
     def __init__(
@@ -224,39 +184,24 @@ class DoubleQCritic(LeModule):
     def get_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
         for i, lin in enumerate(self.q1_linears):
-            is_out = (i == (len(self.q1_linears) - 1))
+            is_out = i == (len(self.q1_linears) - 1)
             name = f"q1.layer{i}" if not is_out else "q1.head"
             blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out, group="critic"))
         for i, lin in enumerate(self.q2_linears):
-            is_out = (i == (len(self.q2_linears) - 1))
+            is_out = i == (len(self.q2_linears) - 1)
             name = f"q2.layer{i}" if not is_out else "q2.head"
             blocks.append(BlockSpec(name=name, module=lin, rep="identity", is_output=is_out, group="critic"))
         return blocks
 
-    def forward(self, obs_or_x: torch.Tensor, act: torch.Tensor = None, return_cache: bool = False):
+    def forward(self, obs_or_x: torch.Tensor, act: torch.Tensor = None):
         if act is not None:
             x = torch.cat([obs_or_x, act], dim=-1)
         else:
             x = obs_or_x
 
-        if not return_cache:
-            q1 = self.q1(x).squeeze(-1)
-            q2 = self.q2(x).squeeze(-1)
-            return {"q1": q1, "q2": q2}
-
-        q1, c1 = self.q1(x, return_cache=True)
-        q2, c2 = self.q2(x, return_cache=True)
-        q1 = q1.squeeze(-1)
-        q2 = q2.squeeze(-1)
-
-        merged_block_inputs = {}
-        for k, v in c1.get("block_inputs", {}).items():
-            merged_block_inputs[f"q1.{k}"] = v
-        for k, v in c2.get("block_inputs", {}).items():
-            merged_block_inputs[f"q2.{k}"] = v
-
-        cache = {"q1": c1, "q2": c2, "block_inputs": merged_block_inputs}
-        return {"q1": q1, "q2": q2}, cache
+        q1 = self.q1(x).squeeze(-1)
+        q2 = self.q2(x).squeeze(-1)
+        return {"q1": q1, "q2": q2}
 
     def min_q(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
         out = self.forward(obs, act)

@@ -88,4 +88,4 @@ def test_update_rule_registry_lists_builtin_rules() -> None:
     from lelabo.update_rules import get_update_rule_names
 
     names = set(get_update_rule_names())
-    assert {"bp", "dfa", "softhebb", "tp"}.issubset(names)
+    assert {"bp", "dfa"}.issubset(names)

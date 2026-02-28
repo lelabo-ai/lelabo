@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .cache_provider import CacheSpec, ContractError, forward_with_standard_cache
 from .cache_wrapper import ModelCacheWrapper
 from .builtins.actor_critic import ActorCriticDiscrete
 from .builtins.bert import HFSequenceClassifier
@@ -10,13 +11,16 @@ from .registry import ModelContext, build_model, get_model_names, register_model
 
 __all__ = [
     "ActorCriticDiscrete",
+    "CacheSpec",
     "ConvNetClassifier",
+    "ContractError",
     "HFSequenceClassifier",
     "MLP",
     "MLPClassifier",
     "MLPStack",
     "ModelCacheWrapper",
     "ModelContext",
+    "forward_with_standard_cache",
     "ResNet",
     "build_model",
     "build_resnet18",

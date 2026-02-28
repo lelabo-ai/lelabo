@@ -36,6 +36,7 @@ def _default_grad_clip(ctx: UpdateRuleContext) -> float | None:
 
 
 @register_update_rule("bp")
+@register_update_rule("backprop")
 def build_backprop(ctx: UpdateRuleContext):
     grad_clip = _extra(ctx, "grad_clip", _MISSING)
     if grad_clip is _MISSING:
@@ -46,16 +47,26 @@ def build_backprop(ctx: UpdateRuleContext):
 @register_update_rule("dfa")
 def build_dfa(ctx: UpdateRuleContext):
     params = _rule_params(ctx)
+    allowed_keys = {"feedback_scale", "delta_scale", "average_grads", "activation_name", "activation"}
+    unknown = sorted(k for k in params.keys() if k not in allowed_keys)
+    if unknown:
+        raise ValueError(
+            f"Unsupported dfa update_rule.params keys: {unknown}. "
+            f"Allowed keys: {sorted(allowed_keys)}"
+        )
     grad_clip = _extra(ctx, "grad_clip", _MISSING)
     if grad_clip is _MISSING:
         grad_clip = _default_grad_clip(ctx)
+
+    activation_name = params.get("activation_name", params.get("activation", None))
+    if activation_name is not None:
+        activation_name = str(activation_name)
 
     return DirectFeedbackAlignment(
         optimizer=ctx.optimizer,
         feedback_scale=float(params.get("feedback_scale", 1.0)),
         grad_clip=grad_clip,
         delta_scale=float(params.get("delta_scale", 1.0)),
-        activation=str(params.get("activation", "relu")),
         average_grads=bool(params.get("average_grads", False)),
+        activation_name=activation_name,
     )
-

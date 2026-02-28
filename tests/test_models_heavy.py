@@ -28,6 +28,11 @@ def _default_args() -> Namespace:
     )
 
 
+def _forward_with_cache(model, *args, **kwargs):
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+    return cache_provider.forward_with_standard_cache(model, *args, **kwargs)
+
+
 def _require_heavy_models_enabled() -> None:
     if os.getenv("LELABO_MODEL_HEAVY", "0") != "1":
         pytest.skip("Set LELABO_MODEL_HEAVY=1 to run heavy real-model runtime tests.")
@@ -57,7 +62,7 @@ def test_resnet18_runtime_cache_heavy() -> None:
     model = resnet_mod.ResNet(num_classes=7, resnet_type="resnet18", pretrained=False)
 
     x = torch.randn(2, 3, 64, 64)
-    out, cache = model(x, return_cache=True)
+    out, cache, _blocks = _forward_with_cache(model, x)
 
     assert tuple(out.shape) == (2, 7)
     assert "block_inputs" in cache
@@ -104,11 +109,11 @@ def test_hf_bert_runtime_cache_heavy(builder_name: str) -> None:
     labels = torch.randint(0, 2, (2,), dtype=torch.long)
 
     try:
-        out, cache = model(
+        out, cache, _blocks = _forward_with_cache(
+            model,
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            return_cache=True,
         )
     except Exception as exc:
         if _is_env_bound_runtime_error(exc):

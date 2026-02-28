@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..blocks import LeModule, BlockSpec
+from ..blocks import BlockSpec
 from ..registry import ModelContext, register_model
 
 
@@ -42,7 +42,7 @@ def make_activation(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
     raise ValueError(f"Unknown activation: {name}")
 
 
-class MLPStack(LeModule):
+class MLPStack(nn.Module):
     """Simple MLP stack with explicit layer names: layer0..layerN + head."""
 
     def __init__(self, dims: list[int], activation: str = "tri"):
@@ -98,7 +98,7 @@ def build_mlp(ctx: ModelContext, args):
     )
 
 
-class MLPClassifier(LeModule):
+class MLPClassifier(nn.Module):
     def __init__(
         self,
         in_dim: int,

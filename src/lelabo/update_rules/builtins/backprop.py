@@ -15,7 +15,7 @@ class Backpropagation(OptimizerUpdateRule):
 
         loss, stats = compute_loss_and_stats(model, task, batch, device)
         loss.backward()
-        self.step(model.parameters())
+        self.step(model.parameters(), require_grads=True, check_finite_grads=True)
 
         out = dict(stats)
         out["loss"] = float(loss.item())
@@ -25,4 +25,3 @@ class Backpropagation(OptimizerUpdateRule):
 
 # Backward-compatible alias.
 Backprop = Backpropagation
-

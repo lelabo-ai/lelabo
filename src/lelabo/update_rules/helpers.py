@@ -4,6 +4,50 @@ import torch
 import torch.nn as nn
 
 
+def resolve_activation_name(model) -> str:
+    for attr in ("activation_name", "activation", "act_name"):
+        if not hasattr(model, attr):
+            continue
+        raw = getattr(model, attr)
+        if isinstance(raw, str):
+            return str(raw).lower()
+        if isinstance(raw, nn.ReLU):
+            return "relu"
+        if isinstance(raw, nn.Tanh):
+            return "tanh"
+        if isinstance(raw, nn.Sigmoid):
+            return "sigmoid"
+        if isinstance(raw, nn.Identity):
+            return "identity"
+        name = getattr(raw, "__name__", None)
+        if isinstance(name, str):
+            name = name.lower()
+            if name in {"relu", "tanh", "sigmoid", "identity"}:
+                return name
+    raise NotImplementedError(
+        "Unable to resolve model activation. "
+        "Set model.activation_name to one of: relu, tanh, sigmoid, identity."
+    )
+
+
+def activation_derivative_from_preact(activation_name: str, preact: torch.Tensor) -> torch.Tensor:
+    act = str(activation_name).lower()
+    if act == "relu":
+        return (preact > 0).to(preact.dtype)
+    if act == "tanh":
+        t = torch.tanh(preact)
+        return 1.0 - t * t
+    if act == "sigmoid":
+        s = torch.sigmoid(preact)
+        return s * (1.0 - s)
+    if act == "identity":
+        return torch.ones_like(preact)
+    raise NotImplementedError(
+        f"Unsupported activation '{activation_name}' for local-rule derivative. "
+        "Supported: relu, tanh, sigmoid, identity."
+    )
+
+
 def assign_param_grad_(param: torch.nn.Parameter, grad: torch.Tensor) -> None:
     g = grad.to(device=param.device, dtype=param.dtype)
     if param.grad is None:

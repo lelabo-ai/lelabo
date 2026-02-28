@@ -4,7 +4,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from ..blocks import LeModule, BlockSpec
+from ..blocks import BlockSpec
 from ..registry import ModelContext, register_model
 
 
@@ -23,7 +23,7 @@ def build_resnet50(ctx: ModelContext, args):
     return ResNet(num_classes=ctx.num_classes, resnet_type="resnet50")
 
 
-class ResNet(LeModule):
+class ResNet(nn.Module):
     def __init__(self, num_classes: int = 100, resnet_type: str = "resnet34", pretrained: bool = True):
         super().__init__()
 

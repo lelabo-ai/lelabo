@@ -4,33 +4,23 @@ example.py
 Minimal documented example showing:
 
 1) How to register a model
-2) How to inherit from LeModule
-3) How automatic block discovery works
-4) How to use return_cache=True
-5) How to optionally override get_blocks()
+2) How to keep model API pure nn.Module
+3) How to optionally expose get_blocks()
+4) How to collect cache from the framework side
 """
 
 from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
-from lelabo.models.blocks import LeModule, BlockSpec
-from lelabo.models.registry import register_model, ModelContext
+from lelabo.models.blocks import BlockSpec
+from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
+from lelabo.models.registry import ModelContext, register_model
 
 
-# Model definition (inherits from LeModule)
-# LeModules provide automatic block discovery and cache collection to become usable for update rules.
-# If you don't need these features, you can inherit from nn.Module instead. But we strongly recommend 
-# inheriting from LeModule for better integration with the rest of the framework.
-
-class ExampleMLP(LeModule):
-    """
-    Minimal MLP example.
-
-    Because we inherit from LeModule:
-    - Linear layers are automatically treated as blocks
-    - return_cache=True automatically collects activations
-    """
+class ExampleMLP(nn.Module):
+    """Minimal MLP example with standard PyTorch API."""
 
     def __init__(self, in_dim: int, hidden: int, num_classes: int):
         super().__init__()
@@ -45,46 +35,14 @@ class ExampleMLP(LeModule):
         return x
 
 
-# Model registry
-
-# To make this model available in the command line interface, we need to register it.
-# Please uncomment the @register_model decorator and implement the build_example_mlp function.
-
-#@register_model("example_mlp")
+# @register_model("example_mlp")
 def build_example_mlp(ctx: ModelContext, args):
-    """
-    Factory used by:
-
-        lelabo train supervised --dataset iris --model example_mlp
-
-    ctx provides:
-        - ctx.in_dim
-        - ctx.num_classes
-        - dataset-dependent information
-    """
-
     hidden = getattr(args, "hidden", 128)
-
-    return ExampleMLP(
-        in_dim=ctx.in_dim,
-        hidden=hidden,
-        num_classes=ctx.num_classes,
-    )
+    return ExampleMLP(in_dim=ctx.in_dim, hidden=hidden, num_classes=ctx.num_classes)
 
 
-# Optional: custom block definition to override automatic block discovery
-# This is only needed if you want to have fine control over what is considered a block and what is not.
-# Particularly if you want more granular control over the cache collection (e.g. you want to collect activations 
-# from non-linearities or other operations that are not automatically considered blocks).
-# Or you want to build an update rules that relies on cache that we (for the moment) don't 
-# automatically collect. We encourage you to create an issues if you have a use case that 
-# is not covered by the automatic block discovery and cache collection, so we can add it to the framework.
-
-class CustomBlockMLP(LeModule):
-    """
-    Same idea as ExampleMLP,
-    but we explicitly define blocks.
-    """
+class CustomBlockMLP(nn.Module):
+    """Same idea as ExampleMLP, but with explicit block contract."""
 
     def __init__(self, in_dim: int, hidden: int, num_classes: int):
         super().__init__()
@@ -96,39 +54,26 @@ class CustomBlockMLP(LeModule):
         return self.head(h)
 
     def get_blocks(self):
-        """
-        Override automatic block discovery.
-
-        Only do this if you need fine control.
-        """
         return [
-            BlockSpec(
-                name="encoder",
-                module=self.encoder,
-                is_output=False,
-            ),
-            BlockSpec(
-                name="head",
-                module=self.head,
-                is_output=True,
-            ),
+            BlockSpec(name="encoder", module=self.encoder, is_output=False),
+            BlockSpec(name="head", module=self.head, is_output=True),
         ]
 
-
-# ============================================================
-# 4️⃣ Standalone usage example
-# ============================================================
 
 if __name__ == "__main__":
     model = ExampleMLP(in_dim=10, hidden=32, num_classes=5)
     x = torch.randn(4, 10)
 
-    # Normal forward
     logits = model(x)
-
-    # Forward with automatic cache collection
-    logits, cache = model(x, return_cache=True)
-
     print("Output shape:", logits.shape)
-    print("Blocks:", list(cache["block_outputs"].keys()))
+
+    # Cache is collected by the framework provider, not by model inheritance.
+    logits, cache, blocks = forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=CacheSpec(require_block_inputs=True, require_block_outputs=True),
+    )
+
+    print("Detected blocks:", [b.name for b in blocks])
+    print("Cached outputs:", list(cache["block_outputs"].keys()))
     print("Cache keys:", list(cache.keys()))
