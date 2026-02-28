@@ -50,6 +50,11 @@ def test_supervised_default_algo_is_registered() -> None:
     assert args.lelabo_version.strip()
 
 
+def test_supervised_loss_override_is_exposed() -> None:
+    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--loss", "bce_with_logits"])
+    assert args.loss == "bce_with_logits"
+
+
 def test_supervised_set_override_parses_nested_field() -> None:
     args = train_api.parse_train_args(
         ["supervised", "--dataset", "iris", "--set", "robustness.max_samples=123"]

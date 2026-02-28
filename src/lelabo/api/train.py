@@ -17,6 +17,7 @@ from ..config.resolve import (
 from ..core.utils.seed import seed_everything
 from ..core.utils.logger import RunLogger
 from ..supervised.datasets import get_dataset_names
+from ..losses import get_loss_names
 from ..update_rules import get_update_rule_names
 from ..models import get_model_names
 from ..optimizers import get_optimizer_names
@@ -109,6 +110,7 @@ def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
         default=None,
     )
     parser.add_argument("--model", choices=list(get_model_names()), default=None)
+    parser.add_argument("--loss", choices=list(get_loss_names()), default=None)
     parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
     parser.add_argument("--optimizer", choices=list(get_optimizer_names()), default=None)
     parser.add_argument("--lr", type=float, default=None)
@@ -175,6 +177,8 @@ def _build_supervised_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any
         _set_nested(out, ["dataset", "name"], parsed.dataset)
     if parsed.model is not None:
         _set_nested(out, ["model", "name"], parsed.model)
+    if parsed.loss is not None:
+        _set_nested(out, ["loss", "name"], parsed.loss)
     if parsed.algo is not None:
         _set_nested(out, ["update_rule", "name"], parsed.algo)
     if parsed.optimizer is not None:

@@ -49,9 +49,9 @@ def make_mnist_dataset(
     num_workers: int = 0,
     pin_memory: bool = True,
     # new: cap sizes (None => keep full / "max")
-    train_max: Optional[int] = 1000,
-    val_max: Optional[int] = 200,
-    test_max: Optional[int] = 1000,
+    train_max: Optional[int] = None,
+    val_max: Optional[int] = None,
+    test_max: Optional[int] = None,
     **_: object,
 ) -> DataBundle:
     from torchvision.datasets import MNIST

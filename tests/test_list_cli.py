@@ -29,6 +29,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
             "datasets": ["iris"],
             "models": ["cnn", "mlp"],
             "optimizers": ["adamw"],
+            "losses": ["cross_entropy", "mse"],
             "metrics": ["acc"],
             "schedulers": ["step"],
             "callbacks": ["earlystopping"],
@@ -43,6 +44,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
     assert "datasets (1)" in out
     assert "models (2)" in out
     assert "optimizers (1)" in out
+    assert "losses (2)" in out
     assert "metrics (1)" in out
     assert "schedulers (1)" in out
     assert "callbacks (1)" in out
@@ -95,6 +97,17 @@ def test_list_cli_optimizers_target_json(monkeypatch, capsys) -> None:
     payload = json.loads(out)
     assert sorted(payload.keys()) == ["optimizers"]
     assert payload["optimizers"] == ["adamw", "sgd"]
+
+
+def test_list_cli_losses_target_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_loss_names", lambda **kwargs: ["cross_entropy", "bce_with_logits"])
+
+    rc = list_cli.main(["losses", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["losses"]
+    assert payload["losses"] == ["bce_with_logits", "cross_entropy"]
 
 
 def test_list_cli_callbacks_target_json(monkeypatch, capsys) -> None:

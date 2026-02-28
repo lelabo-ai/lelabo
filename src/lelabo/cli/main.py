@@ -48,7 +48,7 @@ Commands:
   train      Run supervised or RL training (explicit mode)
   audit      Run update-rule audit tests
   create     Create local LeLabo scaffolds
-  list       List available update-rules/datasets/models/optimizers/metrics/schedulers
+  list       List available update-rules/datasets/models/optimizers/losses/metrics/schedulers
   capsule    Pack/install/store/restore/list/show/rerun experiment capsules
 
 Help:

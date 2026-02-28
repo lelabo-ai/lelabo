@@ -55,6 +55,7 @@ def test_list_help_displays_list_usage() -> None:
     assert "update-rules" in proc.stdout
     assert "datasets" in proc.stdout
     assert "optimizers" in proc.stdout
+    assert "losses" in proc.stdout
     assert "schedulers" in proc.stdout
 
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import torch
 import torch.nn.functional as F
@@ -21,25 +21,76 @@ def _onehot(labels: torch.Tensor, num_classes: int) -> torch.Tensor:
     return oh
 
 
+def _classification_targets(y: torch.Tensor, *, num_classes: int, dtype: torch.dtype) -> torch.Tensor:
+    if y.dim() == 2 and int(y.size(1)) == 1 and not torch.is_floating_point(y):
+        y = y.view(-1)
+    if y.dim() == 1:
+        return _onehot(y.long(), num_classes=num_classes).to(dtype=dtype)
+    if y.dim() == 2 and int(y.size(1)) == int(num_classes):
+        return y.to(dtype=dtype)
+    raise ValueError(
+        "Expected class targets shaped [B], [B,1], or [B,C]; "
+        f"got {tuple(y.shape)} with C={int(num_classes)}."
+    )
+
+
+def _as_class_indices(y: torch.Tensor) -> torch.Tensor:
+    if y.dim() == 2 and int(y.size(1)) == 1 and not torch.is_floating_point(y):
+        return y.view(-1).long()
+    if y.dim() == 2 and torch.is_floating_point(y):
+        return y.argmax(dim=1).long()
+    if y.dim() == 1:
+        return y.long()
+    raise ValueError(f"Expected labels shaped [B], [B,1], or one-hot [B,C], got {tuple(y.shape)}.")
+
+
+def _loss_reduction(loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None) -> str:
+    module = getattr(loss_fn, "module", None)
+    reduction = getattr(module, "reduction", "mean")
+    return str(reduction).strip().lower()
+
+
+def _apply_reduction_to_delta(delta: torch.Tensor, reduction: str) -> torch.Tensor:
+    red = str(reduction).strip().lower()
+    if red == "mean":
+        denom = max(1, int(delta.numel()))
+        return delta / float(denom)
+    if red in {"sum", "none"}:
+        return delta
+    raise ValueError(f"Unsupported loss reduction '{reduction}'.")
+
+
 # ============================================================
 # Supervised classification
 # ============================================================
 
 class ClassificationTask:
-    def __init__(self, num_classes: int):
+    def __init__(
+        self,
+        num_classes: int,
+        *,
+        loss_name: str = "cross_entropy",
+        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    ):
         self.num_classes = int(num_classes)
+        self.loss_name = str(loss_name).strip().lower()
+        if loss_fn is None:
+            self.loss_fn = lambda logits, y: F.cross_entropy(logits, _as_class_indices(y))
+        else:
+            self.loss_fn = loss_fn
 
     def loss(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return F.cross_entropy(logits, y)
+        return self.loss_fn(logits, y)
 
     @torch.no_grad()
     def metrics(self, logits: torch.Tensor, y: torch.Tensor) -> Dict[str, Any]:
+        y_idx = _as_class_indices(y)
         preds = logits.argmax(dim=1)
-        acc = (preds == y).float().mean().item()
+        acc = (preds == y_idx).float().mean().item()
         out: Dict[str, Any] = {"acc": float(acc)}
         out.update(
             build_metric_payload(
-                y_true=y,
+                y_true=y_idx,
                 y_pred=preds,
                 kind="classification",
             )
@@ -48,15 +99,69 @@ class ClassificationTask:
 
     @torch.no_grad()
     def output_deltas(self, logits: torch.Tensor, y: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Return dL/dlogits for CE:
-          (softmax - onehot) / B
-        """
-        B = logits.size(0)
-        p = torch.softmax(logits, dim=1)
-        oh = _onehot(y.long(), num_classes=logits.size(1)).to(dtype=logits.dtype)
-        dlogits = (p - oh) / float(B)
-        return {"logits": dlogits}
+        name = self.loss_name
+        reduction = _loss_reduction(self.loss_fn)
+        num_classes = int(logits.size(1))
+        targets = _classification_targets(
+            y,
+            num_classes=num_classes,
+            dtype=logits.dtype,
+        ).to(device=logits.device)
+
+        if name in {"cross_entropy", "ce"}:
+            module = getattr(self.loss_fn, "module", None)
+            if module is not None:
+                weight = getattr(module, "weight", None)
+                ignore_index = int(getattr(module, "ignore_index", -100))
+                if weight is not None or ignore_index != -100:
+                    raise NotImplementedError(
+                        "output_deltas for cross_entropy supports only default weight/ignore_index."
+                    )
+                smooth = float(getattr(module, "label_smoothing", 0.0))
+            else:
+                smooth = 0.0
+            if smooth > 0.0:
+                targets = targets * (1.0 - smooth) + (smooth / float(max(1, num_classes)))
+            delta = torch.softmax(logits, dim=1) - targets
+            batch = max(1, int(logits.size(0)))
+            if reduction == "mean":
+                delta = delta / float(batch)
+            elif reduction not in {"sum", "none"}:
+                raise ValueError(f"Unsupported cross-entropy reduction '{reduction}'.")
+            return {"logits": delta}
+
+        if name in {"bce_with_logits", "bce_logits"}:
+            module = getattr(self.loss_fn, "module", None)
+            if module is not None and (
+                getattr(module, "weight", None) is not None
+                or getattr(module, "pos_weight", None) is not None
+            ):
+                raise NotImplementedError(
+                    "output_deltas for bce_with_logits supports only default weight/pos_weight."
+                )
+            delta = torch.sigmoid(logits) - targets
+            return {"logits": _apply_reduction_to_delta(delta, reduction)}
+
+        if name in {"bce", "binary_cross_entropy"}:
+            module = getattr(self.loss_fn, "module", None)
+            if module is not None and getattr(module, "weight", None) is not None:
+                raise NotImplementedError("output_deltas for bce supports only default weights.")
+            eps = torch.finfo(logits.dtype).eps
+            probs = logits.clamp(min=eps, max=1.0 - eps)
+            delta = (probs - targets) / (probs * (1.0 - probs))
+            return {"logits": _apply_reduction_to_delta(delta, reduction)}
+
+        if name in {"mse", "mse_loss"}:
+            if torch.is_tensor(y) and y.dim() == logits.dim():
+                target = y.to(device=logits.device, dtype=logits.dtype)
+            else:
+                target = targets
+            delta = 2.0 * (logits - target)
+            return {"logits": _apply_reduction_to_delta(delta, reduction)}
+
+        raise NotImplementedError(
+            f"output_deltas is not implemented for loss '{self.loss_name}'."
+        )
 
 
 class GLUETask:

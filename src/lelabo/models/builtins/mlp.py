@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Callable
 
 import torch
@@ -90,11 +91,23 @@ class MLPStack(nn.Module):
 def build_mlp(ctx: ModelContext, args):
     if ctx.in_dim is None:
         raise ValueError("MLP needs ctx.in_dim")
+
+    model_params = getattr(args, "model_params", None)
+    params = dict(model_params) if isinstance(model_params, Mapping) else {}
+
+    def _pick(name: str, default):
+        if name in params:
+            return params[name]
+        value = getattr(args, name, default)
+        return default if value is None else value
+
+    activation = _pick("activation", _pick("hidden_activation", _pick("hidden_act", "relu")))
     return MLPClassifier(
         in_dim=ctx.in_dim,
-        hidden_dim=args.hidden,
-        num_layers=args.layers,
+        hidden_dim=int(_pick("hidden", 2048)),
+        num_layers=int(_pick("layers", 4)),
         num_classes=ctx.num_classes,
+        activation=str(activation),
     )
 
 

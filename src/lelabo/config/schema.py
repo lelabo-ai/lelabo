@@ -75,6 +75,7 @@ class SupervisedConfig:
     task: str
     dataset: ComponentSpec
     model: ComponentSpec
+    loss: ComponentSpec
     update_rule: ComponentSpec
     optimizer: ComponentSpec
     scheduler: SchedulerSpec

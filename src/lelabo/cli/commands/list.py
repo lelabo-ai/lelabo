@@ -10,6 +10,7 @@ from ...core.utils.capsule_plugins import (
     find_active_capsule_root,
 )
 from ...metrics.registry import get_metric_names
+from ...losses.registry import get_loss_names
 from ...models.registry import get_model_names
 from ...optimizers.registry import get_optimizer_names
 from ...schedulers.registry import get_scheduler_names
@@ -19,7 +20,7 @@ from ...update_rules.registry import get_update_rule_names
 
 
 LIST_HELP = """\
-List available LeLabo registries (update_rules, datasets, models, optimizers, metrics, schedulers, callbacks).
+List available LeLabo registries (update_rules, datasets, models, optimizers, losses, metrics, schedulers, callbacks).
 
 Usage:
   lelabo list [target] [--json]
@@ -31,6 +32,7 @@ Targets:
   datasets   Show dataset names
   models     Show model names
   optimizers Show optimizer names
+  losses     Show loss names
   metrics    Show metric names
   schedulers Show scheduler names
   callbacks  Show callback names
@@ -62,6 +64,8 @@ _TARGET_ALIASES = {
     "models": "models",
     "optimizer": "optimizers",
     "optimizers": "optimizers",
+    "loss": "losses",
+    "losses": "losses",
     "metric": "metrics",
     "metrics": "metrics",
     "scheduler": "schedulers",
@@ -76,7 +80,7 @@ def _normalized_target(raw: str) -> str:
     target = _TARGET_ALIASES.get(key)
     if target is None:
         raise ValueError(
-            f"Unknown list target '{raw}'. Use one of: all, update-rules, datasets, models, optimizers, metrics, schedulers, callbacks."
+            f"Unknown list target '{raw}'. Use one of: all, update-rules, datasets, models, optimizers, losses, metrics, schedulers, callbacks."
         )
     return target
 
@@ -96,6 +100,7 @@ def _collect(
             "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
             "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
             "optimizers": sorted(get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
+            "losses": sorted(get_loss_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
             "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
             "schedulers": sorted(
                 get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
@@ -120,6 +125,8 @@ def _collect(
                 get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
             )
         }
+    if target == "losses":
+        return {"losses": sorted(get_loss_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     if target == "metrics":
         return {"metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
     if target == "schedulers":
@@ -172,7 +179,7 @@ def _resolve_explicit_capsule_roots(
 
 
 def _print_text(rows: dict[str, list[str]]) -> None:
-    order = ("update_rules", "datasets", "models", "optimizers", "metrics", "schedulers", "callbacks")
+    order = ("update_rules", "datasets", "models", "optimizers", "losses", "metrics", "schedulers", "callbacks")
     first = True
     for key in order:
         if key not in rows:
@@ -194,7 +201,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "target",
         nargs="?",
         default="all",
-        help="all|update-rules|datasets|models|optimizers|metrics|schedulers|callbacks",
+        help="all|update-rules|datasets|models|optimizers|losses|metrics|schedulers|callbacks",
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(

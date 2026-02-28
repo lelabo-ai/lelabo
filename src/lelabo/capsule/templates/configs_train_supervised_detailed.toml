@@ -11,6 +11,11 @@ name = "mlp"
 [model.params]
 hidden = 2048
 layers = 4
+activation = "relu"
+
+[loss]
+name = "cross_entropy"
+[loss.params]
 
 [update_rule]
 name = "bp"

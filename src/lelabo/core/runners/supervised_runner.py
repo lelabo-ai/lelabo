@@ -6,6 +6,7 @@ from typing import Any, Dict
 import torch
 from ..trainer import Trainer
 from ...optimizers import make_optimizer, make_scheduler
+from ...losses import make_loss
 from ..utils.logger import RunLogger
 
 # datasets
@@ -112,7 +113,22 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             input_shape=bundle.input_shape,
         )
         model = build_model(args.model, ctx, args)
-        task = ClassificationTask(num_classes=num_classes)
+        loss_name = str(getattr(args, "loss", "cross_entropy")).strip().lower()
+        loss_params = dict(getattr(args, "loss_params", {}) or {})
+        loss_fn = make_loss(
+            loss_name,
+            args=args,
+            mode="supervised",
+            dataset=args.dataset,
+            task="classification",
+            num_classes=num_classes,
+            params=loss_params,
+        )
+        task = ClassificationTask(
+            num_classes=num_classes,
+            loss_name=loss_name,
+            loss_fn=loss_fn,
+        )
 
     optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
     optimizer = make_optimizer(

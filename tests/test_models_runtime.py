@@ -188,6 +188,29 @@ def test_mlp_classifier_cache_contract() -> None:
     assert tuple(cache["block_outputs"]["head"].shape) == (6, 3)
 
 
+def test_mlp_builder_forwards_model_params() -> None:
+    registry = _models_registry()
+    args = _default_args()
+    args.model_params = {
+        "hidden": 21,
+        "layers": 3,
+        "activation": "tanh",
+    }
+    ctx = registry.ModelContext(
+        dataset="mnist",
+        num_classes=5,
+        in_dim=8,
+        in_channels=None,
+        input_shape=None,
+    )
+    model = registry.build_model("mlp", ctx, args)
+
+    assert model.hidden_dim == 21
+    assert model.num_layers == 3
+    assert model.num_classes == 5
+    assert model.activation == "tanh"
+
+
 def test_convnet_classifier_cache_contract() -> None:
     torch = importlib.import_module("torch")
     conv_mod = importlib.import_module("lelabo.models.builtins.convnet")
@@ -218,6 +241,8 @@ def test_cnn_builder_forwards_model_params() -> None:
         "pools": [False, True],
         "use_bn": False,
         "pool_kernel": 3,
+        "activation": "tanh",
+        "output_activation": "sigmoid",
     }
     ctx = registry.ModelContext(
         dataset="mnist",
@@ -238,6 +263,34 @@ def test_cnn_builder_forwards_model_params() -> None:
     assert type(getattr(model, "bn2")).__name__ == "Identity"
     assert type(getattr(model, "pool1")).__name__ == "Identity"
     assert type(getattr(model, "pool2")).__name__ == "MaxPool2d"
+    assert model.activation_name == "tanh"
+    assert model.output_activation_name == "sigmoid"
+
+
+def test_cnn_builder_supports_flatten_head_mode() -> None:
+    registry = _models_registry()
+    args = _default_args()
+    args.model_params = {
+        "channels": [8, 16],
+        "kernel_sizes": [3, 3],
+        "pools": [True, True],
+        "use_bn": False,
+        "activation": "relu",
+        "output_activation": "identity",
+        "head_mode": "flatten",
+    }
+    ctx = registry.ModelContext(
+        dataset="mnist",
+        num_classes=10,
+        in_dim=None,
+        in_channels=1,
+        input_shape=(1, 28, 28),
+    )
+    model = registry.build_model("cnn", ctx, args)
+
+    assert model.head_mode == "flatten"
+    # 28x28 --pool2--> 14x14 --pool2--> 7x7 with 16 channels => 16*7*7=784
+    assert model.head.in_features == 16 * 7 * 7
 
 
 def test_deep_softhebb_classifier_cache_contract() -> None:

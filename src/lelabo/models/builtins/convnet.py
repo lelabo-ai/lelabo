@@ -7,8 +7,24 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..blocks import BlockSpec
+from ..blocks import BlockSpec, normalize_standard_cache
 from ..registry import ModelContext, register_model
+
+
+def _make_activation(name: str):
+    act = str(name).strip().lower()
+    if act in {"identity", "none", "linear"}:
+        return act, (lambda x: x)
+    if act == "relu":
+        return act, (lambda x: F.relu(x, inplace=False))
+    if act == "tanh":
+        return act, torch.tanh
+    if act == "sigmoid":
+        return act, torch.sigmoid
+    raise ValueError(
+        f"Unsupported activation '{name}'. "
+        "Supported values: identity, relu, tanh, sigmoid."
+    )
 
 
 @register_model("cnn")
@@ -25,6 +41,9 @@ def build_cnn(ctx: ModelContext, args):
         value = getattr(args, name, default)
         return default if value is None else value
 
+    hidden_activation = _pick("activation", _pick("conv_activation", _pick("conv_act", "relu")))
+    output_activation = _pick("output_activation", _pick("head_activation", "identity"))
+
     return ConvNetClassifier(
         in_channels=ctx.in_channels,
         num_classes=ctx.num_classes,
@@ -37,11 +56,15 @@ def build_cnn(ctx: ModelContext, args):
         pool_every=_pick("pool_every", 1),
         pools=_pick("pools", None),
         pool_kernel=_pick("pool_kernel", 2),
+        activation=hidden_activation,
+        output_activation=output_activation,
+        head_mode=_pick("head_mode", "gap"),
+        input_shape=ctx.input_shape,
     )
 
 
 class ClassicCNN(nn.Module):
-    """CNN classique: (Conv -> BN -> ReLU -> Pool) x N -> GAP -> Linear."""
+    """Classic CNN: (Conv -> BN -> Act -> Pool) x N -> (GAP|Flatten) -> Linear."""
 
     def __init__(
         self,
@@ -53,13 +76,22 @@ class ClassicCNN(nn.Module):
         pools: Sequence[bool],
         use_bn: bool,
         pool_kernel: int,
+        activation: str = "relu",
+        output_activation: str = "identity",
+        head_mode: str = "gap",
+        input_shape: Sequence[int] | None = None,
     ):
         super().__init__()
-        self.activation_name = "relu"
+        self.activation_name, self._activation = _make_activation(activation)
+        self.output_activation_name, self._output_activation = _make_activation(output_activation)
+        self.head_mode = str(head_mode).strip().lower()
+        self.input_shape = tuple(int(v) for v in input_shape) if input_shape is not None else None
         if not widths:
             raise ValueError("ClassicCNN requires at least one conv width.")
         if not (len(widths) == len(kernel_sizes) == len(pools)):
             raise ValueError("widths, kernel_sizes, pools must share the same length.")
+        if self.head_mode not in {"gap", "flatten"}:
+            raise ValueError("head_mode must be one of: gap, flatten.")
 
         self._conv_names: list[str] = []
         c_in = int(in_channels)
@@ -87,7 +119,31 @@ class ClassicCNN(nn.Module):
             c_in = int(w)
 
         self.gap = nn.AdaptiveAvgPool2d((1, 1))
-        self.head = nn.Linear(c_in, int(num_classes))
+        if self.head_mode == "gap":
+            head_in_features = int(c_in)
+        else:
+            if self.input_shape is None:
+                raise ValueError("head_mode='flatten' requires input_shape=(C,H,W).")
+            if len(self.input_shape) != 3:
+                raise ValueError("input_shape must have 3 values: (C,H,W).")
+            in_c, in_h, in_w = self.input_shape
+            if in_c != int(in_channels):
+                raise ValueError(
+                    f"input_shape channel mismatch: got C={in_c}, expected {int(in_channels)}."
+                )
+            if in_h <= 0 or in_w <= 0:
+                raise ValueError("input_shape spatial dimensions must be > 0.")
+            with torch.no_grad():
+                probe = torch.zeros(1, in_c, in_h, in_w)
+                for i, conv_name in enumerate(self._conv_names, start=1):
+                    bn_name = f"bn{i}"
+                    pool_name = f"pool{i}"
+                    probe = getattr(self, conv_name)(probe)
+                    probe = getattr(self, bn_name)(probe)
+                    probe = self._activation(probe)
+                    probe = getattr(self, pool_name)(probe)
+                head_in_features = int(probe.flatten(1).size(1))
+        self.head = nn.Linear(head_in_features, int(num_classes))
 
     @property
     def convs(self) -> list[nn.Conv2d]:
@@ -111,14 +167,14 @@ class ClassicCNN(nn.Module):
                 pool_name = f"pool{i}"
                 x = getattr(self, conv_name)(x)
                 x = getattr(self, bn_name)(x)
-                x = F.relu(x, inplace=True)
+                x = self._activation(x)
                 x = getattr(self, pool_name)(x)
-            x = self.gap(x).flatten(1)
-            return self.head(x)
+            x = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
+            logits = self.head(x)
+            return self._output_activation(logits)
 
         # --- cache path
         block_inputs: dict[str, torch.Tensor] = {}
-        block_preacts: dict[str, torch.Tensor] = {}
         block_outputs: dict[str, torch.Tensor] = {}
         steps: list[dict[str, object]] = []
 
@@ -131,11 +187,10 @@ class ClassicCNN(nn.Module):
             block_inputs[name] = x_in.detach()
 
             u = getattr(self, conv_name)(x_in)          # conv output
-            u_bn = getattr(self, bn_name)(u)            # this is what ReLU sees => "preact"
-            h = F.relu(u_bn, inplace=False)             # avoid inplace messing with cached tensors
+            u_bn = getattr(self, bn_name)(u)            # activation pre-input
+            h = self._activation(u_bn)
             x = getattr(self, pool_name)(h)
 
-            block_preacts[name] = u_bn.detach()
             block_outputs[name] = h.detach()
 
             steps.append(
@@ -144,24 +199,22 @@ class ClassicCNN(nn.Module):
                     "type": "Conv2d",
                     "is_output": False,
                     "x_in": block_inputs[name],
-                    "preact": block_preacts[name],
                     "out": block_outputs[name],
                 }
             )
 
         # head
-        feats = self.gap(x).flatten(1)
+        feats = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
         block_inputs["head"] = feats.detach()
         logits = self.head(feats)
-        block_preacts["head"] = logits.detach()
         block_outputs["head"] = logits.detach()
+        out = self._output_activation(logits)
         steps.append(
             {
                 "name": "head",
                 "type": "Linear",
                 "is_output": True,
                 "x_in": block_inputs["head"],
-                "preact": block_preacts["head"],
                 "out": block_outputs["head"],
             }
         )
@@ -170,11 +223,10 @@ class ClassicCNN(nn.Module):
             "cache_version": "standard.v1",
             "block_inputs": block_inputs,
             "block_outputs": block_outputs,   # post-activation for conv blocks here
-            "block_preacts": block_preacts,
             "block_specs_runtime": self.get_blocks(),
             "steps": steps,
         }
-        return logits, normalize_standard_cache(cache)
+        return out, normalize_standard_cache(cache)
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:
@@ -200,6 +252,10 @@ class ConvNetClassifier(ClassicCNN):
         pool_every: int = 1,
         pools: Sequence[bool] | None = None,
         pool_kernel: int = 2,
+        activation: str = "relu",
+        output_activation: str = "identity",
+        head_mode: str = "gap",
+        input_shape: Sequence[int] | None = None,
     ):
         if channels is None:
             if depth is None:
@@ -243,4 +299,8 @@ class ConvNetClassifier(ClassicCNN):
             pools=pool_list,
             use_bn=bool(use_bn),
             pool_kernel=int(pool_kernel),
+            activation=str(activation),
+            output_activation=str(output_activation),
+            head_mode=str(head_mode),
+            input_shape=input_shape,
         )
