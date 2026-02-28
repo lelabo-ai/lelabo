@@ -7,6 +7,7 @@ import torch
 from ..trainer import Trainer
 from ...optimizers import make_optimizer, make_scheduler
 from ...losses import make_loss
+from ...initializers import make_initializer
 from ..utils.logger import RunLogger
 
 # datasets
@@ -129,6 +130,18 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             loss_name=loss_name,
             loss_fn=loss_fn,
         )
+
+    initializer_name = str(getattr(args, "initializer", "none")).strip().lower()
+    initializer_params = dict(getattr(args, "initializer_params", {}) or {})
+    initializer = make_initializer(
+        initializer_name,
+        args=args,
+        mode="supervised",
+        dataset=args.dataset,
+        model_name=args.model,
+        params=initializer_params,
+    )
+    initializer(model)
 
     optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
     optimizer = make_optimizer(

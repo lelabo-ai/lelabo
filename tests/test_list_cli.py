@@ -28,6 +28,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
             "update_rules": ["bp", "fa"],
             "datasets": ["iris"],
             "models": ["cnn", "mlp"],
+            "initializers": ["none", "kaiming_uniform"],
             "optimizers": ["adamw"],
             "losses": ["cross_entropy", "mse"],
             "metrics": ["acc"],
@@ -43,6 +44,7 @@ def test_list_cli_all_text(monkeypatch, capsys) -> None:
     assert "- bp" in out
     assert "datasets (1)" in out
     assert "models (2)" in out
+    assert "initializers (2)" in out
     assert "optimizers (1)" in out
     assert "losses (2)" in out
     assert "metrics (1)" in out
@@ -108,6 +110,17 @@ def test_list_cli_losses_target_json(monkeypatch, capsys) -> None:
     payload = json.loads(out)
     assert sorted(payload.keys()) == ["losses"]
     assert payload["losses"] == ["bce_with_logits", "cross_entropy"]
+
+
+def test_list_cli_initializers_target_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(list_cli, "get_initializer_names", lambda **kwargs: ["none", "xavier_uniform"])
+
+    rc = list_cli.main(["initializers", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert sorted(payload.keys()) == ["initializers"]
+    assert payload["initializers"] == ["none", "xavier_uniform"]
 
 
 def test_list_cli_callbacks_target_json(monkeypatch, capsys) -> None:

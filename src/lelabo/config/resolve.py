@@ -255,6 +255,7 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
             [
                 ("algo", ["update_rule", "name"]),
                 ("dataset", ["dataset", "name"]),
+                ("initializer", ["initializer", "name"]),
                 ("epochs", ["train", "epochs"]),
                 ("batch", ["train", "batch"]),
                 ("val_frac", ["train", "val_frac"]),
@@ -369,6 +370,7 @@ def resolve_supervised_config(
 
     dataset = _normalize_component(merged.get("dataset"), default_name="")
     model = _normalize_component(merged.get("model"), default_name="mlp")
+    initializer = _normalize_component(merged.get("initializer"), default_name="none")
     loss = _normalize_component(merged.get("loss"), default_name="cross_entropy")
     update_rule = _normalize_component(merged.get("update_rule"), default_name="bp")
     optimizer = _normalize_component(merged.get("optimizer"), default_name="adamw")
@@ -425,6 +427,7 @@ def resolve_supervised_config(
         task="supervised",
         dataset=dataset,
         model=model,
+        initializer=initializer,
         loss=loss,
         update_rule=update_rule,
         optimizer=optimizer,
@@ -501,6 +504,7 @@ def to_supervised_namespace(
     device_resolver,
 ) -> Namespace:
     model_params = dict(cfg.model.params)
+    initializer_params = dict(cfg.initializer.params)
     loss_params = dict(cfg.loss.params)
     optimizer_params = dict(cfg.optimizer.params)
     dataset_params = dict(cfg.dataset.params)
@@ -528,6 +532,7 @@ def to_supervised_namespace(
         "task": "supervised",
         "dataset": cfg.dataset.name,
         "model": cfg.model.name,
+        "initializer": cfg.initializer.name,
         "loss": cfg.loss.name,
         "algo": cfg.update_rule.name,
         "metrics": ",".join(metric_names),
@@ -560,6 +565,7 @@ def to_supervised_namespace(
         "weight_decay": float(optimizer_params.get("weight_decay", 0.01)),
         "run_dir": cfg.runtime.run_dir,
         "model_params": model_params,
+        "initializer_params": initializer_params,
         "loss_params": loss_params,
         "dataset_params": dataset_params,
         "update_rule_params": update_rule_params,
@@ -572,6 +578,7 @@ def to_supervised_namespace(
     for bucket in (
         dataset_params,
         model_params,
+        initializer_params,
         loss_params,
         update_rule_params,
         optimizer_params,

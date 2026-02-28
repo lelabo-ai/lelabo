@@ -14,6 +14,7 @@ _SUPPORTED_KINDS = (
     "datasets",
     "metrics",
     "losses",
+    "initializers",
     "schedulers",
     "optimizers",
     "callbacks",

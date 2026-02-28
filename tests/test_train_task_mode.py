@@ -55,6 +55,11 @@ def test_supervised_loss_override_is_exposed() -> None:
     assert args.loss == "bce_with_logits"
 
 
+def test_supervised_initializer_override_is_exposed() -> None:
+    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--initializer", "xavier_uniform"])
+    assert args.initializer == "xavier_uniform"
+
+
 def test_supervised_set_override_parses_nested_field() -> None:
     args = train_api.parse_train_args(
         ["supervised", "--dataset", "iris", "--set", "robustness.max_samples=123"]

@@ -23,6 +23,11 @@ activation = "tanh"
 output_activation = "identity"
 head_mode="flatten"
 
+[initializer]
+name = "none"
+[initializer.params]
+# seed = 2
+
 [update_rule]
 name = "drtp"
 [update_rule.params]

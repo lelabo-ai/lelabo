@@ -13,6 +13,10 @@ hidden = 2048
 layers = 4
 activation = "relu"
 
+[initializer]
+name = "none"
+[initializer.params]
+
 [loss]
 name = "cross_entropy"
 [loss.params]
