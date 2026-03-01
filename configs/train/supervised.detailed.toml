@@ -17,8 +17,8 @@ name = "drtp_addon"
 
 [model.params]
 topology = "CONV_32_5_1_2_FC_1000_FC_10"
-conv_act = "tanh"
-hidden_act = "tanh"
+conv_act = "relu"
+hidden_act = "relu"
 output_act = "identity"
 dropout = 0.0
 fc_zero_init = false
