@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..blocks import BlockSpec
 from ..registry import ModelContext, register_model
 
 
@@ -66,19 +65,6 @@ class MLPStack(nn.Module):
     @property
     def linears(self) -> list[nn.Linear]:
         return [getattr(self, name) for name in self._linear_names]
-
-    def get_blocks(self) -> list[BlockSpec]:
-        specs: list[BlockSpec] = []
-        for i, name in enumerate(self._linear_names):
-            specs.append(
-                BlockSpec(
-                    name=name,
-                    module=getattr(self, name),
-                    rep="identity",
-                    is_output=(i == len(self._linear_names) - 1),
-                )
-            )
-        return specs
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = x
@@ -141,9 +127,6 @@ class MLPClassifier(nn.Module):
     @property
     def act(self) -> Callable[[torch.Tensor], torch.Tensor]:
         return self.net.act
-
-    def get_blocks(self) -> list[BlockSpec]:
-        return self.net.get_blocks()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)

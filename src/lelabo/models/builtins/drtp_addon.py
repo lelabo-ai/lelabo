@@ -7,7 +7,6 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from ..blocks import BlockSpec, normalize_standard_cache
 from ..registry import ModelContext, register_model
 
 
@@ -291,10 +290,6 @@ class DRTPAddonNet(nn.Module):
 
         self.layers = nn.ModuleList()
         self._flatten_before_stage: set[int] = set()
-        self._block_specs: list[BlockSpec] = []
-
-        conv_count = 0
-        hidden_fc_count = 0
 
         for idx, (kind, layout) in enumerate(parsed):
             is_output = idx == (len(parsed) - 1)
@@ -312,11 +307,6 @@ class DRTPAddonNet(nn.Module):
                     activation=self.conv_activation,
                 )
                 self.layers.append(stage)
-                conv_count += 1
-                name = f"conv{conv_count}"
-                self._block_specs.append(
-                    BlockSpec(name=name, module=stage.conv, rep="identity", is_output=False)
-                )
 
                 current_channels = int(layout.out_channels)
                 current_h = _conv2d_out(current_h, layout.kernel_size, layout.stride, layout.padding)
@@ -325,7 +315,7 @@ class DRTPAddonNet(nn.Module):
                 current_w = _pool2d_out(current_w)
                 if current_h <= 0 or current_w <= 0:
                     raise ValueError(
-                        f"Topology produced invalid spatial shape after {name}: "
+                        f"Topology produced invalid spatial shape after layer index {idx}: "
                         f"(H={current_h}, W={current_w})."
                     )
                 current_flat = int(current_channels * current_h * current_w)
@@ -349,67 +339,14 @@ class DRTPAddonNet(nn.Module):
                 zero_init=self.fc_zero_init,
             )
             self.layers.append(stage)
-
-            if is_output:
-                block_name = "head"
-            else:
-                hidden_fc_count += 1
-                block_name = f"fc{hidden_fc_count}"
-            self._block_specs.append(
-                BlockSpec(
-                    name=block_name,
-                    module=stage.linear,
-                    rep="identity",
-                    is_output=is_output,
-                )
-            )
             current_flat = int(layout.out_features)
 
-    def get_blocks(self) -> list[BlockSpec]:
-        return list(self._block_specs)
-
-    def forward(self, x: torch.Tensor, return_cache: bool = False):
-        if not return_cache:
-            for idx, stage in enumerate(self.layers):
-                if idx in self._flatten_before_stage:
-                    x = x.reshape(x.size(0), -1)
-                x, _ = stage(x)
-            return x
-
-        block_inputs: dict[str, torch.Tensor] = {}
-        block_outputs: dict[str, torch.Tensor] = {}
-        steps: list[dict[str, object]] = []
-
+    def forward(self, x: torch.Tensor):
         for idx, stage in enumerate(self.layers):
             if idx in self._flatten_before_stage:
                 x = x.reshape(x.size(0), -1)
-
-            spec = self._block_specs[idx]
-            x_in = x
-            x, preact = stage(x_in)
-
-            x_cached = x_in.detach()
-            pre_cached = preact.detach()
-            block_inputs[spec.name] = x_cached
-            block_outputs[spec.name] = pre_cached
-            steps.append(
-                {
-                    "name": spec.name,
-                    "type": spec.module.__class__.__name__,
-                    "is_output": bool(spec.is_output),
-                    "x_in": x_cached,
-                    "out": pre_cached,
-                }
-            )
-
-        cache = {
-            "cache_version": "standard.v1",
-            "block_inputs": block_inputs,
-            "block_outputs": block_outputs,
-            "block_specs_runtime": self.get_blocks(),
-            "steps": steps,
-        }
-        return x, normalize_standard_cache(cache)
+            x, _ = stage(x)
+        return x
 
 
 def _pick(args, params: Mapping[str, Any], names: Sequence[str], default: Any) -> Any:

@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..blocks import BlockSpec, normalize_standard_cache
 from ..registry import ModelContext, register_model
 
 
@@ -153,80 +152,17 @@ class ClassicCNN(nn.Module):
     def fc(self) -> nn.Linear:
         return self.head
 
-    def get_blocks(self) -> list[BlockSpec]:
-        specs: list[BlockSpec] = []
-        for name in self._conv_names:
-            specs.append(BlockSpec(name=name, module=getattr(self, name), rep="gap", is_output=False))
-        specs.append(BlockSpec(name="head", module=self.head, rep="identity", is_output=True))
-        return specs
-
-    def forward(self, x: torch.Tensor, return_cache: bool = False):
-        if not return_cache:
-            for i, conv_name in enumerate(self._conv_names, start=1):
-                bn_name = f"bn{i}"
-                pool_name = f"pool{i}"
-                x = getattr(self, conv_name)(x)
-                x = getattr(self, bn_name)(x)
-                x = self._activation(x)
-                x = getattr(self, pool_name)(x)
-            x = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
-            logits = self.head(x)
-            return self._output_activation(logits)
-
-        # --- cache path
-        block_inputs: dict[str, torch.Tensor] = {}
-        block_outputs: dict[str, torch.Tensor] = {}
-        steps: list[dict[str, object]] = []
-
+    def forward(self, x: torch.Tensor):
         for i, conv_name in enumerate(self._conv_names, start=1):
-            name = conv_name
             bn_name = f"bn{i}"
             pool_name = f"pool{i}"
-
-            x_in = x
-            block_inputs[name] = x_in.detach()
-
-            u = getattr(self, conv_name)(x_in)          # conv output
-            u_bn = getattr(self, bn_name)(u)            # activation pre-input
-            h = self._activation(u_bn)
-            x = getattr(self, pool_name)(h)
-
-            block_outputs[name] = h.detach()
-
-            steps.append(
-                {
-                    "name": name,
-                    "type": "Conv2d",
-                    "is_output": False,
-                    "x_in": block_inputs[name],
-                    "out": block_outputs[name],
-                }
-            )
-
-        # head
-        feats = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
-        block_inputs["head"] = feats.detach()
-        logits = self.head(feats)
-        block_outputs["head"] = logits.detach()
-        out = self._output_activation(logits)
-        steps.append(
-            {
-                "name": "head",
-                "type": "Linear",
-                "is_output": True,
-                "x_in": block_inputs["head"],
-                "out": block_outputs["head"],
-            }
-        )
-
-        cache = {
-            "cache_version": "standard.v1",
-            "block_inputs": block_inputs,
-            "block_outputs": block_outputs,   # post-activation for conv blocks here
-            "block_specs_runtime": self.get_blocks(),
-            "steps": steps,
-        }
-        return out, normalize_standard_cache(cache)
+            x = getattr(self, conv_name)(x)
+            x = getattr(self, bn_name)(x)
+            x = self._activation(x)
+            x = getattr(self, pool_name)(x)
+        x = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
+        logits = self.head(x)
+        return self._output_activation(logits)
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:

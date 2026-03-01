@@ -134,11 +134,7 @@ def _named_module_specs(model: nn.Module) -> list[BlockSpec]:
 
 
 def _pick_output_index(specs: Sequence[BlockSpec], param_types: tuple[type[nn.Module], ...]) -> int:
-    # Prefer an explicit "head" name when available.
-    for i, spec in enumerate(specs):
-        if str(spec.name) == "head":
-            return i
-    # Otherwise prefer the last param block.
+    # Output head is defined as the last observed param block.
     if param_types:
         for i in range(len(specs) - 1, -1, -1):
             if isinstance(specs[i].module, param_types):
@@ -191,6 +187,8 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
         effective_types = observed_types
         if not effective_types:
             effective_types = _dedup_types(param_types + act_types)
+        if not effective_types:
+            effective_types = (nn.Linear, nn.Conv2d)
 
         pool = explicit if explicit else named
         selected = []
@@ -285,10 +283,9 @@ def _build_views(cache: Mapping[str, Any], blocks: list[BlockSpec], spec: CacheS
     param_blocks = [b for b in selected_blocks if isinstance(b.module, param_types)]
     activation_blocks = [b for b in selected_blocks if act_types and isinstance(b.module, act_types)]
 
-    output_blocks = [b for b in param_blocks if bool(b.is_output)]
-    if not output_blocks:
-        output_blocks = [b for b in selected_blocks if bool(b.is_output)]
-    hidden_blocks = [b for b in param_blocks if b not in output_blocks]
+    output_blocks = param_blocks[-1:] if param_blocks else []
+    output_name = str(output_blocks[0].name) if output_blocks else None
+    hidden_blocks = param_blocks[:-1] if param_blocks else []
 
     local_blocks: list[dict[str, Any]] = []
     for block in param_blocks:
@@ -297,7 +294,7 @@ def _build_views(cache: Mapping[str, Any], blocks: list[BlockSpec], spec: CacheS
             {
                 "name": name,
                 "module": block.module,
-                "is_output": bool(block.is_output),
+                "is_output": bool(output_name is not None and name == output_name),
                 "x": module_inputs.get(name),
                 "u": module_outputs.get(name),
                 "h": None,
