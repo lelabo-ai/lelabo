@@ -8,20 +8,20 @@ name = "cifar10"
 # CIFAR10/CIFAR100:
 # - augment=false (default) => no train-time augmentation
 # - augment=true => RandomCrop(32, padding=4) + RandomHorizontalFlip on train split only
-augment = true
+augment = false
 # num_workers = 2
 # pin_memory = true
 
 [model]
-name = "cnn"
+name = "drtp_addon"
+
 [model.params]
-channels = [32, 64]
-kernel_sizes = [5, 3]
-pools = [true, true]
-use_bn = false
-activation = "tanh"
-output_activation = "identity"
-head_mode="flatten"
+topology = "CONV_32_5_1_2_FC_1000_FC_10"
+conv_act = "tanh"
+hidden_act = "tanh"
+output_act = "identity"
+dropout = 0.0
+fc_zero_init = false
 
 [initializer]
 name = "none"
