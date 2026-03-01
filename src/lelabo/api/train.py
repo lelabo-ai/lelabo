@@ -94,7 +94,13 @@ def _add_runtime_override_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         choices=["off", "relaxed", "strict"],
     )
-    parser.add_argument("--verbose", type=int, default=None)
+    parser.add_argument(
+        "--display",
+        type=str,
+        default=None,
+        choices=["none", "compact", "rich"],
+        help="Console display mode.",
+    )
     parser.add_argument(
         "--run-dir",
         type=str,
@@ -206,8 +212,8 @@ def _build_supervised_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any
         _set_nested(out, ["runtime", "seed"], parsed.seed)
     if parsed.determinism is not None:
         _set_nested(out, ["runtime", "determinism"], parsed.determinism)
-    if parsed.verbose is not None:
-        _set_nested(out, ["runtime", "verbose"], parsed.verbose)
+    if parsed.display is not None:
+        _set_nested(out, ["runtime", "display"], parsed.display)
     if parsed.run_dir is not None:
         _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
 
@@ -242,8 +248,8 @@ def _build_rl_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
         _set_nested(out, ["runtime", "seed"], parsed.seed)
     if parsed.determinism is not None:
         _set_nested(out, ["runtime", "determinism"], parsed.determinism)
-    if parsed.verbose is not None:
-        _set_nested(out, ["runtime", "verbose"], parsed.verbose)
+    if parsed.display is not None:
+        _set_nested(out, ["runtime", "display"], parsed.display)
     if parsed.run_dir is not None:
         _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
     return out

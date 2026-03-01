@@ -23,7 +23,7 @@ weight_decay = 0.01
 device = "auto"
 seed = 2
 determinism = "relaxed"
-verbose = 1
+display = "compact"
 run_dir = ""
 
 [rl]

@@ -24,7 +24,7 @@ momentum = 0.9
 device = "auto"
 seed = 2
 determinism = "relaxed"
-verbose = 1
+display = "compact"  # one of: none, compact, rich
 run_dir = "runs/rl_demo"
 
 [rl]

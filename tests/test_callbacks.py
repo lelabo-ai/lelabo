@@ -142,7 +142,7 @@ def test_early_stopping_integration_stops_iris_training_early(tmp_path, monkeypa
                 "val_frac = 0.1",
                 "",
                 "[runtime]",
-                "verbose = 0",
+                'display = "none"',
                 f'run_dir = "{run_dir.as_posix()}"',
                 "",
                 "[[callbacks]]",

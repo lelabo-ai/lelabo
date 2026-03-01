@@ -237,6 +237,19 @@ def _reject_legacy_callback_config(merged: Mapping[str, Any]) -> None:
         )
 
 
+def _display_from_runtime(runtime_raw: Mapping[str, Any]) -> str:
+    if "verbose" in runtime_raw:
+        raise ValueError("runtime.verbose has been removed. Use runtime.display = 'none'|'compact'|'rich'.")
+    token = str(runtime_raw.get("display", "") or "").strip().lower()
+    if token in {"none", "compact", "rich"}:
+        return token
+    if token in {"0", "false", "off", "silent", "quiet"}:
+        return "none"
+    if token in {"1", "true", "on"}:
+        return "compact"
+    return "compact"
+
+
 def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
     # Shared aliases for scalar top-level convenience.
     aliases: list[tuple[str, list[str]]] = [
@@ -247,7 +260,7 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
         ("seed", ["runtime", "seed"]),
         ("device", ["runtime", "device"]),
         ("determinism", ["runtime", "determinism"]),
-        ("verbose", ["runtime", "verbose"]),
+        ("display", ["runtime", "display"]),
         ("run_dir", ["runtime", "run_dir"]),
     ]
     if mode == "supervised":
@@ -328,6 +341,8 @@ def _validate_supervised(cfg: SupervisedConfig) -> None:
             )
     if str(cfg.runtime.determinism).lower() not in {"off", "relaxed", "strict"}:
         raise ValueError("runtime.determinism must be one of: off, relaxed, strict.")
+    if str(cfg.runtime.display).lower() not in {"none", "compact", "rich"}:
+        raise ValueError("runtime.display must be one of: none, compact, rich.")
 
 
 def _validate_rl(cfg: RLConfig) -> None:
@@ -346,6 +361,8 @@ def _validate_rl(cfg: RLConfig) -> None:
         raise ValueError("rl.eval_episodes must be > 0.")
     if str(cfg.runtime.determinism).lower() not in {"off", "relaxed", "strict"}:
         raise ValueError("runtime.determinism must be one of: off, relaxed, strict.")
+    if str(cfg.runtime.display).lower() not in {"none", "compact", "rich"}:
+        raise ValueError("runtime.display must be one of: none, compact, rich.")
 
 
 def resolve_supervised_config(
@@ -388,7 +405,7 @@ def resolve_supervised_config(
         device=str(runtime_raw.get("device", "auto")),
         seed=int(runtime_raw.get("seed", 2)),
         determinism=str(runtime_raw.get("determinism", "relaxed")),
-        verbose=int(runtime_raw.get("verbose", 1)),
+        display=_display_from_runtime(runtime_raw),
         run_dir=runtime_raw.get("run_dir"),
     )
 
@@ -471,7 +488,7 @@ def resolve_rl_config(
         device=str(runtime_raw.get("device", "auto")),
         seed=int(runtime_raw.get("seed", 2)),
         determinism=str(runtime_raw.get("determinism", "relaxed")),
-        verbose=int(runtime_raw.get("verbose", 1)),
+        display=_display_from_runtime(runtime_raw),
         run_dir=runtime_raw.get("run_dir"),
     )
 
@@ -560,7 +577,7 @@ def to_supervised_namespace(
         "device": resolved_device,
         "seed": int(cfg.runtime.seed),
         "determinism": str(cfg.runtime.determinism).lower(),
-        "verbose": int(cfg.runtime.verbose),
+        "display": str(cfg.runtime.display).lower(),
         "optimizer": cfg.optimizer.name,
         "weight_decay": float(optimizer_params.get("weight_decay", 0.01)),
         "run_dir": cfg.runtime.run_dir,
@@ -623,7 +640,7 @@ def to_rl_namespace(
         "device": resolved_device,
         "seed": int(cfg.runtime.seed),
         "determinism": str(cfg.runtime.determinism).lower(),
-        "verbose": int(cfg.runtime.verbose),
+        "display": str(cfg.runtime.display).lower(),
         "optimizer": cfg.optimizer.name,
         "run_dir": cfg.runtime.run_dir,
         "model": cfg.model.name,

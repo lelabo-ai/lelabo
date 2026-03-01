@@ -77,7 +77,7 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
         task=task,
         learner=learner,
         device="cpu",
-        verbose=False,
+        display_mode="none",
         metric_probes=[probe],
     )
 
@@ -88,3 +88,29 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
     eval_out = trainer.evaluate(val_loader, split="val")
     assert "f1_macro" in eval_out
 
+
+def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch.manual_seed(0)
+    x = torch.randn(8, 4)
+    y = (x[:, 0] > 0).long()
+    ds = TensorDataset(x, y)
+    train_loader = DataLoader(ds, batch_size=4, shuffle=False)
+
+    model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+    task = task_api.ClassificationTask(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+    learner = backprop_api.Backprop(optimizer=optimizer)
+
+    monkeypatch.setattr(trainer_api, "Console", None, raising=True)
+    monkeypatch.setattr(trainer_api, "Table", None, raising=True)
+
+    with pytest.warns(UserWarning, match="display='rich'.*pip install rich"):
+        trainer = trainer_api.Trainer(
+            model=model,
+            task=task,
+            learner=learner,
+            device="cpu",
+            display_mode="rich",
+            metric_probes=[],
+        )
+    assert trainer.display_mode == "compact"

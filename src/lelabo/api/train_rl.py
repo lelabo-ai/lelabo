@@ -17,6 +17,8 @@ from .train_rl_config import build_rl_algo_config
 
 def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
     device = args.device
+    display_mode = str(getattr(args, "display", "compact")).strip().lower()
+    show_logs = display_mode != "none"
     rl_overrides = dict(getattr(args, "rl_params", {}) or {})
     optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
     lr = float(optimizer_params.pop("lr", args.lr))
@@ -61,7 +63,7 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         algo = DQN(q_net=qnet, learner=learner, cfg=cfg)
         algo.setup(obs_dim=obs_dim, n_actions=n_actions)
 
-        runner = RLRunner(train_env=env, algo=algo, device=device, logger=logger, verbose=bool(args.verbose))
+        runner = RLRunner(train_env=env, algo=algo, device=device, logger=logger, show_logs=show_logs)
         return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     if args.rl_algo == "ppo":
@@ -98,7 +100,7 @@ def run_rl(args: Namespace, logger: RunLogger) -> dict[str, Any]:
         learner = build_update_rule(args.algo, ctx)
 
         algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
-        runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, verbose=bool(args.verbose))
+        runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, show_logs=show_logs)
         return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
 
     raise ValueError(f"Unknown rl algo: {args.rl_algo}")

@@ -216,7 +216,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         learner=learner,
         device=args.device,
         input_noise_training=args.input_noise_training,
-        verbose=bool(args.verbose),
+        display_mode=str(getattr(args, "display", "compact")),
         callbacks=callbacks,
         logger=logger,
         schedulers=schedulers,
@@ -286,7 +286,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     if robustness_block:
         summary["robustness"] = robustness_block
     
-    if args.verbose > 0:
+    if str(getattr(args, "display", "compact")).lower() != "none":
         print("Summary:", summary)
 
     return summary

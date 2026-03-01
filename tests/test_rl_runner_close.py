@@ -46,7 +46,7 @@ class _FailingAlgo(_DummyAlgo):
 def test_rl_runner_closes_train_and_eval_envs_on_success() -> None:
     train_env = _DummyEnv()
     eval_env = _DummyEnv()
-    runner = runner_mod.RLRunner(train_env=train_env, algo=_DummyAlgo(), device="cpu", verbose=False)
+    runner = runner_mod.RLRunner(train_env=train_env, algo=_DummyAlgo(), device="cpu", show_logs=False)
 
     out = runner.train(total_steps=3, eval_env=eval_env, eval_episodes=2)
 
@@ -58,7 +58,7 @@ def test_rl_runner_closes_train_and_eval_envs_on_success() -> None:
 def test_rl_runner_closes_envs_on_failure() -> None:
     train_env = _DummyEnv()
     eval_env = _DummyEnv()
-    runner = runner_mod.RLRunner(train_env=train_env, algo=_FailingAlgo(), device="cpu", verbose=False)
+    runner = runner_mod.RLRunner(train_env=train_env, algo=_FailingAlgo(), device="cpu", show_logs=False)
 
     with pytest.raises(RuntimeError, match="boom"):
         runner.train(total_steps=3, eval_env=eval_env, eval_episodes=2)

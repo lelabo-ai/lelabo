@@ -24,7 +24,7 @@ class RLRunner:
         algo,
         device: str,
         logger: Optional[RunLogger] = None,
-        verbose: bool = False,
+        show_logs: bool = False,
         reward_window: int = 20,
         length_window: int = 20,
     ):
@@ -32,7 +32,7 @@ class RLRunner:
         self.algo = algo
         self.device = device
         self.logger = logger or RunLogger(None)
-        self.verbose = verbose
+        self.show_logs = show_logs
 
         self.reward_window = int(reward_window)
         self.length_window = int(length_window)
@@ -97,7 +97,7 @@ class RLRunner:
                         self.logger.log(rec)
 
                     # print console
-                    if self.verbose and (updates % print_every_updates) == 0:
+                    if self.show_logs and (updates % print_every_updates) == 0:
                         mean_r = self._mean(self._last_returns)
                         mean_l = self._mean(self._last_lengths)
 

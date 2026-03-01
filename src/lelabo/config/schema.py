@@ -38,7 +38,7 @@ class RuntimeSpec:
     device: str = "auto"
     seed: int = 2
     determinism: str = "relaxed"
-    verbose: int = 1
+    display: str = "compact"
     run_dir: str | None = None
 
 

@@ -55,6 +55,11 @@ def test_supervised_loss_override_is_exposed() -> None:
     assert args.loss == "bce_with_logits"
 
 
+def test_supervised_display_override_is_exposed() -> None:
+    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--display", "none"])
+    assert args.display == "none"
+
+
 def test_supervised_initializer_override_is_exposed() -> None:
     args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--initializer", "xavier_uniform"])
     assert args.initializer == "xavier_uniform"
@@ -88,6 +93,46 @@ def test_supervised_config_file_is_loaded(tmp_path: Path) -> None:
     args = train_api.parse_train_args(["supervised", "--config", str(cfg)])
     assert args.dataset == "iris"
     assert args.lr == pytest.approx(0.004)
+
+
+def test_runtime_display_config_is_exposed(tmp_path: Path) -> None:
+    cfg = tmp_path / "train.toml"
+    cfg.write_text(
+        "\n".join(
+            [
+                'task = "supervised"',
+                "",
+                "[dataset]",
+                'name = "iris"',
+                "",
+                "[runtime]",
+                'display = "none"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    args = train_api.parse_train_args(["supervised", "--config", str(cfg)])
+    assert args.display == "none"
+
+
+def test_runtime_verbose_is_rejected(tmp_path: Path) -> None:
+    cfg = tmp_path / "train.toml"
+    cfg.write_text(
+        "\n".join(
+            [
+                'task = "supervised"',
+                "",
+                "[dataset]",
+                'name = "iris"',
+                "",
+                "[runtime]",
+                "verbose = 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="runtime.verbose has been removed"):
+        train_api.parse_train_args(["supervised", "--config", str(cfg)])
 
 
 def test_supervised_set_override_wins(tmp_path: Path) -> None:
