@@ -44,12 +44,18 @@ class ModelCacheWrapper(nn.Module):
         block_filter: Callable[[str, nn.Module], bool] | None = None,
         detach_cache: bool = True,
         cache_to_cpu: bool = False,
+        capture_inputs: bool = True,
+        capture_outputs: bool = True,
+        capture_all_calls: bool = True,
         include_steps: bool = True,
     ):
         super().__init__()
         self.model = model
         self.detach_cache = bool(detach_cache)
         self.cache_to_cpu = bool(cache_to_cpu)
+        self.capture_inputs = bool(capture_inputs)
+        self.capture_outputs = bool(capture_outputs)
+        self.capture_all_calls = bool(capture_all_calls)
         self.include_steps = bool(include_steps)
 
         self._block_specs = self._build_block_specs(block_specs, block_filter)
@@ -99,15 +105,16 @@ class ModelCacheWrapper(nn.Module):
     def get_blocks(self) -> list[BlockSpec]:
         return list(self._block_specs)
 
-    def _pack_tensor(self, value: Any) -> torch.Tensor | None:
+    def _pack_tensor_with_ref(self, value: Any) -> tuple[torch.Tensor | None, int | None]:
         t = _first_tensor(value)
         if t is None:
-            return None
+            return None, None
+        ref_id = int(id(t))
         if self.detach_cache:
             t = t.detach()
         if self.cache_to_cpu:
             t = t.cpu()
-        return t
+        return t, ref_id
 
     @staticmethod
     def _parse_pre_hook_args(hook_args: tuple[Any, ...]) -> tuple[nn.Module, tuple[Any, ...], dict[str, Any] | None]:
@@ -137,9 +144,9 @@ class ModelCacheWrapper(nn.Module):
         block_outputs: dict[str, torch.Tensor] = {}
         block_inputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
         block_outputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
-        steps: list[dict[str, Any]] = []
-        pending_by_module: dict[int, list[torch.Tensor | None]] = defaultdict(list)
         call_count_by_name: dict[str, int] = defaultdict(int)
+        steps: list[dict[str, Any]] = []
+        pending_by_module: dict[int, list[tuple[torch.Tensor | None, int | None]]] = defaultdict(list)
         hooks = []
 
         def _register_pre_hook(mod: nn.Module, fn):
@@ -164,33 +171,36 @@ class ModelCacheWrapper(nn.Module):
                     picked = _spec.in_select(in_args, in_kwargs)
                 else:
                     picked = in_args[0] if in_args else None
-                x_in = self._pack_tensor(picked)
-                pending_by_module[_mid].append(x_in)
+                x_in, x_in_ref = self._pack_tensor_with_ref(picked)
+                pending_by_module[_mid].append((x_in, x_in_ref))
 
             def _fwd_hook(*hook_args, _mid=module_id, _spec=spec):
                 _module, in_args, in_kwargs, output = self._parse_fwd_hook_args(hook_args)
                 if pending_by_module[_mid]:
-                    x_in = pending_by_module[_mid].pop(0)
+                    x_in, x_in_ref = pending_by_module[_mid].pop(0)
                 else:
                     if _spec.in_select is not None:
                         picked_in = _spec.in_select(in_args, in_kwargs)
                     else:
                         picked_in = in_args[0] if in_args else None
-                    x_in = self._pack_tensor(picked_in)
+                    x_in, x_in_ref = self._pack_tensor_with_ref(picked_in)
 
                 picked_out = _spec.out_select(output) if _spec.out_select is not None else output
-                out_t = self._pack_tensor(picked_out)
+                out_t, out_ref = self._pack_tensor_with_ref(picked_out)
 
-                if x_in is not None:
+                if self.capture_inputs and x_in is not None:
                     block_inputs[_spec.name] = x_in
-                    block_inputs_all[_spec.name].append(x_in)
-                if out_t is not None:
+                if self.capture_outputs and out_t is not None:
                     block_outputs[_spec.name] = out_t
-                    block_outputs_all[_spec.name].append(out_t)
+                if self.capture_all_calls:
+                    if self.capture_inputs and x_in is not None:
+                        block_inputs_all[_spec.name].append(x_in)
+                    if self.capture_outputs and out_t is not None:
+                        block_outputs_all[_spec.name].append(out_t)
 
+                call_idx = call_count_by_name[_spec.name]
+                call_count_by_name[_spec.name] += 1
                 if self.include_steps:
-                    call_idx = call_count_by_name[_spec.name]
-                    call_count_by_name[_spec.name] += 1
                     steps.append(
                         {
                             "name": _spec.name,
@@ -201,6 +211,9 @@ class ModelCacheWrapper(nn.Module):
                             "is_output": bool(_spec.is_output),
                             "x_in": x_in,
                             "out": out_t,
+                            "in_ref_id": x_in_ref,
+                            "out_ref_id": out_ref,
+                            "module_id": int(_mid),
                         }
                     )
 
@@ -214,11 +227,12 @@ class ModelCacheWrapper(nn.Module):
                 h.remove()
 
         cache: dict[str, Any] = {
-            "cache_version": "standard.v1",
-            "block_inputs": block_inputs,
-            "block_outputs": block_outputs,
-            "block_inputs_all": dict(block_inputs_all),
-            "block_outputs_all": dict(block_outputs_all),
+            "cache_version": "standard.v2",
+            "module_inputs": block_inputs,
+            "module_outputs": block_outputs,
+            "module_inputs_all": dict(block_inputs_all),
+            "module_outputs_all": dict(block_outputs_all),
+            "call_count_by_name": dict(call_count_by_name),
             "block_specs_runtime": list(self._block_specs),
         }
         if self.include_steps:

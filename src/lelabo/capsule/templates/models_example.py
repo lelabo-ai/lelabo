@@ -68,12 +68,12 @@ if __name__ == "__main__":
     print("Output shape:", logits.shape)
 
     # Cache is collected by the framework provider, not by model inheritance.
-    logits, cache, blocks = forward_with_standard_cache(
+    logits, cache, views = forward_with_standard_cache(
         model,
         x,
         cache_spec=CacheSpec(require_block_inputs=True, require_block_outputs=True),
     )
 
-    print("Detected blocks:", [b.name for b in blocks])
+    print("Detected blocks:", [b.name for b in views["selected_blocks"]])
     print("Cached outputs:", list(cache["block_outputs"].keys()))
     print("Cache keys:", list(cache.keys()))

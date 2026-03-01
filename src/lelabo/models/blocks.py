@@ -36,25 +36,44 @@ def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(cache, dict):
         raise TypeError("Cache payload must be a dict.")
 
-    block_inputs = cache.get("block_inputs", {})
-    block_outputs = cache.get("block_outputs", {})
-    if not isinstance(block_inputs, dict) or not isinstance(block_outputs, dict):
-        raise TypeError("Cache must contain dict keys: 'block_inputs' and 'block_outputs'.")
+    module_inputs = cache.get("module_inputs", cache.get("block_inputs", {}))
+    module_outputs = cache.get("module_outputs", cache.get("block_outputs", {}))
+    if not isinstance(module_inputs, dict) or not isinstance(module_outputs, dict):
+        raise TypeError(
+            "Cache must contain dict keys: 'module_inputs'/'module_outputs' "
+            "(or backward-compatible 'block_inputs'/'block_outputs')."
+        )
 
     out = dict(cache)
     out["cache_version"] = str(cache.get("cache_version", "standard.v1"))
-    out["block_inputs"] = block_inputs
-    out["block_outputs"] = block_outputs
-    # v1 keeps only neutral output naming. Pre-activations can be added in a later version.
+    out["module_inputs"] = module_inputs
+    out["module_outputs"] = module_outputs
+    # Backward-compatible aliases used by existing update-rules/tests.
+    out["block_inputs"] = module_inputs
+    out["block_outputs"] = module_outputs
+
+    module_inputs_all = out.get("module_inputs_all", out.get("block_inputs_all"))
+    if not isinstance(module_inputs_all, dict):
+        module_inputs_all = {k: [v] for k, v in module_inputs.items() if torch.is_tensor(v)}
+    out["module_inputs_all"] = module_inputs_all
+    out["block_inputs_all"] = module_inputs_all
+
+    module_outputs_all = out.get("module_outputs_all", out.get("block_outputs_all"))
+    if not isinstance(module_outputs_all, dict):
+        module_outputs_all = {k: [v] for k, v in module_outputs.items() if torch.is_tensor(v)}
+    out["module_outputs_all"] = module_outputs_all
+    out["block_outputs_all"] = module_outputs_all
+
+    call_count = out.get("call_count_by_name")
+    if not isinstance(call_count, dict):
+        call_count = {}
+        for name, vals in module_outputs_all.items():
+            if isinstance(vals, list):
+                call_count[str(name)] = int(len(vals))
+    out["call_count_by_name"] = call_count
+
+    # v2 keeps only neutral output naming. Pre-activations can be added in a later version.
     out.pop("block_preacts", None)
     out.pop("block_preacts_all", None)
-
-    block_inputs_all = out.get("block_inputs_all")
-    if not isinstance(block_inputs_all, dict):
-        out["block_inputs_all"] = {k: [v] for k, v in block_inputs.items() if torch.is_tensor(v)}
-
-    block_outputs_all = out.get("block_outputs_all")
-    if not isinstance(block_outputs_all, dict):
-        out["block_outputs_all"] = {k: [v] for k, v in block_outputs.items() if torch.is_tensor(v)}
 
     return out

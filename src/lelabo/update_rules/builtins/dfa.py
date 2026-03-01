@@ -125,16 +125,15 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         y = to_device(y, device)
 
         spec = CacheSpec(
+            param_module_types=(nn.Linear, nn.Conv2d),
             require_block_inputs=True,
             require_block_outputs=True,
             require_single_call=True,
-            require_single_output=True,
-            require_linear_only=False,
-            require_ndim2_inputs=False,
+            require_single_output_head=True,
         )
-        out, cache, blocks = forward_with_standard_cache(model, x, cache_spec=spec)
-
-        output_blocks = [b for b in blocks if bool(getattr(b, "is_output", False))]
+        out, cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
+        param_blocks = views["param_blocks"]
+        output_blocks = views["output_blocks"]
         if len(output_blocks) != 1:
             raise RuntimeError(f"DFA v1 expects exactly one output block, got {len(output_blocks)}.")
 
@@ -170,7 +169,7 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
             average_batch=self.average_grads,
         )
 
-        hidden_blocks = [b for b in blocks if not bool(getattr(b, "is_output", False))]
+        hidden_blocks = [b for b in param_blocks if not bool(getattr(b, "is_output", False))]
         for block in hidden_blocks:
             name = str(getattr(block, "name", ""))
             layer = getattr(block, "module", None)

@@ -363,3 +363,133 @@ def test_resnet18_builder_with_fake_torchvision_cache(monkeypatch: pytest.Monkey
     assert tuple(out.shape) == (4, 5)
     _assert_basic_cache_contract(model, out, cache)
     assert "head" in cache["block_outputs"]
+
+
+def test_cache_provider_v2_selective_linear_view() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Tiny(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(16, 3)
+
+        def forward(self, x):
+            return self.head(self.relu(self.fc1(x)))
+
+    model = _Tiny()
+    x = torch.randn(5, 8)
+    out, cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            observed_module_types=(nn.Linear,),
+            param_module_types=(nn.Linear,),
+            require_single_output_head=True,
+        ),
+    )
+
+    assert tuple(out.shape) == (5, 3)
+    assert "module_inputs" in cache
+    assert "module_outputs" in cache
+    assert len(views["selected_blocks"]) == 2
+    assert all(isinstance(b.module, nn.Linear) for b in views["selected_blocks"])
+    assert len(views["param_blocks"]) == 2
+    assert len(views["output_blocks"]) == 1
+
+
+def test_cache_provider_single_call_uses_call_counts() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Reuse(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+            self.head = nn.Linear(4, 2)
+
+        def forward(self, x):
+            h = torch.tanh(self.fc(x))
+            h = torch.tanh(self.fc(h))
+            return self.head(h)
+
+    model = _Reuse()
+    x = torch.randn(6, 4)
+    with pytest.raises(cache_provider.ContractError, match="exactly once"):
+        cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                observed_module_types=(nn.Linear,),
+                param_module_types=(nn.Linear,),
+                require_single_call=True,
+            ),
+        )
+
+
+def test_cache_provider_activation_pairing_with_module_activation() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Tiny(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(16, 3)
+
+        def forward(self, x):
+            return self.head(self.relu(self.fc1(x)))
+
+    model = _Tiny()
+    x = torch.randn(4, 8)
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            observed_module_types=(nn.Linear, nn.ReLU),
+            param_module_types=(nn.Linear,),
+            activation_module_types=(nn.ReLU,),
+            require_single_output_head=True,
+            require_activation_pairing=True,
+        ),
+    )
+
+    hidden_locals = [b for b in views["local_blocks"] if not bool(b["is_output"])]
+    assert hidden_locals
+    assert torch.is_tensor(hidden_locals[0]["h"])
+
+
+def test_cache_provider_activation_pairing_fails_for_functional_activation() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Tiny(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.head = nn.Linear(16, 3)
+
+        def forward(self, x):
+            return self.head(torch.relu(self.fc1(x)))
+
+    model = _Tiny()
+    x = torch.randn(4, 8)
+    with pytest.raises(cache_provider.ContractError, match="functional activations"):
+        cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                observed_module_types=(nn.Linear,),
+                param_module_types=(nn.Linear,),
+                activation_module_types=(nn.ReLU,),
+                require_single_output_head=True,
+                require_activation_pairing=True,
+            ),
+        )
