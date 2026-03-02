@@ -7,6 +7,7 @@ from ..registry import UpdateRuleContext, register_update_rule
 from .backprop import Backpropagation
 from .dfa import DirectFeedbackAlignment
 from .drtp import DirectRandomTargetProjection
+from .fa import FeedbackAlignment
 
 _MISSING = object()
 
@@ -70,6 +71,44 @@ def build_dfa(ctx: UpdateRuleContext):
         delta_scale=float(params.get("delta_scale", 1.0)),
         average_grads=bool(params.get("average_grads", False)),
         activation_name=activation_name,
+    )
+
+
+@register_update_rule("feedback_alignment")
+@register_update_rule("feedbackalignment")
+@register_update_rule("fa")
+def build_fa(ctx: UpdateRuleContext):
+    params = _rule_params(ctx)
+    allowed_keys = {
+        "feedback_scale",
+        "delta_scale",
+        "average_grads",
+        "activation_name",
+        "activation",
+        "pool_backscale",
+    }
+    unknown = sorted(k for k in params.keys() if k not in allowed_keys)
+    if unknown:
+        raise ValueError(
+            f"Unsupported fa update_rule.params keys: {unknown}. "
+            f"Allowed keys: {sorted(allowed_keys)}"
+        )
+    grad_clip = _extra(ctx, "grad_clip", _MISSING)
+    if grad_clip is _MISSING:
+        grad_clip = _default_grad_clip(ctx)
+
+    activation_name = params.get("activation_name", params.get("activation", None))
+    if activation_name is not None:
+        activation_name = str(activation_name)
+
+    return FeedbackAlignment(
+        optimizer=ctx.optimizer,
+        feedback_scale=float(params.get("feedback_scale", 1.0)),
+        grad_clip=grad_clip,
+        delta_scale=float(params.get("delta_scale", 1.0)),
+        average_grads=bool(params.get("average_grads", False)),
+        activation_name=activation_name,
+        pool_backscale=bool(params.get("pool_backscale", True)),
     )
 
 
