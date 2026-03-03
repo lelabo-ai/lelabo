@@ -362,7 +362,6 @@ def _pick(args, params: Mapping[str, Any], names: Sequence[str], default: Any) -
 
 
 @register_model("drtp_addon")
-@register_model("drtp_topology")
 def build_drtp_addon(ctx: ModelContext, args):
     model_params = getattr(args, "model_params", None)
     params = dict(model_params) if isinstance(model_params, Mapping) else {}

@@ -16,7 +16,7 @@ metrics_api = importlib.import_module("lelabo.metrics")
 metrics_payload = importlib.import_module("lelabo.metrics.payload")
 trainer_api = importlib.import_module("lelabo.core.trainer")
 task_api = importlib.import_module("lelabo.core.task")
-backprop_api = importlib.import_module("lelabo.update_rules.backprop")
+backprop_api = importlib.import_module("lelabo.update_rules.builtins.backprop")
 
 
 def test_builtin_metric_names_are_registered() -> None:

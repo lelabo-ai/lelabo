@@ -11,7 +11,6 @@ from .probes import BuiltinEpochMetric
 from .registry import MetricContext, register_metric
 
 
-@register_metric("accuracy", kind="classification")
 @register_metric("acc", kind="classification")
 def build_accuracy(ctx: MetricContext):
     params = metric_params(ctx, "accuracy", "acc")

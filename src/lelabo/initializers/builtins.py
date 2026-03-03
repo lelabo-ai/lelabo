@@ -132,8 +132,6 @@ def _make_init_callable(
     return _apply
 
 
-@register_initializer("none")
-@register_initializer("default")
 @register_initializer("torch_default")
 def build_none(_ctx: InitializerContext):
     @torch.no_grad()

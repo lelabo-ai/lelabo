@@ -38,7 +38,6 @@ def _default_grad_clip(ctx: UpdateRuleContext) -> float | None:
 
 
 @register_update_rule("bp")
-@register_update_rule("backprop")
 def build_backprop(ctx: UpdateRuleContext):
     grad_clip = _extra(ctx, "grad_clip", _MISSING)
     if grad_clip is _MISSING:
@@ -74,8 +73,6 @@ def build_dfa(ctx: UpdateRuleContext):
     )
 
 
-@register_update_rule("feedback_alignment")
-@register_update_rule("feedbackalignment")
 @register_update_rule("fa")
 def build_fa(ctx: UpdateRuleContext):
     params = _rule_params(ctx)

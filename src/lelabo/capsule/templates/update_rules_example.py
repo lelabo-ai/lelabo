@@ -7,6 +7,6 @@
 #     # ctx.optimizer is already built by LeLabo.
 #     # Return an object compatible with your training flow.
 #     # Example:
-#     # from lelabo.update_rules.backprop import Backprop
+#     # from lelabo.update_rules.builtins.backprop import Backprop
 #     # return Backprop(optimizer=ctx.optimizer, grad_clip=None)
 #     raise NotImplementedError
