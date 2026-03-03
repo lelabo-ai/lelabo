@@ -88,24 +88,23 @@ def _changed_params(before: dict[str, Any], after: dict[str, Any], atol: float =
 
 
 def _block_param_names(model) -> dict[str, list[str]]:
-    if not hasattr(model, "get_blocks"):
-        return {}
-
-    named_modules = {mod: name for name, mod in model.named_modules()}
-    all_names = list(dict(model.named_parameters()).keys())
+    # Coverage map over all parameterized modules (no get_blocks dependency).
+    all_param_names = set(dict(model.named_parameters()).keys())
     block_to_params: dict[str, list[str]] = {}
 
-    for b in model.get_blocks():
-        block_name = str(getattr(b, "name", ""))
-        module = getattr(b, "module", None)
-        mod_name = named_modules.get(module)
-        if not block_name or mod_name is None:
+    for module_name, module in model.named_modules():
+        local_names = [str(n) for n, _ in module.named_parameters(recurse=False)]
+        if not local_names:
             continue
 
-        prefix = f"{mod_name}."
-        pnames = [n for n in all_names if n.startswith(prefix)]
-        if pnames:
-            block_to_params[block_name] = pnames
+        block_name = module_name if module_name else "<root>"
+        full_names = []
+        for local in local_names:
+            full = f"{module_name}.{local}" if module_name else local
+            if full in all_param_names:
+                full_names.append(full)
+        if full_names:
+            block_to_params[block_name] = sorted(set(full_names))
 
     return block_to_params
 
@@ -131,7 +130,7 @@ def _warn_block_coverage(
 
     if unchanged_blocks:
         warnings.warn(
-            f"⚠ [Rule Audit][{algo}/{mode}] Blocks with no observed update: {', '.join(unchanged_blocks)}. "
+            f"⚠ [Rule Audit][{algo}/{mode}] Modules with no observed update: {', '.join(unchanged_blocks)}. "
             "This can be expected depending on the rule design and training phase.",
             stacklevel=2,
         )
@@ -350,7 +349,7 @@ def _emit_success_info(
             f"✅ [Rule Audit][{algo}/{mode_tag}] PASS: "
             f"executed {epochs} epoch(s) x {steps_per_epoch} step(s), "
             f"updated_params={changed_param_count}, "
-            f"updated_blocks={updated_blocks}/{total_block_count}."
+            f"updated_modules={updated_blocks}/{total_block_count}."
         ),
         category=AuditInfo,
         stacklevel=2,

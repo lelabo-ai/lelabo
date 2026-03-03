@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from .backprop import Backprop, Backpropagation
 from .dfa import DirectFeedbackAlignment
+from .dni import DNI
 from .drtp import DirectRandomTargetProjection
 from .fa import FeedbackAlignment
+from .scl import SoftContrastiveLearning
 from .softhebb import SoftHebb
 
 
@@ -31,6 +33,18 @@ def build_drtp(ctx):
     return _build_drtp(ctx)
 
 
+def build_dni(ctx):
+    from .builders import build_dni as _build_dni
+
+    return _build_dni(ctx)
+
+
+def build_scl(ctx):
+    from .builders import build_scl as _build_scl
+
+    return _build_scl(ctx)
+
+
 def build_softhebb(ctx):
     from .builders import build_softhebb as _build_softhebb
 
@@ -41,12 +55,16 @@ __all__ = [
     "Backpropagation",
     "Backprop",
     "DirectFeedbackAlignment",
+    "DNI",
     "FeedbackAlignment",
     "DirectRandomTargetProjection",
+    "SoftContrastiveLearning",
     "SoftHebb",
     "build_backprop",
     "build_dfa",
+    "build_dni",
     "build_fa",
     "build_drtp",
+    "build_scl",
     "build_softhebb",
 ]
