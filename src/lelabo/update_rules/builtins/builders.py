@@ -8,6 +8,7 @@ from .backprop import Backpropagation
 from .dfa import DirectFeedbackAlignment
 from .drtp import DirectRandomTargetProjection
 from .fa import FeedbackAlignment
+from .softhebb import SoftHebb
 
 _MISSING = object()
 
@@ -143,3 +144,40 @@ def build_drtp(ctx: UpdateRuleContext):
         average_grads=bool(params.get("average_grads", False)),
         activation_name=activation_name,
     )
+
+
+@register_update_rule("softhebb")
+def build_softhebb(ctx: UpdateRuleContext):
+    params = _rule_params(ctx)
+    allowed_keys = {
+        "base_lr",
+        "lr_conv1",
+        "lr_conv2",
+        "lr_conv3",
+        "power_lr",
+        "unsup_epochs",
+        "sup_epochs",
+        "steps_per_epoch",
+        "eps_norm",
+        "conv_t_invert",
+    }
+    unknown_keys = sorted(k for k in params if k not in allowed_keys)
+    if unknown_keys:
+        raise ValueError(
+            f"Unsupported softhebb update_rule.params keys: {unknown_keys}. "
+            f"Allowed keys: {sorted(allowed_keys)}"
+        )
+
+    grad_clip = _extra(ctx, "grad_clip", _MISSING)
+    if grad_clip is _MISSING:
+        grad_clip = _default_grad_clip(ctx)
+
+    kwargs: dict[str, Any] = {
+        "optimizer": ctx.optimizer,
+        "head_optimizer": ctx.optimizer,
+        "grad_clip": grad_clip,
+    }
+    for key in sorted(allowed_keys):
+        if key in params:
+            kwargs[key] = params[key]
+    return SoftHebb(**kwargs)

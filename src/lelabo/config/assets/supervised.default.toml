@@ -10,15 +10,15 @@ name = ""
 name = "mlp"
 [model.params]
 hidden = 2048
-layers = 4
+layers = 2
 activation = "relu"
 
 [initializer]
-name = "none"
+name = "torch_default"
 [initializer.params]
 
 [loss]
-name = "cross_entropy"
+name = "ce"
 [loss.params]
 
 [update_rule]

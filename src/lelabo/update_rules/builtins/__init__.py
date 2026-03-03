@@ -4,6 +4,7 @@ from .backprop import Backprop, Backpropagation
 from .dfa import DirectFeedbackAlignment
 from .drtp import DirectRandomTargetProjection
 from .fa import FeedbackAlignment
+from .softhebb import SoftHebb
 
 
 def build_backprop(ctx):
@@ -30,14 +31,22 @@ def build_drtp(ctx):
     return _build_drtp(ctx)
 
 
+def build_softhebb(ctx):
+    from .builders import build_softhebb as _build_softhebb
+
+    return _build_softhebb(ctx)
+
+
 __all__ = [
     "Backpropagation",
     "Backprop",
     "DirectFeedbackAlignment",
     "FeedbackAlignment",
     "DirectRandomTargetProjection",
+    "SoftHebb",
     "build_backprop",
     "build_dfa",
     "build_fa",
     "build_drtp",
+    "build_softhebb",
 ]
