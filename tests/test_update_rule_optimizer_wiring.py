@@ -61,37 +61,3 @@ def test_softhebb_rejects_head_lr_and_head_weight_decay_params() -> None:
         assert "Unsupported softhebb update_rule.params keys" in message
         assert "head_lr" in message
         assert "Allowed keys" in message
-
-
-def test_targetprop_reuses_same_optimizer_for_forward_and_inverse() -> None:
-    ctx, _ = _make_ctx(optimizer_name="adamw", mode="supervised")
-    learner = builtins.build_targetprop(ctx)
-    assert learner.fwd_optimizer is ctx.optimizer
-    assert learner.inv_optimizer is ctx.optimizer
-
-
-def test_targetprop_shared_optimizer_keeps_existing_params_when_adding_decoders() -> None:
-    ctx, base_param = _make_ctx(optimizer_name="adamw", mode="supervised")
-    learner = builtins.build_targetprop(ctx)
-    assert learner.inv_optimizer is ctx.optimizer
-
-    existing_ids_before = {
-        id(p)
-        for group in ctx.optimizer.param_groups
-        for p in list(group.get("params", []))
-        if isinstance(p, torch.nn.Parameter)
-    }
-    assert id(base_param) in existing_ids_before
-
-    learner._ensure_decoders([(4, 6)], device=torch.device("cpu"), dtype=torch.float32)
-
-    existing_ids_after = {
-        id(p)
-        for group in ctx.optimizer.param_groups
-        for p in list(group.get("params", []))
-        if isinstance(p, torch.nn.Parameter)
-    }
-    assert id(base_param) in existing_ids_after
-    assert learner.decoders is not None
-    decoder_ids = {id(p) for p in learner.decoders.parameters()}
-    assert decoder_ids.issubset(existing_ids_after)

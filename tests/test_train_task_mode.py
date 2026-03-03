@@ -51,8 +51,8 @@ def test_supervised_default_algo_is_registered() -> None:
 
 
 def test_supervised_loss_override_is_exposed() -> None:
-    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--loss", "bce_with_logits"])
-    assert args.loss == "bce_with_logits"
+    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--loss", "bce"])
+    assert args.loss == "bce"
 
 
 def test_supervised_display_override_is_exposed() -> None:

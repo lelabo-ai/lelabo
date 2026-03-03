@@ -25,7 +25,7 @@ def _clone_params(model: torch.nn.Module) -> dict[str, torch.Tensor]:
 def test_builtin_initializer_names_include_expected_defaults() -> None:
     names = set(initializers_api.get_initializer_names())
     expected = {
-        "none",
+        "torch_default",
         "kaiming_uniform",
         "kaiming_normal",
         "xavier_uniform",
@@ -38,7 +38,7 @@ def test_builtin_initializer_names_include_expected_defaults() -> None:
 def test_initializer_none_is_noop() -> None:
     model = torch.nn.Sequential(torch.nn.Linear(8, 16), torch.nn.ReLU(), torch.nn.Linear(16, 3))
     before = _clone_params(model)
-    init_fn = initializers_api.make_initializer("none")
+    init_fn = initializers_api.make_initializer("torch_default")
     init_fn(model)
     after = _clone_params(model)
     for name, old in before.items():

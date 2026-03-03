@@ -19,7 +19,7 @@ def _one_hot(labels: torch.Tensor, num_classes: int) -> torch.Tensor:
     return out
 
 
-def test_classification_task_uses_configured_bce_with_logits_loss() -> None:
+def test_classification_task_uses_configured_bce_loss() -> None:
     logits = torch.tensor(
         [
             [0.5, -1.0, 2.0],
@@ -27,21 +27,22 @@ def test_classification_task_uses_configured_bce_with_logits_loss() -> None:
         ],
         dtype=torch.float32,
     )
+    probs = torch.sigmoid(logits)
     labels = torch.tensor([2, 0], dtype=torch.long)
-    targets = _one_hot(labels, num_classes=3).to(dtype=logits.dtype)
+    targets = _one_hot(labels, num_classes=3).to(dtype=probs.dtype)
 
-    loss_fn = loss_api.make_loss("bce_with_logits")
+    loss_fn = loss_api.make_loss("bce")
     task = task_api.ClassificationTask(
         num_classes=3,
-        loss_name="bce_with_logits",
+        loss_name="bce",
         loss_fn=loss_fn,
     )
 
-    got_loss = task.loss(logits, labels)
-    exp_loss = torch.nn.BCEWithLogitsLoss()(logits, targets)
+    got_loss = task.loss(probs, labels)
+    exp_loss = torch.nn.BCELoss()(probs, targets)
     assert torch.allclose(got_loss, exp_loss)
 
-    got_delta = task.output_deltas(logits, labels)["logits"]
-    exp_delta = (torch.sigmoid(logits) - targets) / float(logits.numel())
+    got_delta = task.output_deltas(probs, labels)["logits"]
+    exp_delta = (probs - targets) / (probs * (1.0 - probs))
+    exp_delta = exp_delta / float(probs.numel())
     assert torch.allclose(got_delta, exp_delta)
-

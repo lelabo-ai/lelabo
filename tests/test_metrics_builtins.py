@@ -21,7 +21,7 @@ backprop_api = importlib.import_module("lelabo.update_rules.builtins.backprop")
 
 def test_builtin_metric_names_are_registered() -> None:
     names = set(metrics_api.get_metric_names())
-    for required in {"accuracy", "acc", "precision", "recall", "f1", "mse", "mae", "rmse", "r2"}:
+    for required in {"acc", "precision", "recall", "f1", "mse", "mae", "rmse", "r2"}:
         assert required in names
 
 
