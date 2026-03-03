@@ -505,3 +505,55 @@ def test_cache_provider_activation_pairing_fails_for_functional_activation() -> 
                 require_activation_pairing=True,
             ),
         )
+
+
+def test_cache_provider_reconstructs_local_conv_blocks_with_intermediate_modules() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _TinyConv(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv1 = nn.Conv2d(3, 4, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(4)
+            self.relu1 = nn.ReLU()
+            self.pool1 = nn.MaxPool2d(2)
+            self.conv2 = nn.Conv2d(4, 8, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(8)
+            self.relu2 = nn.ReLU()
+            self.pool2 = nn.MaxPool2d(2)
+            self.head = nn.Linear(8 * 4 * 4, 5)
+
+        def forward(self, x):
+            x = self.pool1(self.relu1(self.bn1(self.conv1(x))))
+            x = self.pool2(self.relu2(self.bn2(self.conv2(x))))
+            return self.head(x.flatten(1))
+
+    model = _TinyConv()
+    x = torch.randn(3, 3, 16, 16)
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            param_module_types=(nn.Conv2d, nn.Linear),
+            require_single_call=True,
+            require_single_output_head=True,
+            local_block_mode="reconstruct_local_blocks",
+        ),
+    )
+
+    local_blocks = views["local_blocks"]
+    hidden_locals = [b for b in local_blocks if not bool(b["is_output"])]
+    assert hidden_locals
+
+    by_name = {str(b["name"]): b for b in hidden_locals}
+    assert "conv1" in by_name
+    conv1_local = by_name["conv1"]
+    segment_names = tuple(str(n) for n in conv1_local.get("segment_names", ()))
+    assert segment_names == ("conv1", "bn1", "relu1", "pool1")
+    assert torch.is_tensor(conv1_local["x"])
+    assert torch.is_tensor(conv1_local["u"])
+    replay = conv1_local["module"](conv1_local["x"])
+    assert torch.is_tensor(replay)
+    assert tuple(replay.shape) == tuple(conv1_local["u"].shape)

@@ -5,7 +5,6 @@ from collections.abc import Iterable, Mapping, Sequence
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ..registry import ModelContext, register_model
 
@@ -13,13 +12,13 @@ from ..registry import ModelContext, register_model
 def _make_activation(name: str):
     act = str(name).strip().lower()
     if act in {"identity", "none", "linear"}:
-        return act, (lambda x: x)
+        return "identity", nn.Identity()
     if act == "relu":
-        return act, (lambda x: F.relu(x, inplace=False))
+        return "relu", nn.ReLU(inplace=False)
     if act == "tanh":
-        return act, torch.tanh
+        return "tanh", nn.Tanh()
     if act == "sigmoid":
-        return act, torch.sigmoid
+        return "sigmoid", nn.Sigmoid()
     raise ValueError(
         f"Unsupported activation '{name}'. "
         "Supported values: identity, relu, tanh, sigmoid."
@@ -81,8 +80,8 @@ class ClassicCNN(nn.Module):
         input_shape: Sequence[int] | None = None,
     ):
         super().__init__()
-        self.activation_name, self._activation = _make_activation(activation)
-        self.output_activation_name, self._output_activation = _make_activation(output_activation)
+        self.activation_name, _ = _make_activation(activation)
+        self.output_activation_name, self.output_activation = _make_activation(output_activation)
         self.head_mode = str(head_mode).strip().lower()
         self.input_shape = tuple(int(v) for v in input_shape) if input_shape is not None else None
         if not widths:
@@ -93,10 +92,12 @@ class ClassicCNN(nn.Module):
             raise ValueError("head_mode must be one of: gap, flatten.")
 
         self._conv_names: list[str] = []
+        self._act_names: list[str] = []
         c_in = int(in_channels)
         for i, (w, k, do_pool) in enumerate(zip(widths, kernel_sizes, pools), start=1):
             conv_name = f"conv{i}"
             bn_name = f"bn{i}"
+            act_name = f"act{i}"
             pool_name = f"pool{i}"
 
             setattr(
@@ -112,9 +113,12 @@ class ClassicCNN(nn.Module):
                 ),
             )
             setattr(self, bn_name, nn.BatchNorm2d(int(w)) if bool(use_bn) else nn.Identity())
+            _, act_mod = _make_activation(self.activation_name)
+            setattr(self, act_name, act_mod)
             setattr(self, pool_name, nn.MaxPool2d(int(pool_kernel)) if bool(do_pool) else nn.Identity())
 
             self._conv_names.append(conv_name)
+            self._act_names.append(act_name)
             c_in = int(w)
 
         self.gap = nn.AdaptiveAvgPool2d((1, 1))
@@ -134,12 +138,13 @@ class ClassicCNN(nn.Module):
                 raise ValueError("input_shape spatial dimensions must be > 0.")
             with torch.no_grad():
                 probe = torch.zeros(1, in_c, in_h, in_w)
-                for i, conv_name in enumerate(self._conv_names, start=1):
-                    bn_name = f"bn{i}"
-                    pool_name = f"pool{i}"
+                for i, conv_name in enumerate(self._conv_names):
+                    bn_name = f"bn{i + 1}"
+                    act_name = self._act_names[i]
+                    pool_name = f"pool{i + 1}"
                     probe = getattr(self, conv_name)(probe)
                     probe = getattr(self, bn_name)(probe)
-                    probe = self._activation(probe)
+                    probe = getattr(self, act_name)(probe)
                     probe = getattr(self, pool_name)(probe)
                 head_in_features = int(probe.flatten(1).size(1))
         self.head = nn.Linear(head_in_features, int(num_classes))
@@ -153,16 +158,17 @@ class ClassicCNN(nn.Module):
         return self.head
 
     def forward(self, x: torch.Tensor):
-        for i, conv_name in enumerate(self._conv_names, start=1):
-            bn_name = f"bn{i}"
-            pool_name = f"pool{i}"
+        for i, conv_name in enumerate(self._conv_names):
+            bn_name = f"bn{i + 1}"
+            act_name = self._act_names[i]
+            pool_name = f"pool{i + 1}"
             x = getattr(self, conv_name)(x)
             x = getattr(self, bn_name)(x)
-            x = self._activation(x)
+            x = getattr(self, act_name)(x)
             x = getattr(self, pool_name)(x)
         x = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
         logits = self.head(x)
-        return self._output_activation(logits)
+        return self.output_activation(logits)
 
 
 def _as_int_list(x: Sequence[int] | Iterable[int]) -> list[int]:

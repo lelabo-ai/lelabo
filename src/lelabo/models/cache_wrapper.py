@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import torch
@@ -220,11 +220,45 @@ class ModelCacheWrapper(nn.Module):
             hooks.append(_register_pre_hook(module, _pre_hook))
             hooks.append(_register_fwd_hook(module, _fwd_hook))
 
+        model_cache: Mapping[str, Any] | None = None
         try:
-            out = self.model(*args, **kwargs)
+            model_res = self.model(*args, **kwargs)
+            out = model_res
+            if (
+                isinstance(model_res, tuple)
+                and len(model_res) == 2
+                and isinstance(model_res[1], Mapping)
+            ):
+                out = model_res[0]
+                model_cache = model_res[1]
         finally:
             for h in hooks:
                 h.remove()
+
+        if isinstance(model_cache, Mapping):
+            ext_inputs = model_cache.get("module_inputs", model_cache.get("block_inputs"))
+            if isinstance(ext_inputs, Mapping):
+                for k, v in ext_inputs.items():
+                    t, _ = self._pack_tensor_with_ref(v)
+                    if t is None:
+                        continue
+                    key = str(k)
+                    if self.capture_inputs:
+                        block_inputs[key] = t
+                    if self.capture_all_calls and self.capture_inputs:
+                        block_inputs_all[key].append(t)
+
+            ext_outputs = model_cache.get("module_outputs", model_cache.get("block_outputs"))
+            if isinstance(ext_outputs, Mapping):
+                for k, v in ext_outputs.items():
+                    t, _ = self._pack_tensor_with_ref(v)
+                    if t is None:
+                        continue
+                    key = str(k)
+                    if self.capture_outputs:
+                        block_outputs[key] = t
+                    if self.capture_all_calls and self.capture_outputs:
+                        block_outputs_all[key].append(t)
 
         cache: dict[str, Any] = {
             "cache_version": "standard.v2",
@@ -237,5 +271,20 @@ class ModelCacheWrapper(nn.Module):
         }
         if self.include_steps:
             cache["steps"] = steps
+        if isinstance(model_cache, Mapping):
+            passthrough_keys = {
+                "module_inputs",
+                "module_outputs",
+                "module_inputs_all",
+                "module_outputs_all",
+                "block_inputs",
+                "block_outputs",
+                "block_inputs_all",
+                "block_outputs_all",
+            }
+            for k, v in model_cache.items():
+                if str(k) in passthrough_keys:
+                    continue
+                cache[str(k)] = v
 
         return out, normalize_standard_cache(cache)

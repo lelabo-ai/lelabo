@@ -15,6 +15,21 @@ class ContractError(RuntimeError):
     """Raised when cache/model contract requirements are not satisfied."""
 
 
+class _LocalBlockChain(nn.Module):
+    """Callable chain used by local rules to replay reconstructed local blocks."""
+
+    def __init__(self, root: nn.Module, post_modules: Sequence[nn.Module]):
+        super().__init__()
+        self.root = root
+        self.post = nn.ModuleList(list(post_modules))
+
+    def forward(self, x):
+        y = self.root(x)
+        for mod in self.post:
+            y = mod(y)
+        return y
+
+
 def _as_types(raw: Sequence[type[nn.Module]] | type[nn.Module] | None) -> tuple[type[nn.Module], ...]:
     if raw is None:
         return ()
@@ -71,6 +86,7 @@ class CacheSpec:
     require_input_ndim: int | None = None
     require_output_ndim: int | None = None
     require_activation_pairing: bool = False
+    local_block_mode: str = "default"
     # --- Backward-compat constraints (v1)
     require_block_inputs: bool = True
     require_block_outputs: bool = False
@@ -133,6 +149,43 @@ def _named_module_specs(model: nn.Module) -> list[BlockSpec]:
     return specs
 
 
+def _named_leaf_module_specs(model: nn.Module) -> list[BlockSpec]:
+    specs: list[BlockSpec] = []
+    for name, module in model.named_modules():
+        if not name:
+            continue
+        try:
+            has_children = any(True for _ in module.children())
+        except Exception:
+            has_children = False
+        if has_children:
+            continue
+        specs.append(BlockSpec(name=name, module=module, rep="identity", is_output=False))
+    return specs
+
+
+def _is_reconstructed_local_mode(mode: str) -> bool:
+    token = str(mode).strip().lower()
+    return token in {
+        "reconstruct_local_blocks",
+        "param_to_next_param",
+        "param_to_param",
+        "reconstructed",
+        "local_reconstructed",
+    }
+
+
+def _uses_hf_hidden_states(mode: str) -> bool:
+    token = str(mode).strip().lower()
+    return token in {
+        "hf",
+        "transformers_hidden_states",
+        "hf_hidden_states",
+        "hf_hidden_states_full_blocks",
+        "hf_full_blocks",
+    }
+
+
 def _pick_output_index(specs: Sequence[BlockSpec], param_types: tuple[type[nn.Module], ...]) -> int:
     # Output head is defined as the last observed param block.
     if param_types:
@@ -163,12 +216,15 @@ def _mark_single_output(specs: Sequence[BlockSpec], out_idx: int) -> list[BlockS
 def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
     explicit = _maybe_get_blocks(model)
     named = _named_module_specs(model)
+    named_leaf = _named_leaf_module_specs(model)
 
     observed_types = _as_types(spec.observed_module_types)
     param_types = _as_types(spec.param_module_types)
     act_types = _as_types(spec.activation_module_types)
     if spec.require_linear_only and not param_types:
         param_types = (nn.Linear,)
+    mode = str(getattr(spec, "local_block_mode", "default")).strip().lower()
+    reconstruct_local = _is_reconstructed_local_mode(mode)
 
     observed_names = set(_as_strings(spec.observed_module_names))
     observed_groups = set(_as_strings(spec.observed_groups))
@@ -184,6 +240,15 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
     if explicit and no_explicit_filter:
         selected = list(explicit)
     else:
+        if reconstruct_local and not explicit and not observed_types and not observed_names and not observed_groups:
+            selected = list(named_leaf)
+            if not selected:
+                raise ValueError("Cache provider: no leaf modules selected for local-block reconstruction.")
+            if not any(bool(s.is_output) for s in selected):
+                out_idx = _pick_output_index(selected, param_types=_dedup_types(param_types + (nn.Linear, nn.Conv2d)))
+                selected = _mark_single_output(selected, out_idx)
+            return selected
+
         effective_types = observed_types
         if not effective_types:
             effective_types = _dedup_types(param_types + act_types)
@@ -287,23 +352,141 @@ def _build_views(cache: Mapping[str, Any], blocks: list[BlockSpec], spec: CacheS
     output_name = str(output_blocks[0].name) if output_blocks else None
     hidden_blocks = param_blocks[:-1] if param_blocks else []
 
+    mode = str(getattr(spec, "local_block_mode", "default")).strip().lower()
+    local_from_selected_with_params = mode in {
+        "full_blocks",
+        "selected_with_params",
+        "all_selected_with_params",
+        "hf_hidden_states_full_blocks",
+        "hf_full_blocks",
+    }
+    if local_from_selected_with_params:
+        local_source_blocks = [
+            b
+            for b in selected_blocks
+            if any(True for _ in getattr(b, "module").parameters())
+        ]
+    else:
+        local_source_blocks = param_blocks
+
     local_blocks: list[dict[str, Any]] = []
-    for block in param_blocks:
-        name = str(block.name)
-        local_blocks.append(
-            {
-                "name": name,
-                "module": block.module,
-                "is_output": bool(output_name is not None and name == output_name),
-                "x": module_inputs.get(name),
-                "u": module_outputs.get(name),
-                "h": None,
-                "activation_name": None,
-            }
-        )
+    if _is_reconstructed_local_mode(mode) and steps:
+        step_first_by_name: dict[str, dict[str, Any]] = {}
+        ordered_step_names: list[str] = []
+        for step in steps:
+            name = str(step.get("name", ""))
+            if not name or name in step_first_by_name:
+                continue
+            step_first_by_name[name] = step
+            ordered_step_names.append(name)
+
+        name_to_block = {str(b.name): b for b in selected_blocks}
+        ordered_blocks: list[BlockSpec] = [name_to_block[n] for n in ordered_step_names if n in name_to_block]
+        ordered_param_names: list[str] = [
+            str(b.name) for b in ordered_blocks if isinstance(getattr(b, "module", None), param_types)
+        ]
+
+        if ordered_param_names:
+            for i, root_name in enumerate(ordered_param_names):
+                root_block = name_to_block.get(root_name)
+                if root_block is None:
+                    continue
+
+                try:
+                    start_idx = ordered_step_names.index(root_name)
+                except ValueError:
+                    continue
+                if i + 1 < len(ordered_param_names):
+                    next_name = ordered_param_names[i + 1]
+                    try:
+                        stop_idx = ordered_step_names.index(next_name)
+                    except ValueError:
+                        stop_idx = len(ordered_step_names)
+                else:
+                    stop_idx = len(ordered_step_names)
+
+                segment_names = ordered_step_names[start_idx:stop_idx]
+                segment_modules: list[nn.Module] = []
+                for seg_name in segment_names:
+                    seg_block = name_to_block.get(seg_name)
+                    if seg_block is None:
+                        continue
+                    if not isinstance(getattr(seg_block, "module", None), nn.Module):
+                        continue
+                    segment_modules.append(seg_block.module)
+                if not segment_modules:
+                    continue
+
+                root_module = segment_modules[0]
+                local_module: nn.Module
+                if len(segment_modules) == 1:
+                    local_module = root_module
+                else:
+                    local_module = _LocalBlockChain(root_module, segment_modules[1:])
+
+                end_name = segment_names[-1] if segment_names else root_name
+                is_output = bool(getattr(root_block, "is_output", False))
+                if not is_output and output_name is not None:
+                    is_output = bool(root_name == output_name)
+
+                local_blocks.append(
+                    {
+                        "name": root_name,
+                        "module": local_module,
+                        "is_output": is_output,
+                        "rep": str(getattr(root_block, "rep", "identity")),
+                        "x": module_inputs.get(root_name),
+                        "u": module_outputs.get(end_name, module_outputs.get(root_name)),
+                        "h": None,
+                        "activation_name": None,
+                        "segment_names": tuple(segment_names),
+                        "segment_end_name": end_name,
+                    }
+                )
+    else:
+        for block in local_source_blocks:
+            name = str(block.name)
+            is_output = bool(getattr(block, "is_output", False))
+            if not is_output and output_name is not None:
+                is_output = bool(name == output_name)
+            local_blocks.append(
+                {
+                    "name": name,
+                    "module": block.module,
+                    "is_output": is_output,
+                    "rep": str(getattr(block, "rep", "identity")),
+                    "x": module_inputs.get(name),
+                    "u": module_outputs.get(name),
+                    "h": None,
+                    "activation_name": None,
+                }
+            )
+
+    if _uses_hf_hidden_states(mode):
+        hidden_states = cache.get("hidden_states")
+        if isinstance(hidden_states, (tuple, list)) and len(hidden_states) > 0:
+            for local in local_blocks:
+                name = str(local.get("name", ""))
+                if name.startswith("encoder.layer"):
+                    try:
+                        idx = int(name.split("encoder.layer", 1)[1])
+                    except Exception:
+                        continue
+                    if 0 <= idx < len(hidden_states) - 1:
+                        hs = hidden_states[idx]
+                        if torch.is_tensor(hs):
+                            local["x"] = hs
+                    continue
+                if name == "head":
+                    hs_last = hidden_states[-1]
+                    if torch.is_tensor(hs_last):
+                        if hs_last.dim() >= 3:
+                            local["x"] = hs_last[:, 0]
+                        else:
+                            local["x"] = hs_last
 
     if (act_types or spec.require_activation_pairing) and steps:
-        param_names = {str(b.name) for b in param_blocks}
+        local_names = {str(lb.get("name", "")) for lb in local_blocks}
         act_names: set[str] = set()
         if act_types:
             act_names = {str(b.name) for b in selected_blocks if isinstance(b.module, act_types)}
@@ -311,7 +494,7 @@ def _build_views(cache: Mapping[str, Any], blocks: list[BlockSpec], spec: CacheS
 
         for i, step in enumerate(steps):
             name = str(step.get("name", ""))
-            if name not in param_names:
+            if name not in local_names:
                 continue
             local = by_name_local.get(name)
             if local is None:

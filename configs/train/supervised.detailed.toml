@@ -40,7 +40,7 @@ name = "ce"
 [optimizer]
 name = "adamw"
 [optimizer.params]
-lr = 0.001
+lr = 2e-5
 weight_decay = 0.0
 
 [scheduler]
@@ -87,7 +87,7 @@ max_samples = 0
 [hf]
 glue_task = "sst2"
 model = "bert-base-uncased"
-trust_remote_code = false
+trust_remote_code = true
 max_length = 128
 
 [[metrics]]

@@ -15,9 +15,13 @@ from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 class SoftContrastiveLearning(OptimizerUpdateRule):
     """
-    Minimal SCL:
-    - output head: supervised BP (runner optimizer)
-    - hidden Linear/Conv2d blocks: local SupCon updates with frozen random projection
+    Legacy-like SCL with block-level local updates using autograd.
+
+    - Output block (is_output=True): supervised update via runner optimizer.
+    - Hidden blocks: local SupCon per block, with frozen projection heads.
+      * 2D input: linear-like local update
+      * 3D input: transformer-like local update (rep selection)
+      * 4D input: feature-like local update (flatten)
     """
 
     def __init__(
@@ -34,6 +38,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         depth_lr_min_factor: float = 0.01,
         depth_lr_max_factor: float = 100.0,
         grad_clip: float | None = None,
+        eps: float = 1e-8,
     ) -> None:
         super().__init__(
             optimizer=optimizer,
@@ -50,18 +55,60 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         self.depth_lr_gamma = float(depth_lr_gamma)
         self.depth_lr_min_factor = float(depth_lr_min_factor)
         self.depth_lr_max_factor = float(depth_lr_max_factor)
+        self.eps = float(eps)
 
         self._proj_by_name = nn.ModuleDict()
         self._local_opt_by_name: dict[str, torch.optim.Optimizer] = {}
         self._local_param_ids_by_name: dict[str, tuple[int, ...]] = {}
 
     @staticmethod
-    def _cache_spec() -> CacheSpec:
+    def _model_blocks(model: nn.Module) -> list[Any]:
+        if not hasattr(model, "get_blocks"):
+            return []
+        try:
+            raw = model.get_blocks()
+        except Exception:
+            return []
+        if not isinstance(raw, list):
+            return []
+
+        out: list[Any] = []
+        for item in raw:
+            name = getattr(item, "name", None)
+            module = getattr(item, "module", None)
+            if isinstance(name, str) and isinstance(module, nn.Module):
+                out.append(item)
+        return out
+
+    def _cache_spec_for_model(self, model: nn.Module, *, local_block_mode: str = "full_blocks") -> CacheSpec:
+        blocks = self._model_blocks(model)
+        if blocks:
+            observed_names = tuple(str(getattr(b, "name")) for b in blocks)
+            module_types = tuple(
+                dict.fromkeys(
+                    type(getattr(b, "module"))
+                    for b in blocks
+                    if isinstance(getattr(b, "module", None), nn.Module)
+                )
+            )
+            if not module_types:
+                module_types = (nn.Linear, nn.Conv2d)
+            return CacheSpec(
+                observed_module_names=observed_names,
+                observed_module_types=module_types,
+                param_module_types=module_types,
+                require_block_inputs=True,
+                require_single_call=True,
+                require_single_output_head=True,
+                local_block_mode=str(local_block_mode),
+            )
+
         return CacheSpec(
             param_module_types=(nn.Linear, nn.Conv2d),
             require_block_inputs=True,
             require_single_call=True,
             require_single_output_head=True,
+            local_block_mode=str(local_block_mode),
         )
 
     @staticmethod
@@ -98,11 +145,23 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         return -mean_log_prob_pos.mean()
 
     @staticmethod
-    def _feature_dim(module: nn.Module) -> int | None:
+    def _feature_dim_for_module(module: nn.Module) -> int | None:
         if isinstance(module, nn.Linear):
             return int(module.out_features)
         if isinstance(module, nn.Conv2d):
             return int(module.out_channels)
+
+        conv = getattr(module, "conv", None)
+        if isinstance(conv, nn.Conv2d):
+            return int(conv.out_channels)
+
+        conv3 = getattr(module, "conv3", None)
+        if isinstance(conv3, nn.Conv2d):
+            return int(conv3.out_channels)
+        conv2 = getattr(module, "conv2", None)
+        if isinstance(conv2, nn.Conv2d):
+            return int(conv2.out_channels)
+
         return None
 
     @staticmethod
@@ -168,8 +227,9 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         module: nn.Module,
         device: torch.device,
         depth: int,
+        feat_dim_override: int | None = None,
     ) -> tuple[nn.Module, torch.optim.Optimizer]:
-        feat_dim = self._feature_dim(module)
+        feat_dim = int(feat_dim_override) if feat_dim_override is not None else self._feature_dim_for_module(module)
         if feat_dim is None:
             raise TypeError(f"Unsupported module for local SCL update: {type(module)}")
         key = self._proj_key(name)
@@ -220,6 +280,72 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         return proj, opt
 
     @staticmethod
+    def _unpack_block_output(out: Any) -> torch.Tensor:
+        if torch.is_tensor(out):
+            return out
+        if isinstance(out, (tuple, list)) and len(out) > 0 and torch.is_tensor(out[0]):
+            return out[0]
+        if hasattr(out, "last_hidden_state") and torch.is_tensor(out.last_hidden_state):
+            return out.last_hidden_state
+        raise RuntimeError(f"Unsupported block output type: {type(out)}")
+
+    @staticmethod
+    def _select_representation(h: torch.Tensor, rep: str) -> torch.Tensor:
+        rep = str(rep).lower()
+        if h.dim() == 3:
+            if rep in ("cls", "class", "first"):
+                return h[:, 0, :]
+            if rep in ("mean", "avg", "gap", "pool"):
+                return h.mean(dim=1)
+            if rep in ("last", "eos"):
+                return h[:, -1, :]
+            return h[:, 0, :]
+        if h.dim() == 4:
+            return h.flatten(1)
+        return h
+
+    @staticmethod
+    def _build_extended_attention_mask(model: nn.Module, batch: Mapping[str, Any], device: torch.device):
+        attn = batch.get("attention_mask", None)
+        if attn is None or (not torch.is_tensor(attn)):
+            return None
+        input_shape = batch.get("input_ids", attn)
+        if torch.is_tensor(input_shape):
+            input_shape = input_shape.shape
+
+        if hasattr(model, "get_extended_attention_mask"):
+            try:
+                return model.get_extended_attention_mask(attn, input_shape, device=device)
+            except TypeError:
+                try:
+                    return model.get_extended_attention_mask(attn, input_shape)
+                except Exception:
+                    pass
+
+        base = getattr(model, "bert", None)
+        if base is not None and hasattr(base, "get_extended_attention_mask"):
+            try:
+                return base.get_extended_attention_mask(attn, input_shape, device=device)
+            except TypeError:
+                try:
+                    return base.get_extended_attention_mask(attn, input_shape)
+                except Exception:
+                    pass
+
+        return None
+
+    def _call_transformer_block(self, block: nn.Module, h_in: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
+        if attention_mask is not None:
+            for kw in ("attention_mask", "src_key_padding_mask"):
+                try:
+                    out = block(h_in, **{kw: attention_mask})
+                    return self._unpack_block_output(out)
+                except TypeError:
+                    continue
+        out = block(h_in)
+        return self._unpack_block_output(out)
+
+    @staticmethod
     def _tensor_output(out: Any) -> torch.Tensor:
         if isinstance(out, Mapping):
             if "logits" in out and torch.is_tensor(out["logits"]):
@@ -233,18 +359,31 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
 
     @staticmethod
     def _best_effort_stats(task, out: Any, y: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
-        loss_res = task.loss(out, y)
-        loss, extra = extract_loss_and_stats(loss_res)
-        stats: dict[str, float] = {str(k): float(v) for k, v in extra.items()}
+        stats: dict[str, float] = {}
+
+        loss = None
+        if hasattr(out, "loss") and out.loss is not None and torch.is_tensor(out.loss):
+            loss = out.loss
+        else:
+            logits = SoftContrastiveLearning._tensor_output(out)
+            loss_res = task.loss(logits, y)
+            loss, extra = extract_loss_and_stats(loss_res)
+            stats.update({str(k): float(v) for k, v in extra.items()})
+
         if hasattr(task, "metrics"):
-            try:
-                met = task.metrics(out, y)
-                if isinstance(met, Mapping):
-                    for k, v in met.items():
-                        if isinstance(v, (int, float)):
-                            stats[str(k)] = float(v)
-            except Exception:
-                pass
+            for candidate in (out, SoftContrastiveLearning._tensor_output(out)):
+                try:
+                    met = task.metrics(candidate, y)
+                    if isinstance(met, Mapping):
+                        for k, v in met.items():
+                            if isinstance(v, (int, float)):
+                                stats[str(k)] = float(v)
+                    break
+                except Exception:
+                    continue
+
+        if loss is None:
+            raise RuntimeError("SCL could not compute a valid loss tensor.")
         return loss, stats
 
     @torch.no_grad()
@@ -255,23 +394,115 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             if p.grad is not None:
                 p.grad = None
 
+    def _local_supcon_update_vector_block(
+        self,
+        block: nn.Module,
+        proj: nn.Module,
+        opt: torch.optim.Optimizer,
+        xin: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> float:
+        self._set_requires_grad(proj, False)
+        opt.zero_grad(set_to_none=True)
+
+        h = block(xin.detach())
+        h_t = self._unpack_block_output(h)
+        if h_t.dim() != 2:
+            raise RuntimeError(f"SCL vector block must output 2D tensor, got {tuple(h_t.shape)}")
+
+        z = proj(h_t)
+        loss = self._supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
+        loss.backward()
+        opt.step()
+        return float(loss.detach().item())
+
+    def _local_supcon_update_feature_block(
+        self,
+        block: nn.Module,
+        proj: nn.Module,
+        opt: torch.optim.Optimizer,
+        xin: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> float:
+        self._set_requires_grad(proj, False)
+        opt.zero_grad(set_to_none=True)
+
+        h = block(xin.detach())
+        h_t = self._unpack_block_output(h)
+        if h_t.dim() != 4:
+            raise RuntimeError(f"Feature block must output 4D tensor, got {tuple(h_t.shape)}")
+
+        v = h_t.flatten(1)
+        z = proj(v)
+        loss = self._supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
+        loss.backward()
+        opt.step()
+        return float(loss.detach().item())
+
+    def _local_supcon_update_transformer_block(
+        self,
+        block: nn.Module,
+        proj: nn.Module,
+        opt: torch.optim.Optimizer,
+        xin: torch.Tensor,
+        labels: torch.Tensor,
+        *,
+        rep: str,
+        attention_mask: torch.Tensor | None,
+    ) -> float:
+        self._set_requires_grad(proj, False)
+        opt.zero_grad(set_to_none=True)
+
+        h = self._call_transformer_block(block, xin.detach(), attention_mask=attention_mask)
+        v = self._select_representation(h, rep=rep)
+        z = proj(v)
+        loss = self._supervised_contrastive_loss(z, labels, tau=self.supcon_tau, eps=self.eps)
+        loss.backward()
+        opt.step()
+        return float(loss.detach().item())
+
     def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
         model.train()
-        if not isinstance(batch, (tuple, list)) or len(batch) != 2:
-            raise RuntimeError(f"SCL v1 expects batch=(x, y), got {type(batch)}.")
 
-        x, y = batch
-        x = to_device(x, device)
-        y = to_device(y, device)
-        if not torch.is_tensor(y):
-            raise RuntimeError(f"SCL v1 expects tensor labels, got {type(y)}.")
-        labels = self._label_indices(y)
+        attention_mask = None
+        if isinstance(batch, Mapping):
+            b = to_device(batch, device)
+            y = b.get("labels", None)
+            if not torch.is_tensor(y):
+                raise RuntimeError("SCL mapping batches must contain tensor key 'labels'.")
+            labels = self._label_indices(y)
+            ext_attention_mask = self._build_extended_attention_mask(model, b, device=torch.device(device))
+            attention_mask = ext_attention_mask if torch.is_tensor(ext_attention_mask) else b.get("attention_mask", None)
+            use_hf_mode = True
+            out, _cache, views = forward_with_standard_cache(
+                model,
+                cache_spec=self._cache_spec_for_model(
+                    model,
+                    local_block_mode="hf_hidden_states_full_blocks" if use_hf_mode else "full_blocks",
+                ),
+                **b,
+            )
+        else:
+            if not isinstance(batch, (tuple, list)) or len(batch) != 2:
+                raise RuntimeError(f"SCL expects batch=(x, y) or mapping batch, got {type(batch)}.")
+            x, y = batch
+            x = to_device(x, device)
+            y = to_device(y, device)
+            if not torch.is_tensor(y):
+                raise RuntimeError(f"SCL expects tensor labels, got {type(y)}.")
+            labels = self._label_indices(y)
+            out, _cache, views = forward_with_standard_cache(
+                model,
+                x,
+                cache_spec=self._cache_spec_for_model(model, local_block_mode="reconstruct_local_blocks"),
+            )
 
-        out, cache, views = forward_with_standard_cache(model, x, cache_spec=self._cache_spec())
         output_blocks = views.get("output_blocks", [])
-        hidden_blocks = views.get("hidden_blocks", [])
+        local_blocks = views.get("local_blocks", [])
         if not isinstance(output_blocks, list) or len(output_blocks) != 1:
-            raise RuntimeError("SCL v1 expects exactly one output block.")
+            raise RuntimeError("SCL expects exactly one output block.")
+        if not isinstance(local_blocks, list):
+            raise RuntimeError("SCL expects views['local_blocks'] list.")
 
         output_block = output_blocks[0]
         head_params = [p for p in output_block.iter_params() if isinstance(p, nn.Parameter)]
@@ -279,66 +510,116 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         if not head_params:
             raise RuntimeError("SCL output head exposes no parameters to optimize.")
 
-        # Head supervised update (runner optimizer).
         self.zero_grad()
-        logits = self._tensor_output(out)
-        loss, stats = self._best_effort_stats(task, logits, y)
+        loss, stats = self._best_effort_stats(task, out, y)
         loss.backward()
         self._clear_non_head_grads(model, head_ids)
         self.step(head_params, require_grads=True, check_finite_grads=True)
 
-        # Local SCL updates on hidden blocks.
-        block_inputs = cache.get("block_inputs", {})
-        if not isinstance(block_inputs, Mapping):
-            raise RuntimeError("SCL expects dict cache['block_inputs'].")
-
         local_losses: list[float] = []
-        for depth, block in enumerate(hidden_blocks):
-            name = str(getattr(block, "name", ""))
-            module = getattr(block, "module", None)
-            if not isinstance(module, (nn.Linear, nn.Conv2d)):
-                raise NotImplementedError(f"SCL v1 supports Linear/Conv2d hidden blocks, got {type(module)} on '{name}'.")
+        depth = 0
+        for local in local_blocks:
+            if bool(local.get("is_output", False)):
+                continue
 
-            x_in = block_inputs.get(name)
-            if not torch.is_tensor(x_in):
-                raise RuntimeError(f"SCL missing tensor cache['block_inputs'][{name!r}]")
-            if isinstance(module, nn.Linear) and x_in.dim() != 2:
-                raise RuntimeError(f"SCL hidden Linear '{name}' expects 2D input, got {tuple(x_in.shape)}.")
-            if isinstance(module, nn.Conv2d) and x_in.dim() != 4:
-                raise RuntimeError(f"SCL hidden Conv2d '{name}' expects 4D input, got {tuple(x_in.shape)}.")
+            name = str(local.get("name", ""))
+            module = local.get("module")
+            if not isinstance(module, nn.Module):
+                continue
 
-            proj, opt = self._ensure_local_supcon_modules(
-                name=name,
-                module=module,
-                device=torch.device(device),
-                depth=depth,
-            )
-            self._set_requires_grad(proj, False)
-            opt.zero_grad(set_to_none=True)
+            xin = local.get("x")
+            if not torch.is_tensor(xin):
+                continue
 
-            h = module(x_in.detach())
-            if isinstance(module, nn.Conv2d):
-                if h.dim() != 4:
-                    raise RuntimeError(f"SCL hidden Conv2d '{name}' must output 4D tensor.")
-                rep = h.mean(dim=(2, 3))
-            else:
-                if h.dim() != 2:
-                    raise RuntimeError(f"SCL hidden Linear '{name}' must output 2D tensor.")
-                rep = h
-            z = proj(rep)
-            local_loss = self._supervised_contrastive_loss(
-                z,
-                labels,
-                tau=self.supcon_tau,
-            )
-            local_loss.backward()
-            opt.step()
-            local_losses.append(float(local_loss.detach().item()))
+            if xin.dim() == 2:
+                feat_dim_override = None
+                u_cache = local.get("u")
+                if torch.is_tensor(u_cache):
+                    if int(u_cache.size(0)) <= 0:
+                        raise RuntimeError(f"SCL local block '{name}' has empty cached output batch.")
+                    if u_cache.dim() == 3:
+                        feat_dim_override = int(u_cache.size(-1))
+                        proj, opt = self._ensure_local_supcon_modules(
+                            name=name,
+                            module=module,
+                            device=torch.device(device),
+                            depth=depth,
+                            feat_dim_override=feat_dim_override,
+                        )
+                        rep = str(local.get("rep", "cls"))
+                        local_losses.append(
+                            self._local_supcon_update_transformer_block(
+                                module,
+                                proj,
+                                opt,
+                                xin,
+                                labels,
+                                rep=rep,
+                                attention_mask=attention_mask if torch.is_tensor(attention_mask) else None,
+                            )
+                        )
+                        depth += 1
+                        continue
+                    feat_dim_override = int(u_cache.reshape(u_cache.size(0), -1).size(1))
+                proj, opt = self._ensure_local_supcon_modules(
+                    name=name,
+                    module=module,
+                    device=torch.device(device),
+                    depth=depth,
+                    feat_dim_override=feat_dim_override,
+                )
+                local_losses.append(self._local_supcon_update_vector_block(module, proj, opt, xin, labels))
+                depth += 1
+                continue
+
+            if xin.dim() == 3:
+                proj, opt = self._ensure_local_supcon_modules(
+                    name=name,
+                    module=module,
+                    device=torch.device(device),
+                    depth=depth,
+                    feat_dim_override=int(xin.size(-1)),
+                )
+                rep = str(local.get("rep", "cls"))
+                local_losses.append(
+                    self._local_supcon_update_transformer_block(
+                        module,
+                        proj,
+                        opt,
+                        xin,
+                        labels,
+                        rep=rep,
+                        attention_mask=attention_mask if torch.is_tensor(attention_mask) else None,
+                    )
+                )
+                depth += 1
+                continue
+
+            if xin.dim() == 4:
+                feat_dim_override = None
+                u_cache = local.get("u")
+                if torch.is_tensor(u_cache):
+                    if int(u_cache.size(0)) <= 0:
+                        raise RuntimeError(f"SCL local block '{name}' has empty cached output batch.")
+                    feat_dim_override = int(u_cache.reshape(u_cache.size(0), -1).size(1))
+                if feat_dim_override is None:
+                    raise RuntimeError(
+                        "SCL feature-local update with flatten requires cached tensor output "
+                        f"for block '{name}' to infer projection input dim."
+                    )
+                proj, opt = self._ensure_local_supcon_modules(
+                    name=name,
+                    module=module,
+                    device=torch.device(device),
+                    depth=depth,
+                    feat_dim_override=feat_dim_override,
+                )
+                local_losses.append(self._local_supcon_update_feature_block(module, proj, opt, xin, labels))
+                depth += 1
+                continue
 
         out_stats = dict(stats)
         out_stats["loss"] = float(loss.detach().item())
-        out_stats["supcon_loss"] = (
-            float(sum(local_losses) / len(local_losses)) if local_losses else 0.0
-        )
+        out_stats["supcon_loss"] = float(sum(local_losses) / len(local_losses)) if local_losses else 0.0
         self._mark_step_done()
         return out_stats
