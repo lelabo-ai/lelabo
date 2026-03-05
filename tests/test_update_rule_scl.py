@@ -213,7 +213,7 @@ def test_scl_mapping_batch_hf_like_uses_hidden_state_local_view(monkeypatch: pyt
             if return_cache:
                 cache = {
                     "hidden_states": (h0, h1),
-                    "block_inputs": {
+                    "module_inputs": {
                         "embeddings": input_ids,
                         "encoder.layer0": h0,
                         "head": h1[:, 0, :],

@@ -20,7 +20,6 @@ from collections.abc import Mapping
 import torch
 import torch.nn as nn
 
-from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
 from lelabo.models.registry import ModelContext
 
 
@@ -124,8 +123,6 @@ def build_example_mlp(ctx: ModelContext, args):
     )
 
 
-
-
 # THIS PART IS NOT NEEDED FOR NORMAL USAGE of the model (Using backpropagation as learning rule), 
 # but just for demonstrating how to use the autocache framework with different CacheSpec settings, 
 # to help build alternative learning rules.
@@ -134,56 +131,65 @@ if __name__ == "__main__":
     x = torch.randn(4, 10)
 
     logits = model(x)
-    print("Output shape:", logits.shape)
+    print("=== ExampleMLP ===")
+    print(model)
+    print("Input shape:", tuple(x.shape))
+    print("Output shape:", tuple(logits.shape))
 
+    # Import cache spec and forward_with_standard_cache for demonstration
+    from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
+    
     # Example A: param-only cache 
     logits, cache, views = forward_with_standard_cache(
         model,
         x,
         cache_spec=CacheSpec(
-            param_module_types=(nn.Linear,),
-            require_block_inputs=True,
-            require_block_outputs=True,
+            # Which module types should be treated as trainable local blocks
+            trainable_module_types=(nn.Linear,),
+            # Which module types should be observed by runtime hooks
+            observed_module_types=(nn.Linear,),
+            # Optional explicit module names to observe (empty means \"use observed_module_types\")
+            observed_module_names=(),
+            # Store first-call input tensor per observed module in cache[\"module_inputs\"]
+            capture_inputs=True,
+            # Store first-call output tensor per observed module in cache[\"module_outputs\"]
+            capture_outputs=True,
+            # Store per-call tensor history in module_inputs_all/module_outputs_all
+            capture_all_calls=True,
+            # Store ordered execution trace (steps, ref ids, call indexes)
+            capture_steps=True,
+            # Enforce that each observed module is called exactly once per forward
             require_single_call=True,
+            # Enforce that exactly one output head is inferred (last trainable observed block)
             require_single_output_head=True,
+            # Optional expected ndim for trainable block inputs (None disables the check)
+            require_input_ndim=2,
+            # Optional expected ndim for trainable block outputs (None disables the check)
+            require_output_ndim=2,
+            # Build rule-friendly local replay blocks from trainable segments
+            include_local_blocks=True,
+            # Try to auto-pair trainable block output with next activation output
+            auto_pair_post_activation=True,
+            # Activation module types used for auto-pairing when enabled
+            # if None, the activation types will be determined by torch default activations (torch.nn.Relu, torch.nn.LeakyRelu, ...)
+            # This parameter is actually very useful to enable auto-pairing for non-standard activations (e.g. Swish, Triangle) by just
+            # adding the activation types here, without needing to change the model code or use explicit module naming.
+            auto_pair_activation_types=(nn.ReLU, nn.Tanh, nn.Sigmoid),
+            # Include model-defined pre-cut blocks from model.get_blocks() when available
+            # This is particularly useful if you want to have more control over the block definitions
+            # Or you want for ResNet/Transformer style models where the natural block definitions are not strictly module-based.
+            include_model_blocks=True,
         ),
     )
 
-    print("\n[Param-only cache]")
-    print("Selected blocks:", [b.name for b in views["selected_blocks"]])
-    print("Param blocks:", [b.name for b in views["param_blocks"]])
-    print("Output block:", [b.name for b in views["output_blocks"]])
-    print("Hidden blocks:", [b.name for b in views["hidden_blocks"]])
+
+    # import utils to print cache views in a readable way
+    from lelabo.capsule.templates.print_utils import print_blocks_table, print_local_blocks_table
+
+    print("\n=== Param-only cache ===")
+    print_blocks_table("Ordered blocks", views["ordered_blocks"])
+    output_block = views["output_block"]
+    print("Output block:", output_block["name"] if isinstance(output_block, dict) else "<none>")
+    print_blocks_table("Model blocks (if model.get_blocks())", views["model_blocks"])
+    print_local_blocks_table(views["local_blocks"])
     print("Cache keys:", sorted(cache.keys()))
-
-    # local_blocks expose x/u/h in a rule-friendly structure
-    for lb in views["local_blocks"]:
-        x_shape = tuple(lb["x"].shape) if torch.is_tensor(lb["x"]) else None
-        u_shape = tuple(lb["u"].shape) if torch.is_tensor(lb["u"]) else None
-        h_shape = tuple(lb["h"].shape) if torch.is_tensor(lb["h"]) else None
-        print(
-            f"local_block name={lb['name']} is_output={lb['is_output']} "
-            f"x={x_shape} u={u_shape} h={h_shape}"
-        )
-
-    # Example B: activation pairing (u -> h) with module activations
-    _logits, _cache, paired_views = forward_with_standard_cache(
-        model,
-        x,
-        cache_spec=CacheSpec(
-            observed_module_types=(nn.Linear, nn.ReLU),
-            param_module_types=(nn.Linear,),
-            activation_module_types=(nn.ReLU,),
-            require_block_inputs=True,
-            require_block_outputs=True,
-            require_single_call=True,
-            require_single_output_head=True,
-            require_activation_pairing=True,
-        ),
-    )
-    print("\n[Activation pairing]")
-    for lb in paired_views["local_blocks"]:
-        if lb["is_output"]:
-            continue
-        h_shape = tuple(lb["h"].shape) if torch.is_tensor(lb["h"]) else None
-        print(f"paired hidden block={lb['name']} post_act_shape={h_shape}")

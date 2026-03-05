@@ -82,9 +82,10 @@ class DNI(OptimizerUpdateRule):
 
     def _cache_spec(self) -> CacheSpec:
         return CacheSpec(
-            param_module_types=(nn.Linear,),
-            require_block_inputs=True,
-            require_block_outputs=True,
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            capture_inputs=True,
+            capture_outputs=True,
             require_single_call=True,
             require_single_output_head=True,
             require_input_ndim=2,
@@ -146,48 +147,31 @@ class DNI(OptimizerUpdateRule):
         onehot.scatter_(1, labels.view(-1, 1), 1.0)
         return onehot
 
-    def _linear_chain(self, cache: Mapping[str, Any], views: Mapping[str, Any]) -> list[dict[str, Any]]:
-        param_blocks = views.get("param_blocks", [])
-        if not isinstance(param_blocks, list) or not param_blocks:
+    def _linear_chain(self, views: Mapping[str, Any]) -> list[dict[str, Any]]:
+        ordered_blocks = views.get("ordered_blocks", [])
+        if not isinstance(ordered_blocks, list):
+            ordered_blocks = []
+        param_blocks = [b for b in ordered_blocks if bool(b.get("is_trainable", False))]
+        if not param_blocks:
             raise RuntimeError("DNI found no linear param blocks in cache views.")
-        by_name: dict[str, nn.Linear] = {}
+
         for block in param_blocks:
-            name = str(getattr(block, "name", ""))
-            mod = getattr(block, "module", None)
+            name = str(block.get("name", ""))
+            mod = block.get("module")
             if not isinstance(mod, nn.Linear):
                 raise RuntimeError(f"DNI v1 supports only Linear chains, got {type(mod)} on '{name}'.")
-            by_name[name] = mod
-
-        order: list[str] = []
-        seen: set[str] = set()
-        steps = cache.get("steps", [])
-        if isinstance(steps, list):
-            for step in steps:
-                name = str(step.get("name", ""))
-                if name in by_name and name not in seen:
-                    seen.add(name)
-                    order.append(name)
-        if len(order) != len(by_name):
-            for block in param_blocks:
-                name = str(getattr(block, "name", ""))
-                if name not in seen:
-                    order.append(name)
-                    seen.add(name)
-
-        block_inputs = cache.get("block_inputs", {})
-        block_outputs = cache.get("block_outputs", {})
-        if not isinstance(block_inputs, Mapping) or not isinstance(block_outputs, Mapping):
-            raise RuntimeError("DNI expects dict cache['block_inputs'] and cache['block_outputs'].")
 
         chain: list[dict[str, Any]] = []
-        for name in order:
-            x = block_inputs.get(name)
-            u = block_outputs.get(name)
+        for block in param_blocks:
+            name = str(block.get("name", ""))
+            mod = block.get("module")
+            x = block.get("x")
+            u = block.get("u")
             if not torch.is_tensor(x) or not torch.is_tensor(u):
                 raise RuntimeError(f"DNI missing tensor cache entries for block '{name}'.")
             if x.dim() != 2 or u.dim() != 2:
                 raise RuntimeError(f"DNI expects 2D Linear cache tensors on '{name}', got {tuple(x.shape)} / {tuple(u.shape)}.")
-            chain.append({"name": name, "module": by_name[name], "x": x, "u": u})
+            chain.append({"name": name, "module": mod, "x": x, "u": u})
         return chain
 
     def _maybe_build_sg_models(
@@ -355,8 +339,8 @@ class DNI(OptimizerUpdateRule):
         if not torch.is_tensor(y):
             raise RuntimeError(f"DNI v1 expects tensor labels, got {type(y)}.")
 
-        out, cache, views = forward_with_standard_cache(model, x, cache_spec=self._cache_spec())
-        chain = self._linear_chain(cache, views)
+        out, _cache, views = forward_with_standard_cache(model, x, cache_spec=self._cache_spec())
+        chain = self._linear_chain(views)
         out_tensor = self._as_tensor_output(out)
         if out_tensor.dim() != 2:
             raise RuntimeError(f"DNI v1 expects a 2D output tensor, got shape={tuple(out_tensor.shape)}.")

@@ -177,39 +177,39 @@ class DeepSoftHebbClassifier(nn.Module):
     def forward(self, x: torch.Tensor, return_cache: bool = False):
         cache: Optional[Dict[str, Dict[str, Any]]] = None
         if return_cache:
-            cache = {"block_inputs": {}, "block_outputs": {}}
+            cache = {"module_inputs": {}, "module_outputs": {}}
 
         # block 1
         if return_cache:
-            cache["block_inputs"]["conv1"] = x
+            cache["module_inputs"]["conv1"] = x
             x, u1 = self.block1(x, return_cache=return_cache)
-            cache["block_outputs"]["conv1"] = u1
+            cache["module_outputs"]["conv1"] = u1
         else:
             x = self.block1(x, return_cache=return_cache)
 
         # block 2
         if return_cache:
-            cache["block_inputs"]["conv2"] = x
+            cache["module_inputs"]["conv2"] = x
             x, u2 = self.block2(x, return_cache=return_cache)
-            cache["block_outputs"]["conv2"] = u2
+            cache["module_outputs"]["conv2"] = u2
         else:
             x = self.block2(x, return_cache=return_cache)
 
         # block 3
         if return_cache:
-            cache["block_inputs"]["conv3"] = x
+            cache["module_inputs"]["conv3"] = x
             x, u3 = self.block3(x, return_cache=return_cache)
-            cache["block_outputs"]["conv3"] = u3
+            cache["module_outputs"]["conv3"] = u3
         else:
             x = self.block3(x, return_cache=return_cache)
 
         x = self.flatten(x)
         x = self.dropout(x)
         if return_cache:
-            cache["block_inputs"]["head"] = x
+            cache["module_inputs"]["head"] = x
         logits = self.fc(x)
         if return_cache:
-            cache["block_outputs"]["head"] = logits
+            cache["module_outputs"]["head"] = logits
             return logits, cache
         return logits
 

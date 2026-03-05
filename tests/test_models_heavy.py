@@ -65,11 +65,11 @@ def test_resnet18_runtime_cache_heavy() -> None:
     out, cache, _blocks = _forward_with_cache(model, x)
 
     assert tuple(out.shape) == (2, 7)
-    assert "block_inputs" in cache
-    assert "block_outputs" in cache
-    assert "head" in cache["block_inputs"]
-    assert "head" in cache["block_outputs"]
-    assert any(k.startswith("layer1.") for k in cache["block_inputs"])
+    assert "module_inputs" in cache
+    assert "module_outputs" in cache
+    assert "head" in cache["module_inputs"]
+    assert "head" in cache["module_outputs"]
+    assert any(k.startswith("layer1.") for k in cache["module_inputs"])
 
 
 @pytest.mark.heavy
@@ -122,6 +122,6 @@ def test_hf_bert_runtime_cache_heavy(builder_name: str) -> None:
 
     assert hasattr(out, "logits")
     assert tuple(out.logits.shape) == (2, 2)
-    assert "block_inputs" in cache
-    assert "head" in cache["block_inputs"]
-    assert any(k.startswith("encoder.layer") for k in cache["block_inputs"])
+    assert "module_inputs" in cache
+    assert "head" in cache["module_inputs"]
+    assert any(k.startswith("encoder.layer") for k in cache["module_inputs"])

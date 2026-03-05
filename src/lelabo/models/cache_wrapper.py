@@ -140,10 +140,10 @@ class ModelCacheWrapper(nn.Module):
         if not return_cache:
             return self.model(*args, **kwargs)
 
-        block_inputs: dict[str, torch.Tensor] = {}
-        block_outputs: dict[str, torch.Tensor] = {}
-        block_inputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
-        block_outputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
+        module_inputs: dict[str, torch.Tensor] = {}
+        module_outputs: dict[str, torch.Tensor] = {}
+        module_inputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
+        module_outputs_all: dict[str, list[torch.Tensor]] = defaultdict(list)
         call_count_by_name: dict[str, int] = defaultdict(int)
         steps: list[dict[str, Any]] = []
         pending_by_module: dict[int, list[tuple[torch.Tensor | None, int | None]]] = defaultdict(list)
@@ -189,14 +189,14 @@ class ModelCacheWrapper(nn.Module):
                 out_t, out_ref = self._pack_tensor_with_ref(picked_out)
 
                 if self.capture_inputs and x_in is not None:
-                    block_inputs[_spec.name] = x_in
+                    module_inputs[_spec.name] = x_in
                 if self.capture_outputs and out_t is not None:
-                    block_outputs[_spec.name] = out_t
+                    module_outputs[_spec.name] = out_t
                 if self.capture_all_calls:
                     if self.capture_inputs and x_in is not None:
-                        block_inputs_all[_spec.name].append(x_in)
+                        module_inputs_all[_spec.name].append(x_in)
                     if self.capture_outputs and out_t is not None:
-                        block_outputs_all[_spec.name].append(out_t)
+                        module_outputs_all[_spec.name].append(out_t)
 
                 call_idx = call_count_by_name[_spec.name]
                 call_count_by_name[_spec.name] += 1
@@ -236,7 +236,7 @@ class ModelCacheWrapper(nn.Module):
                 h.remove()
 
         if isinstance(model_cache, Mapping):
-            ext_inputs = model_cache.get("module_inputs", model_cache.get("block_inputs"))
+            ext_inputs = model_cache.get("module_inputs")
             if isinstance(ext_inputs, Mapping):
                 for k, v in ext_inputs.items():
                     t, _ = self._pack_tensor_with_ref(v)
@@ -244,11 +244,11 @@ class ModelCacheWrapper(nn.Module):
                         continue
                     key = str(k)
                     if self.capture_inputs:
-                        block_inputs[key] = t
+                        module_inputs[key] = t
                     if self.capture_all_calls and self.capture_inputs:
-                        block_inputs_all[key].append(t)
+                        module_inputs_all[key].append(t)
 
-            ext_outputs = model_cache.get("module_outputs", model_cache.get("block_outputs"))
+            ext_outputs = model_cache.get("module_outputs")
             if isinstance(ext_outputs, Mapping):
                 for k, v in ext_outputs.items():
                     t, _ = self._pack_tensor_with_ref(v)
@@ -256,16 +256,16 @@ class ModelCacheWrapper(nn.Module):
                         continue
                     key = str(k)
                     if self.capture_outputs:
-                        block_outputs[key] = t
+                        module_outputs[key] = t
                     if self.capture_all_calls and self.capture_outputs:
-                        block_outputs_all[key].append(t)
+                        module_outputs_all[key].append(t)
 
         cache: dict[str, Any] = {
-            "cache_version": "standard.v2",
-            "module_inputs": block_inputs,
-            "module_outputs": block_outputs,
-            "module_inputs_all": dict(block_inputs_all),
-            "module_outputs_all": dict(block_outputs_all),
+            "cache_version": "standard.v3",
+            "module_inputs": module_inputs,
+            "module_outputs": module_outputs,
+            "module_inputs_all": dict(module_inputs_all),
+            "module_outputs_all": dict(module_outputs_all),
             "call_count_by_name": dict(call_count_by_name),
             "block_specs_runtime": list(self._block_specs),
         }
@@ -277,10 +277,6 @@ class ModelCacheWrapper(nn.Module):
                 "module_outputs",
                 "module_inputs_all",
                 "module_outputs_all",
-                "block_inputs",
-                "block_outputs",
-                "block_inputs_all",
-                "block_outputs_all",
             }
             for k, v in model_cache.items():
                 if str(k) in passthrough_keys:

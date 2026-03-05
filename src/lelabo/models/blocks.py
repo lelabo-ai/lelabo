@@ -36,33 +36,25 @@ def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(cache, dict):
         raise TypeError("Cache payload must be a dict.")
 
-    module_inputs = cache.get("module_inputs", cache.get("block_inputs", {}))
-    module_outputs = cache.get("module_outputs", cache.get("block_outputs", {}))
+    module_inputs = cache.get("module_inputs", {})
+    module_outputs = cache.get("module_outputs", {})
     if not isinstance(module_inputs, dict) or not isinstance(module_outputs, dict):
-        raise TypeError(
-            "Cache must contain dict keys: 'module_inputs'/'module_outputs' "
-            "(or backward-compatible 'block_inputs'/'block_outputs')."
-        )
+        raise TypeError("Cache must contain dict keys: 'module_inputs' and 'module_outputs'.")
 
     out = dict(cache)
     out["cache_version"] = str(cache.get("cache_version", "standard.v1"))
     out["module_inputs"] = module_inputs
     out["module_outputs"] = module_outputs
-    # Backward-compatible aliases used by existing update-rules/tests.
-    out["block_inputs"] = module_inputs
-    out["block_outputs"] = module_outputs
 
-    module_inputs_all = out.get("module_inputs_all", out.get("block_inputs_all"))
+    module_inputs_all = out.get("module_inputs_all")
     if not isinstance(module_inputs_all, dict):
         module_inputs_all = {k: [v] for k, v in module_inputs.items() if torch.is_tensor(v)}
     out["module_inputs_all"] = module_inputs_all
-    out["block_inputs_all"] = module_inputs_all
 
-    module_outputs_all = out.get("module_outputs_all", out.get("block_outputs_all"))
+    module_outputs_all = out.get("module_outputs_all")
     if not isinstance(module_outputs_all, dict):
         module_outputs_all = {k: [v] for k, v in module_outputs.items() if torch.is_tensor(v)}
     out["module_outputs_all"] = module_outputs_all
-    out["block_outputs_all"] = module_outputs_all
 
     call_count = out.get("call_count_by_name")
     if not isinstance(call_count, dict):
@@ -75,5 +67,9 @@ def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
     # v2 keeps only neutral output naming. Pre-activations can be added in a later version.
     out.pop("block_preacts", None)
     out.pop("block_preacts_all", None)
+    out.pop("block_inputs", None)
+    out.pop("block_outputs", None)
+    out.pop("block_inputs_all", None)
+    out.pop("block_outputs_all", None)
 
     return out

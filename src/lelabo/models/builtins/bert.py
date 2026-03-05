@@ -111,7 +111,7 @@ class HFSequenceClassifier(nn.Module):
 
         outputs = self.hf(**batch, output_hidden_states=True, return_dict=True)
 
-        cache: Dict[str, Any] = {"block_inputs": {}}
+        cache: Dict[str, Any] = {"module_inputs": {}}
 
         hs = getattr(outputs, "hidden_states", None)
         if hs is not None:
@@ -119,28 +119,28 @@ class HFSequenceClassifier(nn.Module):
 
         # embeddings input: store ids-like tensor(s) if present
         if "input_ids" in batch and torch.is_tensor(batch["input_ids"]):
-            cache["block_inputs"]["embeddings"] = batch["input_ids"]
+            cache["module_inputs"]["embeddings"] = batch["input_ids"]
         elif "inputs_embeds" in batch and torch.is_tensor(batch["inputs_embeds"]):
-            cache["block_inputs"]["embeddings"] = batch["inputs_embeds"]
+            cache["module_inputs"]["embeddings"] = batch["inputs_embeds"]
 
         if hs is not None:
             # hs[0] = output embeddings = input to encoder.layer0
             for i in range(min(len(self._layers), len(hs) - 1)):
-                cache["block_inputs"][f"encoder.layer{i}"] = hs[i]
+                cache["module_inputs"][f"encoder.layer{i}"] = hs[i]
 
             # head input: best-effort CLS from last hidden state
             try:
                 last = hs[-1]
                 if torch.is_tensor(last) and last.dim() >= 3:
                     cache["head_input"] = last[:, 0]
-                    cache["block_inputs"]["head"] = cache["head_input"]
+                    cache["module_inputs"]["head"] = cache["head_input"]
             except Exception:
                 pass
         else:
             last = getattr(outputs, "last_hidden_state", None)
             if torch.is_tensor(last) and last.dim() >= 3:
                 cache["head_input"] = last[:, 0]
-                cache["block_inputs"]["head"] = cache["head_input"]
+                cache["module_inputs"]["head"] = cache["head_input"]
 
         return outputs, cache
 

@@ -80,7 +80,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
                 out.append(item)
         return out
 
-    def _cache_spec_for_model(self, model: nn.Module, *, local_block_mode: str = "full_blocks") -> CacheSpec:
+    def _cache_spec_for_model(self, model: nn.Module) -> CacheSpec:
         blocks = self._model_blocks(model)
         if blocks:
             observed_names = tuple(str(getattr(b, "name")) for b in blocks)
@@ -94,21 +94,26 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             if not module_types:
                 module_types = (nn.Linear, nn.Conv2d)
             return CacheSpec(
-                observed_module_names=observed_names,
+                trainable_module_types=module_types,
                 observed_module_types=module_types,
-                param_module_types=module_types,
-                require_block_inputs=True,
+                observed_module_names=observed_names,
+                capture_inputs=True,
+                capture_outputs=True,
                 require_single_call=True,
                 require_single_output_head=True,
-                local_block_mode=str(local_block_mode),
+                include_local_blocks=True,
+                include_model_blocks=True,
             )
 
         return CacheSpec(
-            param_module_types=(nn.Linear, nn.Conv2d),
-            require_block_inputs=True,
+            trainable_module_types=(nn.Linear, nn.Conv2d),
+            observed_module_types=(nn.Linear, nn.Conv2d),
+            capture_inputs=True,
+            capture_outputs=True,
             require_single_call=True,
             require_single_output_head=True,
-            local_block_mode=str(local_block_mode),
+            include_local_blocks=True,
+            include_model_blocks=False,
         )
 
     @staticmethod
@@ -473,13 +478,9 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             labels = self._label_indices(y)
             ext_attention_mask = self._build_extended_attention_mask(model, b, device=torch.device(device))
             attention_mask = ext_attention_mask if torch.is_tensor(ext_attention_mask) else b.get("attention_mask", None)
-            use_hf_mode = True
             out, _cache, views = forward_with_standard_cache(
                 model,
-                cache_spec=self._cache_spec_for_model(
-                    model,
-                    local_block_mode="hf_hidden_states_full_blocks" if use_hf_mode else "full_blocks",
-                ),
+                cache_spec=self._cache_spec_for_model(model),
                 **b,
             )
         else:
@@ -494,18 +495,23 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             out, _cache, views = forward_with_standard_cache(
                 model,
                 x,
-                cache_spec=self._cache_spec_for_model(model, local_block_mode="reconstruct_local_blocks"),
+                cache_spec=self._cache_spec_for_model(model),
             )
 
-        output_blocks = views.get("output_blocks", [])
+        output_block = views.get("output_block")
         local_blocks = views.get("local_blocks", [])
-        if not isinstance(output_blocks, list) or len(output_blocks) != 1:
+        model_blocks = views.get("model_blocks", [])
+        if not isinstance(output_block, Mapping):
             raise RuntimeError("SCL expects exactly one output block.")
         if not isinstance(local_blocks, list):
             raise RuntimeError("SCL expects views['local_blocks'] list.")
+        if not isinstance(model_blocks, list):
+            model_blocks = []
 
-        output_block = output_blocks[0]
-        head_params = [p for p in output_block.iter_params() if isinstance(p, nn.Parameter)]
+        output_module = output_block.get("module")
+        if not isinstance(output_module, nn.Module):
+            raise RuntimeError("SCL output block must expose a valid nn.Module in views['output_block'].")
+        head_params = [p for p in output_module.parameters() if isinstance(p, nn.Parameter)]
         head_ids = {id(p) for p in head_params}
         if not head_params:
             raise RuntimeError("SCL output head exposes no parameters to optimize.")
@@ -516,20 +522,33 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         self._clear_non_head_grads(model, head_ids)
         self.step(head_params, require_grads=True, check_finite_grads=True)
 
+        local_sources: list[Mapping[str, Any]] = []
+        preferred_model_blocks = [
+            b for b in model_blocks
+            if isinstance(b, Mapping)
+            and (not bool(b.get("is_output", False)))
+            and bool(b.get("available", False))
+            and torch.is_tensor(b.get("x"))
+            and isinstance(b.get("module"), nn.Module)
+        ]
+        if preferred_model_blocks:
+            local_sources = preferred_model_blocks
+        else:
+            local_sources = [
+                b for b in local_blocks
+                if isinstance(b, Mapping)
+                and (not bool(b.get("is_output", False)))
+                and torch.is_tensor(b.get("x"))
+                and isinstance(b.get("module"), nn.Module)
+            ]
+
         local_losses: list[float] = []
         depth = 0
-        for local in local_blocks:
-            if bool(local.get("is_output", False)):
-                continue
-
+        for local in local_sources:
             name = str(local.get("name", ""))
             module = local.get("module")
-            if not isinstance(module, nn.Module):
-                continue
 
             xin = local.get("x")
-            if not torch.is_tensor(xin):
-                continue
 
             if xin.dim() == 2:
                 feat_dim_override = None

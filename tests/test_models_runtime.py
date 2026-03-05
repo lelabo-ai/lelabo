@@ -149,10 +149,10 @@ def _assert_basic_cache_contract(model, out, cache) -> None:
     assert out is not None
     assert isinstance(cache, dict)
     assert "cache_version" in cache
-    assert "block_inputs" in cache
-    assert "block_outputs" in cache
-    assert isinstance(cache["block_inputs"], dict)
-    assert isinstance(cache["block_outputs"], dict)
+    assert "module_inputs" in cache
+    assert "module_outputs" in cache
+    assert isinstance(cache["module_inputs"], dict)
+    assert isinstance(cache["module_outputs"], dict)
     block_names: list[str] = []
     if hasattr(model, "get_blocks"):
         try:
@@ -164,11 +164,11 @@ def _assert_basic_cache_contract(model, out, cache) -> None:
 
     if block_names:
         for name in block_names:
-            assert name in cache["block_inputs"]
-            assert name in cache["block_outputs"]
+            assert name in cache["module_inputs"]
+            assert name in cache["module_outputs"]
     else:
-        assert cache["block_inputs"]
-        assert cache["block_outputs"]
+        assert cache["module_inputs"]
+        assert cache["module_outputs"]
 
 
 def test_builtin_model_names_include_expected_defaults() -> None:
@@ -195,9 +195,9 @@ def test_mlp_classifier_cache_contract() -> None:
     assert tuple(out.shape) == (6, 3)
     _assert_basic_cache_contract(model, out, cache)
     assert "steps" in cache
-    head_keys = [k for k in cache["block_outputs"].keys() if str(k).endswith("head")]
+    head_keys = [k for k in cache["module_outputs"].keys() if str(k).endswith("head")]
     assert head_keys
-    assert tuple(cache["block_outputs"][head_keys[-1]].shape) == (6, 3)
+    assert tuple(cache["module_outputs"][head_keys[-1]].shape) == (6, 3)
 
 
 def test_mlp_builder_forwards_model_params() -> None:
@@ -240,8 +240,8 @@ def test_convnet_classifier_cache_contract() -> None:
 
     assert tuple(out.shape) == (4, 10)
     _assert_basic_cache_contract(model, out, cache)
-    assert "head" in cache["block_outputs"]
-    assert tuple(cache["block_outputs"]["head"].shape) == (4, 10)
+    assert "head" in cache["module_outputs"]
+    assert tuple(cache["module_outputs"]["head"].shape) == (4, 10)
 
 
 def test_cnn_builder_forwards_model_params() -> None:
@@ -315,11 +315,11 @@ def test_deep_softhebb_classifier_cache_contract() -> None:
 
     assert tuple(out.shape) == (2, 10)
     assert isinstance(cache, dict)
-    assert "block_inputs" in cache
-    assert "block_outputs" in cache
+    assert "module_inputs" in cache
+    assert "module_outputs" in cache
     for name in ("conv1", "conv2", "conv3", "head"):
-        assert name in cache["block_inputs"]
-        assert name in cache["block_outputs"]
+        assert name in cache["module_inputs"]
+        assert name in cache["module_outputs"]
 
 
 def test_hf_and_bert_builders_with_fake_transformers_cache(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -350,10 +350,10 @@ def test_hf_and_bert_builders_with_fake_transformers_cache(monkeypatch: pytest.M
 
         out_cached, cache, _blocks = _forward_with_cache(model, **batch)
         assert tuple(out_cached.logits.shape) == (3, 2)
-        assert "block_inputs" in cache
-        assert "head" in cache["block_inputs"]
-        assert "embeddings" in cache["block_inputs"]
-        assert any(k.startswith("encoder.layer") for k in cache["block_inputs"])
+        assert "module_inputs" in cache
+        assert "head" in cache["module_inputs"]
+        assert "embeddings" in cache["module_inputs"]
+        assert any(k.startswith("encoder.layer") for k in cache["module_inputs"])
 
 
 def test_resnet18_builder_with_fake_torchvision_cache(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -374,10 +374,10 @@ def test_resnet18_builder_with_fake_torchvision_cache(monkeypatch: pytest.Monkey
     out, cache, _blocks = _forward_with_cache(model, x)
     assert tuple(out.shape) == (4, 5)
     _assert_basic_cache_contract(model, out, cache)
-    assert "head" in cache["block_outputs"]
+    assert "head" in cache["module_outputs"]
 
 
-def test_cache_provider_v2_selective_linear_view() -> None:
+def test_cache_provider_v3_selective_linear_view() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -398,8 +398,8 @@ def test_cache_provider_v2_selective_linear_view() -> None:
         model,
         x,
         cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
             observed_module_types=(nn.Linear,),
-            param_module_types=(nn.Linear,),
             require_single_output_head=True,
         ),
     )
@@ -407,10 +407,10 @@ def test_cache_provider_v2_selective_linear_view() -> None:
     assert tuple(out.shape) == (5, 3)
     assert "module_inputs" in cache
     assert "module_outputs" in cache
-    assert len(views["selected_blocks"]) == 2
-    assert all(isinstance(b.module, nn.Linear) for b in views["selected_blocks"])
-    assert len(views["param_blocks"]) == 2
-    assert len(views["output_blocks"]) == 1
+    ordered_blocks = views["ordered_blocks"]
+    assert len(ordered_blocks) == 2
+    assert all(isinstance(b["module"], nn.Linear) for b in ordered_blocks)
+    assert isinstance(views["output_block"], dict)
 
 
 def test_cache_provider_single_call_uses_call_counts() -> None:
@@ -436,8 +436,8 @@ def test_cache_provider_single_call_uses_call_counts() -> None:
             model,
             x,
             cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
                 observed_module_types=(nn.Linear,),
-                param_module_types=(nn.Linear,),
                 require_single_call=True,
             ),
         )
@@ -464,17 +464,20 @@ def test_cache_provider_activation_pairing_with_module_activation() -> None:
         model,
         x,
         cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
             observed_module_types=(nn.Linear, nn.ReLU),
-            param_module_types=(nn.Linear,),
-            activation_module_types=(nn.ReLU,),
             require_single_output_head=True,
-            require_activation_pairing=True,
+            include_local_blocks=True,
+            auto_pair_post_activation=True,
         ),
     )
 
-    hidden_locals = [b for b in views["local_blocks"] if not bool(b["is_output"])]
-    assert hidden_locals
-    assert torch.is_tensor(hidden_locals[0]["h"])
+    ordered_hidden = [
+        b for b in views["ordered_blocks"]
+        if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
+    ]
+    assert ordered_hidden
+    assert torch.is_tensor(ordered_hidden[0]["h"])
 
 
 def test_cache_provider_activation_pairing_fails_for_functional_activation() -> None:
@@ -493,16 +496,16 @@ def test_cache_provider_activation_pairing_fails_for_functional_activation() -> 
 
     model = _Tiny()
     x = torch.randn(4, 8)
-    with pytest.raises(cache_provider.ContractError, match="functional activations"):
+    with pytest.raises(cache_provider.ContractError, match="Post-activation pairing"):
         cache_provider.forward_with_standard_cache(
             model,
             x,
             cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
                 observed_module_types=(nn.Linear,),
-                param_module_types=(nn.Linear,),
-                activation_module_types=(nn.ReLU,),
                 require_single_output_head=True,
-                require_activation_pairing=True,
+                include_local_blocks=True,
+                auto_pair_post_activation=True,
             ),
         )
 
@@ -536,10 +539,11 @@ def test_cache_provider_reconstructs_local_conv_blocks_with_intermediate_modules
         model,
         x,
         cache_spec=cache_provider.CacheSpec(
-            param_module_types=(nn.Conv2d, nn.Linear),
+            trainable_module_types=(nn.Conv2d, nn.Linear),
+            observed_module_types=(nn.Conv2d, nn.BatchNorm2d, nn.ReLU, nn.MaxPool2d, nn.Linear),
             require_single_call=True,
             require_single_output_head=True,
-            local_block_mode="reconstruct_local_blocks",
+            include_local_blocks=True,
         ),
     )
 

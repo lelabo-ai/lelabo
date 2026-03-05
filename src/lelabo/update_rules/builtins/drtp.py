@@ -165,33 +165,30 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
         y = to_device(y, device)
 
         spec = CacheSpec(
-            param_module_types=(nn.Linear, nn.Conv2d),
-            require_block_inputs=True,
-            require_block_outputs=True,
+            trainable_module_types=(nn.Linear, nn.Conv2d),
+            observed_module_types=(nn.Linear, nn.Conv2d),
+            capture_inputs=True,
+            capture_outputs=True,
             require_single_call=True,
             require_single_output_head=True,
         )
-        out, cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
-        param_blocks = views["param_blocks"]
-        output_blocks = views["output_blocks"]
-        if len(output_blocks) != 1:
-            raise RuntimeError(f"DRTP expects exactly one output block, got {len(output_blocks)}.")
+        out, _cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
+        ordered_blocks = views.get("ordered_blocks", [])
+        output_block = views.get("output_block")
+        if not isinstance(ordered_blocks, list):
+            raise RuntimeError("DRTP expects views['ordered_blocks'] list.")
+        if not isinstance(output_block, dict):
+            raise RuntimeError("DRTP expects views['output_block'] dict.")
 
-        output_block = output_blocks[0]
-        output_name = str(getattr(output_block, "name", ""))
-        output_layer = getattr(output_block, "module", None)
+        output_name = str(output_block.get("name", ""))
+        output_layer = output_block.get("module")
         if not isinstance(output_layer, nn.Linear):
             raise NotImplementedError(
                 f"DRTP supports only Linear output head for now, got {type(output_layer)} "
                 f"on block '{output_name}'."
             )
 
-        block_inputs = cache["block_inputs"]
-        block_outputs = cache["block_outputs"]
-
-        if output_name not in block_inputs:
-            raise RuntimeError(f"DRTP missing cache['block_inputs'][{output_name!r}] for output block.")
-        x_out = block_inputs[output_name]
+        x_out = output_block.get("x")
         if not torch.is_tensor(x_out) or x_out.dim() != 2:
             raise RuntimeError(f"DRTP output block '{output_name}' expects a 2D input tensor.")
 
@@ -216,22 +213,18 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
             average_batch=self.average_grads,
         )
 
-        hidden_blocks = [b for b in param_blocks if not bool(getattr(b, "is_output", False))]
+        trainable_blocks = [b for b in ordered_blocks if bool(b.get("is_trainable", False))]
+        hidden_blocks = [b for b in trainable_blocks if not bool(b.get("is_output", False))]
         for block in hidden_blocks:
-            name = str(getattr(block, "name", ""))
-            layer = getattr(block, "module", None)
+            name = str(block.get("name", ""))
+            layer = block.get("module")
             if not isinstance(layer, (nn.Linear, nn.Conv2d)):
                 raise NotImplementedError(
                     f"DRTP supports hidden blocks of type Linear/Conv2d only, got {type(layer)} on '{name}'."
                 )
 
-            if name not in block_inputs:
-                raise RuntimeError(f"DRTP missing cache['block_inputs'][{name!r}] for hidden block.")
-            if name not in block_outputs:
-                raise RuntimeError(f"DRTP missing cache['block_outputs'][{name!r}] for hidden block.")
-
-            x_hidden = block_inputs[name]
-            u_hidden = block_outputs[name]
+            x_hidden = block.get("x")
+            u_hidden = block.get("u")
             if not torch.is_tensor(x_hidden) or not torch.is_tensor(u_hidden):
                 raise RuntimeError(f"DRTP hidden block '{name}' expects tensor cache entries.")
             if int(u_hidden.size(0)) != int(target_proj.size(0)):

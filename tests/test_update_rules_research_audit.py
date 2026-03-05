@@ -253,7 +253,7 @@ def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, tas
                 pos_ids = torch.arange(input_ids.size(1), device=input_ids.device).unsqueeze(0).expand(input_ids.size(0), -1)
                 h = self.embedding(input_ids) + self.positional(pos_ids)
 
-                cache = {"block_inputs": {}, "block_outputs": {}} if return_cache else None
+                cache = {"module_inputs": {}, "module_outputs": {}} if return_cache else None
                 key_padding_mask = None
                 if torch.is_tensor(attn_mask):
                     key_padding_mask = ~attn_mask.bool()
@@ -261,18 +261,18 @@ def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, tas
                 for i, layer in enumerate(self.layers):
                     name = f"transformer.layer{i}"
                     if return_cache:
-                        cache["block_inputs"][name] = h
+                        cache["module_inputs"][name] = h
                     h = layer(h, src_key_padding_mask=key_padding_mask)
                     if return_cache:
-                        cache["block_outputs"][name] = h
+                        cache["module_outputs"][name] = h
 
                 h = self.norm(h)
                 pooled = h[:, 0, :]
                 if return_cache:
-                    cache["block_inputs"]["head"] = pooled
+                    cache["module_inputs"]["head"] = pooled
                 logits = self.head(pooled)
                 if return_cache:
-                    cache["block_outputs"]["head"] = logits
+                    cache["module_outputs"]["head"] = logits
                     return logits, cache
                 return logits
 

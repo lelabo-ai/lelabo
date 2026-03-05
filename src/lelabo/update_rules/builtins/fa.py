@@ -180,39 +180,37 @@ class FeedbackAlignment(OptimizerUpdateRule):
         y = to_device(y, device)
 
         spec = CacheSpec(
-            param_module_types=(nn.Linear, nn.Conv2d),
-            require_block_inputs=True,
-            require_block_outputs=True,
+            trainable_module_types=(nn.Linear, nn.Conv2d),
+            observed_module_types=(nn.Linear, nn.Conv2d),
+            capture_inputs=True,
+            capture_outputs=True,
             require_single_call=True,
             require_single_output_head=True,
         )
-        out, cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
+        out, _cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
 
-        param_blocks = views["param_blocks"]
-        output_blocks = views["output_blocks"]
-        if len(output_blocks) != 1:
-            raise RuntimeError(f"FA v1 expects exactly one output block, got {len(output_blocks)}.")
+        ordered_blocks = views.get("ordered_blocks", [])
+        output_block = views.get("output_block")
+        if not isinstance(ordered_blocks, list):
+            raise RuntimeError("FA v1 expects views['ordered_blocks'] list.")
+        if not isinstance(output_block, dict):
+            raise RuntimeError("FA v1 expects views['output_block'] dict.")
+
+        param_blocks = [b for b in ordered_blocks if bool(b.get("is_trainable", False))]
         if not param_blocks:
             raise RuntimeError("FA v1 found no parametric blocks in cache views.")
 
-        block_inputs = cache["block_inputs"]
-        block_outputs = cache["block_outputs"]
+        by_name = {str(b.get("name", "")): b for b in param_blocks}
 
-        output_block = output_blocks[0]
-        output_name = str(getattr(output_block, "name", ""))
-        output_layer = getattr(output_block, "module", None)
+        output_name = str(output_block.get("name", ""))
+        output_layer = output_block.get("module")
         if not isinstance(output_layer, (nn.Linear, nn.Conv2d)):
             raise NotImplementedError(
                 f"FA v1 supports only Linear/Conv2d output heads, got {type(output_layer)} on '{output_name}'."
             )
 
-        if output_name not in block_inputs:
-            raise RuntimeError(f"FA missing cache['block_inputs'][{output_name!r}] for output block.")
-        if output_name not in block_outputs:
-            raise RuntimeError(f"FA missing cache['block_outputs'][{output_name!r}] for output block.")
-
-        x_out = block_inputs[output_name]
-        u_out = block_outputs[output_name]
+        x_out = output_block.get("x")
+        u_out = output_block.get("u")
         if not torch.is_tensor(x_out) or not torch.is_tensor(u_out):
             raise RuntimeError(f"FA output block '{output_name}' expects tensor cache entries.")
 
@@ -253,10 +251,10 @@ class FeedbackAlignment(OptimizerUpdateRule):
         for idx in range(len(param_blocks) - 2, -1, -1):
             current = param_blocks[idx]
             nxt = param_blocks[idx + 1]
-            current_name = str(getattr(current, "name", ""))
-            next_name = str(getattr(nxt, "name", ""))
-            current_layer = getattr(current, "module", None)
-            next_layer = getattr(nxt, "module", None)
+            current_name = str(current.get("name", ""))
+            next_name = str(nxt.get("name", ""))
+            current_layer = current.get("module")
+            next_layer = nxt.get("module")
 
             if not isinstance(current_layer, (nn.Linear, nn.Conv2d)):
                 raise NotImplementedError(
@@ -267,10 +265,8 @@ class FeedbackAlignment(OptimizerUpdateRule):
                     f"FA v1 supports next-layer Linear/Conv2d only, got {type(next_layer)} on '{next_name}'."
                 )
 
-            if current_name not in block_inputs or current_name not in block_outputs:
-                raise RuntimeError(f"FA missing cache entries for hidden block '{current_name}'.")
-            x_current = block_inputs[current_name]
-            u_current = block_outputs[current_name]
+            x_current = current.get("x")
+            u_current = current.get("u")
             if not torch.is_tensor(x_current) or not torch.is_tensor(u_current):
                 raise RuntimeError(f"FA hidden block '{current_name}' expects tensor cache entries.")
 
@@ -315,10 +311,9 @@ class FeedbackAlignment(OptimizerUpdateRule):
                 delta_next = delta_current
                 continue
 
-            if next_name not in block_inputs or next_name not in block_outputs:
-                raise RuntimeError(f"FA missing cache entries for next Conv2d block '{next_name}'.")
-            x_next = block_inputs[next_name]
-            u_next = block_outputs[next_name]
+            next_entry = by_name.get(next_name, {})
+            x_next = next_entry.get("x")
+            u_next = next_entry.get("u")
             if not torch.is_tensor(x_next) or not torch.is_tensor(u_next):
                 raise RuntimeError(f"FA next Conv2d block '{next_name}' expects tensor cache entries.")
             if x_next.dim() != 4 or u_next.dim() != 4:

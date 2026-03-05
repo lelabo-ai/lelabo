@@ -73,9 +73,10 @@ class SoftHebb(OptimizerUpdateRule):
         if _SoftHebbBlock is not None:
             param_types.insert(0, _SoftHebbBlock)
         return CacheSpec(
-            param_module_types=tuple(param_types),
-            require_block_inputs=True,
-            require_block_outputs=True,
+            trainable_module_types=tuple(param_types),
+            observed_module_types=tuple(param_types),
+            capture_inputs=True,
+            capture_outputs=True,
             require_single_call=True,
             require_single_output_head=True,
         )
@@ -271,16 +272,25 @@ class SoftHebb(OptimizerUpdateRule):
         for p in model.parameters():
             p.requires_grad = False
 
-    def _configure_sup_phase(self, model: nn.Module, hidden_blocks: Sequence[Any], output_block: Any) -> list[nn.Parameter]:
+    def _configure_sup_phase(
+        self,
+        model: nn.Module,
+        hidden_blocks: Sequence[Mapping[str, Any]],
+        output_block: Mapping[str, Any],
+    ) -> list[nn.Parameter]:
         for p in model.parameters():
             p.requires_grad = False
 
-        head_params = self._dedup_params(list(output_block.iter_params()))
+        output_module = output_block.get("module")
+        if not isinstance(output_module, nn.Module):
+            raise RuntimeError("SoftHebb output_block must expose a valid nn.Module under key 'module'.")
+
+        head_params = self._dedup_params(list(output_module.parameters()))
         for p in head_params:
             p.requires_grad = True
 
         for block in hidden_blocks:
-            module = getattr(block, "module", None)
+            module = block.get("module")
             if isinstance(module, nn.Module):
                 module.eval()
                 if self._is_softhebb_block(module):
@@ -304,32 +314,34 @@ class SoftHebb(OptimizerUpdateRule):
             x_kwargs = {}
 
         with torch.inference_mode():
-            _out, cache, views = forward_with_standard_cache(
+            _out, _cache, views = forward_with_standard_cache(
                 model,
                 *x_args,
                 cache_spec=self._cache_spec(),
                 **x_kwargs,
             )
 
-        block_inputs = cache["block_inputs"]
-        block_outputs = cache["block_outputs"]
-        hidden_blocks = views.get("hidden_blocks", [])
+        ordered_blocks = views.get("ordered_blocks", [])
+        hidden_blocks = [
+            b for b in ordered_blocks
+            if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
+        ]
 
         with torch.no_grad():
             for block in hidden_blocks:
-                name = str(getattr(block, "name", ""))
-                module = getattr(block, "module", None)
+                name = str(block.get("name", ""))
+                module = block.get("module")
                 if not isinstance(module, nn.Module):
                     continue
-                x_in = block_inputs.get(name)
-                u = block_outputs.get(name)
+                x_in = block.get("x")
+                u = block.get("u")
                 if not torch.is_tensor(x_in):
-                    raise RuntimeError(f"SoftHebb missing tensor cache['block_inputs'][{name!r}]")
+                    raise RuntimeError(f"SoftHebb missing tensor input cache for block '{name}'.")
                 if self._is_softhebb_block(module):
                     # SoftHebbBlock pre-activation is recomputed from block internals.
                     u = torch.empty(0, device=x_in.device)  # placeholder, ignored by block path
                 if not torch.is_tensor(u):
-                    raise RuntimeError(f"SoftHebb missing tensor cache['block_outputs'][{name!r}]")
+                    raise RuntimeError(f"SoftHebb missing tensor output cache for block '{name}'.")
                 self._apply_unsup_update_for_block(name=name, module=module, x_in=x_in, u=u)
 
         return {"loss": 0.0}
@@ -357,12 +369,15 @@ class SoftHebb(OptimizerUpdateRule):
                 **x_kwargs,
             )
 
-        output_blocks = views.get("output_blocks", [])
-        hidden_blocks = views.get("hidden_blocks", [])
-        if not isinstance(output_blocks, list) or len(output_blocks) != 1:
+        ordered_blocks = views.get("ordered_blocks", [])
+        output_block = views.get("output_block")
+        if not isinstance(output_block, Mapping):
             raise RuntimeError("SoftHebb supervised phase requires exactly one output head.")
+        hidden_blocks = [
+            b for b in ordered_blocks
+            if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
+        ]
 
-        output_block = output_blocks[0]
         head_params = self._configure_sup_phase(model, hidden_blocks, output_block)
         self._ensure_head_optim(head_params)
         if not head_params or self._head_optimizer is None:

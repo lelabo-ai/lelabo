@@ -30,6 +30,53 @@ class _LocalBlockChain(nn.Module):
         return y
 
 
+KNOWN_ACTIVATION_MODULE_TYPES: tuple[type[nn.Module], ...] = (
+    nn.ReLU,
+    nn.ReLU6,
+    nn.LeakyReLU,
+    nn.PReLU,
+    nn.ELU,
+    nn.CELU,
+    nn.SELU,
+    nn.GELU,
+    nn.SiLU,
+    nn.Mish,
+    nn.Tanh,
+    nn.Sigmoid,
+    nn.Hardtanh,
+    nn.Hardsigmoid,
+    nn.Softplus,
+    nn.Softsign,
+)
+
+
+@dataclass(frozen=True)
+class CacheSpec:
+    # --- Selection
+    trainable_module_types: tuple[type[nn.Module], ...] = (nn.Linear, nn.Conv2d)
+    observed_module_types: tuple[type[nn.Module], ...] = ()
+    observed_module_names: tuple[str, ...] = ()
+    # --- Capture
+    capture_inputs: bool = True
+    capture_outputs: bool = True
+    capture_all_calls: bool = True
+    capture_steps: bool = True
+    # --- Constraints
+    require_single_call: bool = False
+    require_single_output_head: bool = False
+    require_input_ndim: int | None = None
+    require_output_ndim: int | None = None
+    # --- Optional views
+    include_local_blocks: bool = False
+    auto_pair_post_activation: bool = False
+    auto_pair_activation_types: tuple[type[nn.Module], ...] = KNOWN_ACTIVATION_MODULE_TYPES
+    include_model_blocks: bool = False
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
 def _as_types(raw: Sequence[type[nn.Module]] | type[nn.Module] | None) -> tuple[type[nn.Module], ...]:
     if raw is None:
         return ()
@@ -65,38 +112,6 @@ def _dedup_types(types: Sequence[type[nn.Module]]) -> tuple[type[nn.Module], ...
         seen.add(t)
         out.append(t)
     return tuple(out)
-
-
-@dataclass(frozen=True)
-class CacheSpec:
-    # --- What to observe
-    observed_module_types: tuple[type[nn.Module], ...] = ()
-    observed_module_names: tuple[str, ...] = ()
-    observed_groups: tuple[str, ...] = ()
-    param_module_types: tuple[type[nn.Module], ...] = ()
-    activation_module_types: tuple[type[nn.Module], ...] = ()
-    # --- What to capture
-    capture_inputs: bool = True
-    capture_outputs: bool = True
-    capture_all_calls: bool = True
-    capture_steps: bool = True
-    # --- Constraints (v2)
-    require_single_call: bool = False
-    require_single_output_head: bool = False
-    require_input_ndim: int | None = None
-    require_output_ndim: int | None = None
-    require_activation_pairing: bool = False
-    local_block_mode: str = "default"
-    # --- Backward-compat constraints (v1)
-    require_block_inputs: bool = True
-    require_block_outputs: bool = False
-    require_single_output: bool = False
-    require_linear_only: bool = False
-    require_ndim2_inputs: bool = False
-
-
-def _normalize_cache(cache: Mapping[str, Any]) -> dict[str, Any]:
-    return normalize_standard_cache(dict(cache))
 
 
 def _as_block_spec(raw: Any) -> BlockSpec | None:
@@ -145,166 +160,16 @@ def _named_module_specs(model: nn.Module) -> list[BlockSpec]:
     for name, module in model.named_modules():
         if not name:
             continue
-        specs.append(BlockSpec(name=name, module=module, rep="identity", is_output=False))
+        specs.append(BlockSpec(name=name, module=module, rep="identity", is_output=False, group="main"))
     return specs
 
 
-def _named_leaf_module_specs(model: nn.Module) -> list[BlockSpec]:
-    specs: list[BlockSpec] = []
-    for name, module in model.named_modules():
-        if not name:
-            continue
-        try:
-            has_children = any(True for _ in module.children())
-        except Exception:
-            has_children = False
-        if has_children:
-            continue
-        specs.append(BlockSpec(name=name, module=module, rep="identity", is_output=False))
-    return specs
+def _normalize_cache(cache: Mapping[str, Any]) -> dict[str, Any]:
+    return normalize_standard_cache(dict(cache))
 
 
-def _is_reconstructed_local_mode(mode: str) -> bool:
-    token = str(mode).strip().lower()
-    return token in {
-        "reconstruct_local_blocks",
-        "param_to_next_param",
-        "param_to_param",
-        "reconstructed",
-        "local_reconstructed",
-    }
-
-
-def _uses_hf_hidden_states(mode: str) -> bool:
-    token = str(mode).strip().lower()
-    return token in {
-        "hf",
-        "transformers_hidden_states",
-        "hf_hidden_states",
-        "hf_hidden_states_full_blocks",
-        "hf_full_blocks",
-    }
-
-
-def _pick_output_index(specs: Sequence[BlockSpec], param_types: tuple[type[nn.Module], ...]) -> int:
-    # Output head is defined as the last observed param block.
-    if param_types:
-        for i in range(len(specs) - 1, -1, -1):
-            if isinstance(specs[i].module, param_types):
-                return i
-    return len(specs) - 1
-
-
-def _mark_single_output(specs: Sequence[BlockSpec], out_idx: int) -> list[BlockSpec]:
-    out: list[BlockSpec] = []
-    for i, spec in enumerate(specs):
-        out.append(
-            BlockSpec(
-                name=spec.name,
-                module=spec.module,
-                rep=spec.rep,
-                is_output=bool(i == out_idx),
-                group=spec.group,
-                params=spec.params,
-                in_select=spec.in_select,
-                out_select=spec.out_select,
-            )
-        )
-    return out
-
-
-def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
-    explicit = _maybe_get_blocks(model)
-    named = _named_module_specs(model)
-    named_leaf = _named_leaf_module_specs(model)
-
-    observed_types = _as_types(spec.observed_module_types)
-    param_types = _as_types(spec.param_module_types)
-    act_types = _as_types(spec.activation_module_types)
-    if spec.require_linear_only and not param_types:
-        param_types = (nn.Linear,)
-    mode = str(getattr(spec, "local_block_mode", "default")).strip().lower()
-    reconstruct_local = _is_reconstructed_local_mode(mode)
-
-    observed_names = set(_as_strings(spec.observed_module_names))
-    observed_groups = set(_as_strings(spec.observed_groups))
-
-    # If rule did not request explicit filtering and model provides get_blocks(), keep model contract.
-    no_explicit_filter = (
-        not observed_types
-        and not observed_names
-        and not observed_groups
-        and not param_types
-        and not act_types
-    )
-    if explicit and no_explicit_filter:
-        selected = list(explicit)
-    else:
-        if reconstruct_local and not explicit and not observed_types and not observed_names and not observed_groups:
-            selected = list(named_leaf)
-            if not selected:
-                raise ValueError("Cache provider: no leaf modules selected for local-block reconstruction.")
-            if not any(bool(s.is_output) for s in selected):
-                out_idx = _pick_output_index(selected, param_types=_dedup_types(param_types + (nn.Linear, nn.Conv2d)))
-                selected = _mark_single_output(selected, out_idx)
-            return selected
-
-        effective_types = observed_types
-        if not effective_types:
-            effective_types = _dedup_types(param_types + act_types)
-        if not effective_types:
-            effective_types = (nn.Linear, nn.Conv2d)
-
-        pool = explicit if explicit else named
-        selected = []
-        seen_mod_ids: set[int] = set()
-        for candidate in pool:
-            name = str(candidate.name)
-            module = candidate.module
-            group = str(candidate.group)
-
-            if observed_names and name not in observed_names:
-                continue
-            if observed_groups and group not in observed_groups:
-                continue
-            if effective_types and not isinstance(module, effective_types):
-                continue
-            if id(module) in seen_mod_ids:
-                continue
-            seen_mod_ids.add(id(module))
-            selected.append(candidate)
-
-        # Supplement from named_modules when explicit blocks do not cover requested selectors.
-        if explicit and (observed_names or effective_types):
-            by_id = {id(s.module) for s in selected}
-            for candidate in named:
-                if id(candidate.module) in by_id:
-                    continue
-                name = str(candidate.name)
-                if observed_names and name not in observed_names:
-                    continue
-                if effective_types and not isinstance(candidate.module, effective_types):
-                    continue
-                selected.append(candidate)
-                by_id.add(id(candidate.module))
-
-    if not selected:
-        # Legacy default when nothing was explicitly requested.
-        for candidate in named:
-            if isinstance(candidate.module, (nn.Linear, nn.Conv2d)):
-                selected.append(candidate)
-        if not selected:
-            raise ValueError("Cache provider: no modules selected for cache collection.")
-
-    if not any(bool(s.is_output) for s in selected):
-        out_idx = _pick_output_index(selected, param_types=_dedup_types(param_types + (nn.Linear, nn.Conv2d)))
-        selected = _mark_single_output(selected, out_idx)
-
-    return selected
-
-
-def _collect_blocks(model, cache: Mapping[str, Any]) -> list[BlockSpec]:
-    runtime = cache.get("block_specs_runtime", None)
+def _runtime_block_specs(cache: Mapping[str, Any], fallback: Sequence[BlockSpec]) -> list[BlockSpec]:
+    runtime = cache.get("block_specs_runtime")
     if isinstance(runtime, list) and runtime:
         out: list[BlockSpec] = []
         for item in runtime:
@@ -313,344 +178,463 @@ def _collect_blocks(model, cache: Mapping[str, Any]) -> list[BlockSpec]:
                 out.append(spec)
         if out:
             return out
-
-    if hasattr(model, "get_blocks"):
-        try:
-            blocks = model.get_blocks()
-            if isinstance(blocks, list):
-                out: list[BlockSpec] = []
-                for item in blocks:
-                    spec = _as_block_spec(item)
-                    if spec is not None:
-                        out.append(spec)
-                if out:
-                    return out
-        except Exception:
-            pass
-    return []
+    return list(fallback)
 
 
-def _build_views(cache: Mapping[str, Any], blocks: list[BlockSpec], spec: CacheSpec) -> dict[str, Any]:
-    module_inputs = cache.get("module_inputs", {})
-    module_outputs = cache.get("module_outputs", {})
-    steps = cache.get("steps", [])
-    steps = steps if isinstance(steps, list) else []
+# ============================================================
+# Selection
+# ============================================================
 
-    param_types = _as_types(spec.param_module_types)
-    if spec.require_linear_only and not param_types:
-        param_types = (nn.Linear,)
-    if not param_types:
-        param_types = (nn.Linear, nn.Conv2d)
+def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
+    explicit = _maybe_get_blocks(model)
+    named = _named_module_specs(model)
+    by_name = {str(s.name): s for s in named}
+    by_name_explicit = {str(s.name): s for s in explicit}
+    by_name_all: dict[str, BlockSpec] = dict(by_name)
+    by_name_all.update(by_name_explicit)
 
-    act_types = _as_types(spec.activation_module_types)
+    trainable_types = _as_types(spec.trainable_module_types)
+    observed_names = set(_as_strings(spec.observed_module_names))
+    explicit_observed_types = _as_types(spec.observed_module_types)
 
-    selected_blocks = list(blocks)
-    param_blocks = [b for b in selected_blocks if isinstance(b.module, param_types)]
-    activation_blocks = [b for b in selected_blocks if act_types and isinstance(b.module, act_types)]
-
-    output_blocks = param_blocks[-1:] if param_blocks else []
-    output_name = str(output_blocks[0].name) if output_blocks else None
-    hidden_blocks = param_blocks[:-1] if param_blocks else []
-
-    mode = str(getattr(spec, "local_block_mode", "default")).strip().lower()
-    local_from_selected_with_params = mode in {
-        "full_blocks",
-        "selected_with_params",
-        "all_selected_with_params",
-        "hf_hidden_states_full_blocks",
-        "hf_full_blocks",
-    }
-    if local_from_selected_with_params:
-        local_source_blocks = [
-            b
-            for b in selected_blocks
-            if any(True for _ in getattr(b, "module").parameters())
-        ]
-    else:
-        local_source_blocks = param_blocks
-
-    local_blocks: list[dict[str, Any]] = []
-    if _is_reconstructed_local_mode(mode) and steps:
-        step_first_by_name: dict[str, dict[str, Any]] = {}
-        ordered_step_names: list[str] = []
-        for step in steps:
-            name = str(step.get("name", ""))
-            if not name or name in step_first_by_name:
+    # If caller did not request explicit runtime selectors, prefer model-native block cuts.
+    if explicit and not observed_names and not explicit_observed_types:
+        selected: list[BlockSpec] = []
+        seen_mod_ids: set[int] = set()
+        for candidate in explicit:
+            mid = id(candidate.module)
+            if mid in seen_mod_ids:
                 continue
-            step_first_by_name[name] = step
-            ordered_step_names.append(name)
+            seen_mod_ids.add(mid)
+            selected.append(candidate)
+        if selected:
+            return selected
 
-        name_to_block = {str(b.name): b for b in selected_blocks}
-        ordered_blocks: list[BlockSpec] = [name_to_block[n] for n in ordered_step_names if n in name_to_block]
-        ordered_param_names: list[str] = [
-            str(b.name) for b in ordered_blocks if isinstance(getattr(b, "module", None), param_types)
-        ]
+    observed_types = explicit_observed_types
+    if not observed_types:
+        observed_types = trainable_types if trainable_types else (nn.Linear, nn.Conv2d)
 
-        if ordered_param_names:
-            for i, root_name in enumerate(ordered_param_names):
-                root_block = name_to_block.get(root_name)
-                if root_block is None:
-                    continue
+    if spec.auto_pair_post_activation:
+        observed_types = _dedup_types(observed_types + _as_types(spec.auto_pair_activation_types))
 
-                try:
-                    start_idx = ordered_step_names.index(root_name)
-                except ValueError:
-                    continue
-                if i + 1 < len(ordered_param_names):
-                    next_name = ordered_param_names[i + 1]
-                    try:
-                        stop_idx = ordered_step_names.index(next_name)
-                    except ValueError:
-                        stop_idx = len(ordered_step_names)
-                else:
-                    stop_idx = len(ordered_step_names)
+    selected: list[BlockSpec] = []
+    seen_mod_ids: set[int] = set()
 
-                segment_names = ordered_step_names[start_idx:stop_idx]
-                segment_modules: list[nn.Module] = []
-                for seg_name in segment_names:
-                    seg_block = name_to_block.get(seg_name)
-                    if seg_block is None:
-                        continue
-                    if not isinstance(getattr(seg_block, "module", None), nn.Module):
-                        continue
-                    segment_modules.append(seg_block.module)
-                if not segment_modules:
-                    continue
-
-                root_module = segment_modules[0]
-                local_module: nn.Module
-                if len(segment_modules) == 1:
-                    local_module = root_module
-                else:
-                    local_module = _LocalBlockChain(root_module, segment_modules[1:])
-
-                end_name = segment_names[-1] if segment_names else root_name
-                is_output = bool(getattr(root_block, "is_output", False))
-                if not is_output and output_name is not None:
-                    is_output = bool(root_name == output_name)
-
-                local_blocks.append(
-                    {
-                        "name": root_name,
-                        "module": local_module,
-                        "is_output": is_output,
-                        "rep": str(getattr(root_block, "rep", "identity")),
-                        "x": module_inputs.get(root_name),
-                        "u": module_outputs.get(end_name, module_outputs.get(root_name)),
-                        "h": None,
-                        "activation_name": None,
-                        "segment_names": tuple(segment_names),
-                        "segment_end_name": end_name,
-                    }
-                )
-    else:
-        for block in local_source_blocks:
-            name = str(block.name)
-            is_output = bool(getattr(block, "is_output", False))
-            if not is_output and output_name is not None:
-                is_output = bool(name == output_name)
-            local_blocks.append(
-                {
-                    "name": name,
-                    "module": block.module,
-                    "is_output": is_output,
-                    "rep": str(getattr(block, "rep", "identity")),
-                    "x": module_inputs.get(name),
-                    "u": module_outputs.get(name),
-                    "h": None,
-                    "activation_name": None,
-                }
+    if observed_names:
+        missing = [name for name in observed_names if name not in by_name_all]
+        if missing:
+            raise ValueError(
+                "Cache provider: observed_module_names contain unknown module(s): "
+                + ", ".join(sorted(missing))
             )
 
-    if _uses_hf_hidden_states(mode):
-        hidden_states = cache.get("hidden_states")
-        if isinstance(hidden_states, (tuple, list)) and len(hidden_states) > 0:
-            for local in local_blocks:
-                name = str(local.get("name", ""))
-                if name.startswith("encoder.layer"):
-                    try:
-                        idx = int(name.split("encoder.layer", 1)[1])
-                    except Exception:
-                        continue
-                    if 0 <= idx < len(hidden_states) - 1:
-                        hs = hidden_states[idx]
-                        if torch.is_tensor(hs):
-                            local["x"] = hs
-                    continue
-                if name == "head":
-                    hs_last = hidden_states[-1]
-                    if torch.is_tensor(hs_last):
-                        if hs_last.dim() >= 3:
-                            local["x"] = hs_last[:, 0]
-                        else:
-                            local["x"] = hs_last
+        pool = list(explicit) + list(named)
+        for candidate in pool:
+            name = str(candidate.name)
+            if name not in observed_names:
+                continue
+            if observed_types and not isinstance(candidate.module, observed_types):
+                continue
+            mid = id(candidate.module)
+            if mid in seen_mod_ids:
+                continue
+            seen_mod_ids.add(mid)
+            selected.append(candidate)
+    else:
+        for candidate in named:
+            if observed_types and not isinstance(candidate.module, observed_types):
+                continue
+            mid = id(candidate.module)
+            if mid in seen_mod_ids:
+                continue
+            seen_mod_ids.add(mid)
+            selected.append(candidate)
 
-    if (act_types or spec.require_activation_pairing) and steps:
-        local_names = {str(lb.get("name", "")) for lb in local_blocks}
-        act_names: set[str] = set()
-        if act_types:
-            act_names = {str(b.name) for b in selected_blocks if isinstance(b.module, act_types)}
-        by_name_local = {str(lb["name"]): lb for lb in local_blocks}
+    if not selected:
+        raise ValueError("Cache provider: no modules selected for cache collection.")
 
-        for i, step in enumerate(steps):
-            name = str(step.get("name", ""))
-            if name not in local_names:
+    return selected
+
+
+# ============================================================
+# Views
+# ============================================================
+
+def _build_ordered_blocks(
+    cache: Mapping[str, Any],
+    selected_blocks: Sequence[BlockSpec],
+    spec: CacheSpec,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    module_inputs = cache.get("module_inputs", {})
+    module_outputs = cache.get("module_outputs", {})
+    call_count = cache.get("call_count_by_name", {})
+    steps = cache.get("steps", [])
+
+    if not isinstance(module_inputs, Mapping):
+        module_inputs = {}
+    if not isinstance(module_outputs, Mapping):
+        module_outputs = {}
+    if not isinstance(call_count, Mapping):
+        call_count = {}
+    if not isinstance(steps, list):
+        steps = []
+
+    trainable_types = _as_types(spec.trainable_module_types)
+    by_name = {str(b.name): b for b in selected_blocks}
+
+    ordered_names: list[str] = []
+    seen: set[str] = set()
+    for step in steps:
+        name = str(step.get("name", ""))
+        if not name or name in seen:
+            continue
+        if name not in by_name:
+            continue
+        seen.add(name)
+        ordered_names.append(name)
+
+    # If capture_steps=False or a block never emitted steps, keep deterministic fallback order.
+    for block in selected_blocks:
+        name = str(block.name)
+        if name in seen:
+            continue
+        seen.add(name)
+        ordered_names.append(name)
+
+    ordered: list[dict[str, Any]] = []
+    output_idx = -1
+    for i, name in enumerate(ordered_names):
+        block = by_name[name]
+        module = block.module
+        is_trainable = bool(trainable_types and isinstance(module, trainable_types))
+        if is_trainable:
+            output_idx = i
+
+        entry: dict[str, Any] = {
+            "name": name,
+            "module": module,
+            "type": module.__class__.__name__,
+            "rep": str(block.rep),
+            "group": str(block.group),
+            "is_trainable": is_trainable,
+            "is_output": False,
+            "x": module_inputs.get(name),
+            "u": module_outputs.get(name),
+            "h": None,
+            "activation_name": None,
+            "call_count": int(call_count.get(name, 0)),
+        }
+        ordered.append(entry)
+
+    output_block: dict[str, Any] | None = None
+    if output_idx >= 0:
+        ordered[output_idx]["is_output"] = True
+        output_block = ordered[output_idx]
+
+    return ordered, output_block
+
+
+def _apply_auto_pair_post_activation(
+    ordered_blocks: Sequence[dict[str, Any]],
+    selected_blocks: Sequence[BlockSpec],
+    cache: Mapping[str, Any],
+    spec: CacheSpec,
+) -> None:
+    if not spec.auto_pair_post_activation:
+        return
+
+    steps = cache.get("steps", [])
+    if not isinstance(steps, list) or not steps:
+        return
+
+    activation_types = _as_types(spec.auto_pair_activation_types)
+    if not activation_types:
+        return
+
+    by_name = {str(b.name): b for b in selected_blocks}
+
+    first_step_idx_by_name: dict[str, int] = {}
+    for i, step in enumerate(steps):
+        name = str(step.get("name", ""))
+        if not name or name in first_step_idx_by_name:
+            continue
+        first_step_idx_by_name[name] = i
+
+    for block in ordered_blocks:
+        if not bool(block.get("is_trainable", False)):
+            continue
+        if bool(block.get("is_output", False)):
+            continue
+
+        name = str(block.get("name", ""))
+        step_idx = first_step_idx_by_name.get(name)
+        if step_idx is None:
+            continue
+
+        out_ref = steps[step_idx].get("out_ref_id")
+        if out_ref is None:
+            continue
+
+        for j in range(step_idx + 1, len(steps)):
+            nxt = steps[j]
+            nxt_name = str(nxt.get("name", ""))
+            nxt_block = by_name.get(nxt_name)
+            if nxt_block is None:
                 continue
-            local = by_name_local.get(name)
-            if local is None:
+            if not isinstance(nxt_block.module, activation_types):
                 continue
-            out_ref = step.get("out_ref_id")
-            if out_ref is None:
+            if nxt.get("in_ref_id") != out_ref:
                 continue
-            for j in range(i + 1, len(steps)):
-                nxt = steps[j]
-                nxt_name = str(nxt.get("name", ""))
-                if act_names and nxt_name not in act_names:
-                    continue
-                if nxt.get("in_ref_id") != out_ref:
-                    continue
-                local["h"] = nxt.get("out")
-                local["activation_name"] = nxt_name
-                break
+            block["h"] = nxt.get("out")
+            block["activation_name"] = nxt_name
+            break
+
+
+def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    trainable_indices = [
+        i for i, block in enumerate(ordered_blocks)
+        if bool(block.get("is_trainable", False))
+    ]
+    if not trainable_indices:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for pos, start_idx in enumerate(trainable_indices):
+        stop_idx = (trainable_indices[pos + 1] - 1) if (pos + 1 < len(trainable_indices)) else (len(ordered_blocks) - 1)
+        if stop_idx < start_idx:
+            continue
+
+        segment = list(ordered_blocks[start_idx : stop_idx + 1])
+        segment_names = tuple(str(b.get("name", "")) for b in segment)
+        modules = [b.get("module") for b in segment if isinstance(b.get("module"), nn.Module)]
+        if not modules:
+            continue
+
+        local_module: nn.Module
+        if len(modules) == 1:
+            local_module = modules[0]
+        else:
+            local_module = _LocalBlockChain(modules[0], modules[1:])
+
+        root = segment[0]
+        tail = segment[-1]
+        x = root.get("x")
+        u = tail.get("u")
+
+        out.append(
+            {
+                "name": str(root.get("name", "")),
+                "module": local_module,
+                "type": local_module.__class__.__name__,
+                "rep": str(root.get("rep", "identity")),
+                "group": str(root.get("group", "main")),
+                "is_trainable": True,
+                "is_output": bool(root.get("is_output", False)),
+                "x": x,
+                "u": u,
+                "h": root.get("h"),
+                "activation_name": root.get("activation_name"),
+                "segment_names": segment_names,
+                "available": bool(torch.is_tensor(x) or torch.is_tensor(u)),
+            }
+        )
+
+    return out
+
+
+def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict[str, Any]]:
+    specs = _maybe_get_blocks(model)
+    if not specs:
+        return []
+
+    module_inputs = cache.get("module_inputs", {})
+    module_outputs = cache.get("module_outputs", {})
+    hidden_states = cache.get("hidden_states")
+
+    if not isinstance(module_inputs, Mapping):
+        module_inputs = {}
+    if not isinstance(module_outputs, Mapping):
+        module_outputs = {}
+
+    out: list[dict[str, Any]] = []
+    for spec in specs:
+        name = str(spec.name)
+        x = module_inputs.get(name)
+        u = module_outputs.get(name)
+
+        # Best-effort HF enrichment.
+        if isinstance(hidden_states, (tuple, list)) and hidden_states:
+            if name.startswith("encoder.layer"):
+                try:
+                    idx = int(name.split("encoder.layer", 1)[1])
+                except Exception:
+                    idx = -1
+                if not torch.is_tensor(x) and 0 <= idx < len(hidden_states) - 1:
+                    hs_in = hidden_states[idx]
+                    if torch.is_tensor(hs_in):
+                        x = hs_in
+                if not torch.is_tensor(u) and 0 <= idx + 1 < len(hidden_states):
+                    hs_out = hidden_states[idx + 1]
+                    if torch.is_tensor(hs_out):
+                        u = hs_out
+            elif name == "head":
+                hs_last = hidden_states[-1]
+                if not torch.is_tensor(x) and torch.is_tensor(hs_last):
+                    if hs_last.dim() >= 3:
+                        x = hs_last[:, 0]
+                    else:
+                        x = hs_last
+            elif name == "embeddings":
+                hs0 = hidden_states[0]
+                if not torch.is_tensor(u) and torch.is_tensor(hs0):
+                    u = hs0
+
+        out.append(
+            {
+                "name": name,
+                "module": spec.module,
+                "type": spec.module.__class__.__name__,
+                "rep": str(spec.rep),
+                "group": str(spec.group),
+                "is_output": bool(spec.is_output),
+                "x": x,
+                "u": u,
+                "available": bool(torch.is_tensor(x) or torch.is_tensor(u)),
+            }
+        )
+
+    return out
+
+
+def _build_views(
+    model: nn.Module,
+    cache: Mapping[str, Any],
+    selected_blocks: Sequence[BlockSpec],
+    spec: CacheSpec,
+) -> dict[str, Any]:
+    ordered_blocks, output_block = _build_ordered_blocks(cache, selected_blocks, spec)
+    _apply_auto_pair_post_activation(ordered_blocks, selected_blocks, cache, spec)
+
+    local_blocks = _build_local_blocks(ordered_blocks) if spec.include_local_blocks else []
+    model_blocks = _build_model_blocks(model, cache) if spec.include_model_blocks else []
 
     return {
-        "blocks": selected_blocks,
-        "selected_blocks": selected_blocks,
-        "param_blocks": param_blocks,
-        "activation_blocks": activation_blocks,
-        "output_blocks": output_blocks,
-        "hidden_blocks": hidden_blocks,
+        "ordered_blocks": ordered_blocks,
+        "output_block": output_block,
+        "model_blocks": model_blocks,
         "local_blocks": local_blocks,
     }
 
 
+# ============================================================
+# Validation
+# ============================================================
+
 def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: CacheSpec) -> None:
-    if spec.require_block_inputs and not isinstance(cache.get("block_inputs"), dict):
-        raise ContractError("Cache missing required key: 'block_inputs'.")
-    if spec.require_block_outputs and not isinstance(cache.get("block_outputs"), dict):
-        raise ContractError("Cache missing required key: 'block_outputs'.")
+    ordered = views.get("ordered_blocks", [])
+    if not isinstance(ordered, list):
+        ordered = []
 
-    output_blocks = views.get("output_blocks", [])
-    if spec.require_single_output or spec.require_single_output_head:
-        n_out = int(len(output_blocks)) if isinstance(output_blocks, list) else 0
-        if n_out != 1:
-            raise ContractError(f"CacheSpec requires exactly one output block, got {n_out}.")
-
-    selected_blocks = views.get("selected_blocks", [])
-    if not isinstance(selected_blocks, list):
-        selected_blocks = []
-
-    if spec.require_linear_only:
-        non_linear = [b.name for b in selected_blocks if not isinstance(getattr(b, "module", None), nn.Linear)]
-        if non_linear:
-            raise ContractError(
-                "CacheSpec requires linear-only blocks, found unsupported blocks: "
-                + ", ".join(str(n) for n in non_linear)
-            )
+    output_block = views.get("output_block")
+    if spec.require_single_output_head and not isinstance(output_block, dict):
+        raise ContractError("CacheSpec requires exactly one output head, but none was found.")
 
     if spec.require_single_call:
         counts = cache.get("call_count_by_name", {})
         if not isinstance(counts, Mapping):
             raise ContractError("CacheSpec requires single-call validation, but call counts are missing.")
         bad: list[str] = []
-        for block in selected_blocks:
-            name = str(getattr(block, "name", ""))
+        for block in ordered:
+            name = str(block.get("name", ""))
             if int(counts.get(name, 0)) != 1:
                 bad.append(f"{name}:{int(counts.get(name, 0))}")
         if bad:
             raise ContractError(
-                "CacheSpec requires each selected block to be called exactly once; "
+                "CacheSpec requires each observed block to be called exactly once; "
                 f"violations: {', '.join(bad)}"
-            )
-
-    module_inputs = cache.get("module_inputs", {})
-    module_outputs = cache.get("module_outputs", {})
-    if not isinstance(module_inputs, Mapping):
-        module_inputs = {}
-    if not isinstance(module_outputs, Mapping):
-        module_outputs = {}
-
-    if spec.require_ndim2_inputs:
-        bad = []
-        for block in selected_blocks:
-            name = str(getattr(block, "name", ""))
-            value = module_inputs.get(name)
-            if torch.is_tensor(value) and value.dim() == 2:
-                continue
-            bad.append(f"{name}:{getattr(value, 'shape', None)}")
-        if bad:
-            raise ContractError(
-                "CacheSpec requires 2D inputs for selected blocks. Offending blocks: "
-                + ", ".join(bad)
             )
 
     if spec.require_input_ndim is not None:
         exp = int(spec.require_input_ndim)
-        bad = []
-        for block in views.get("param_blocks", []):
-            name = str(getattr(block, "name", ""))
-            value = module_inputs.get(name)
-            if torch.is_tensor(value) and value.dim() == exp:
+        bad: list[str] = []
+        for block in ordered:
+            if not bool(block.get("is_trainable", False)):
                 continue
-            bad.append(f"{name}:{getattr(value, 'shape', None)}")
+            x = block.get("x")
+            if torch.is_tensor(x) and x.dim() == exp:
+                continue
+            bad.append(f"{block.get('name', '<unnamed>')}:{getattr(x, 'shape', None)}")
         if bad:
             raise ContractError(
-                f"CacheSpec requires input ndim={exp} for param blocks. Offending blocks: "
+                f"CacheSpec requires input ndim={exp} for trainable blocks. Offending blocks: "
                 + ", ".join(bad)
             )
 
     if spec.require_output_ndim is not None:
         exp = int(spec.require_output_ndim)
-        bad = []
-        for block in views.get("param_blocks", []):
-            name = str(getattr(block, "name", ""))
-            value = module_outputs.get(name)
-            if torch.is_tensor(value) and value.dim() == exp:
+        bad: list[str] = []
+        for block in ordered:
+            if not bool(block.get("is_trainable", False)):
                 continue
-            bad.append(f"{name}:{getattr(value, 'shape', None)}")
+            u = block.get("u")
+            if torch.is_tensor(u) and u.dim() == exp:
+                continue
+            bad.append(f"{block.get('name', '<unnamed>')}:{getattr(u, 'shape', None)}")
         if bad:
             raise ContractError(
-                f"CacheSpec requires output ndim={exp} for param blocks. Offending blocks: "
+                f"CacheSpec requires output ndim={exp} for trainable blocks. Offending blocks: "
                 + ", ".join(bad)
             )
 
-    if spec.require_activation_pairing:
+    if spec.auto_pair_post_activation:
         missing: list[str] = []
-        for local in views.get("local_blocks", []):
-            if bool(local.get("is_output", False)):
+        for block in ordered:
+            if not bool(block.get("is_trainable", False)):
                 continue
-            if local.get("h") is None:
-                missing.append(str(local.get("name", "<unnamed>")))
+            if bool(block.get("is_output", False)):
+                continue
+            if not torch.is_tensor(block.get("h")):
+                missing.append(str(block.get("name", "<unnamed>")))
         if missing:
             raise ContractError(
-                "Activation pairing is required but missing for blocks: "
+                "Post-activation pairing is required but missing for blocks: "
                 + ", ".join(missing)
-                + ". If your model uses functional activations (torch.nn.functional.*), "
-                + "replace them with nn.Module activations (e.g. nn.ReLU/nn.Tanh) or disable "
-                + "require_activation_pairing for this rule."
+                + ". If your model uses functional activations (torch.nn.functional.*) or "
+                "those activation modules are not observed, replace with nn.Module activations "
+                "and/or include them in observed_module_types."
             )
 
+
+# ============================================================
+# Public API
+# ============================================================
 
 def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = None, **kwargs):
     spec = cache_spec or CacheSpec()
 
     needs_inputs = bool(
         spec.capture_inputs
-        or spec.require_block_inputs
-        or spec.require_ndim2_inputs
+        or spec.include_local_blocks
         or (spec.require_input_ndim is not None)
     )
     needs_outputs = bool(
         spec.capture_outputs
-        or spec.require_block_outputs
+        or spec.include_local_blocks
         or (spec.require_output_ndim is not None)
-        or spec.require_activation_pairing
+        or spec.auto_pair_post_activation
     )
     needs_all_calls = bool(spec.capture_all_calls or spec.require_single_call)
-    needs_steps = bool(spec.capture_steps or spec.require_activation_pairing)
+    needs_steps = bool(
+        spec.capture_steps
+        or spec.require_single_call
+        or spec.include_local_blocks
+        or spec.auto_pair_post_activation
+    )
 
     if isinstance(model, ModelCacheWrapper):
         wrapper = model
+        selected_specs = wrapper.get_blocks()
+        source_model = wrapper.model
     else:
         selected_specs = _select_block_specs(model, spec)
         wrapper = ModelCacheWrapper(
@@ -661,10 +645,11 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
             capture_all_calls=needs_all_calls,
             include_steps=needs_steps,
         )
+        source_model = model
 
     out, cache_raw = wrapper(*args, return_cache=True, **kwargs)
     cache = _normalize_cache(cache_raw)
-    blocks = _collect_blocks(wrapper, cache)
-    views = _build_views(cache, blocks, spec)
+    runtime_specs = _runtime_block_specs(cache, selected_specs)
+    views = _build_views(source_model, cache, runtime_specs, spec)
     _validate_spec(cache, views, spec)
     return out, cache, views
