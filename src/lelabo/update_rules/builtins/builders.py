@@ -227,11 +227,11 @@ def build_scl(ctx: UpdateRuleContext):
             if params.get("local_weight_decay", None) is None
             else float(params["local_weight_decay"])
         ),
-        proj_dim=int(params.get("proj_dim", 256)),
+        proj_dim=int(params.get("proj_dim", 128)),
         proj_hidden_dim=(
             None if params.get("proj_hidden_dim", None) is None else int(params["proj_hidden_dim"])
         ),
-        depth_lr_gamma=float(params.get("depth_lr_gamma", 0.5)),
+        depth_lr_gamma=float(params.get("depth_lr_gamma", 1.0)),
         depth_lr_min_factor=float(params.get("depth_lr_min_factor", 0.01)),
         depth_lr_max_factor=float(params.get("depth_lr_max_factor", 100.0)),
         grad_clip=grad_clip,

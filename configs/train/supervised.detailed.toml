@@ -40,7 +40,7 @@ name = "ce"
 [optimizer]
 name = "adamw"
 [optimizer.params]
-lr = 1e-3
+lr = 2e-5
 weight_decay = 0.01
 
 [scheduler]
@@ -59,8 +59,8 @@ display = "compact"  # one of: none, compact, rich
 # run_dir = "outputs/runs/my_run"
 
 [train]
-epochs = 50
-batch = 100
+epochs = 3
+batch = 256
 val_frac = 0.1
 input_noise_training = 0.0
 input_noise_dataset = 0.0
