@@ -480,6 +480,46 @@ def test_cache_provider_activation_pairing_with_module_activation() -> None:
     assert torch.is_tensor(ordered_hidden[0]["h"])
 
 
+def test_cache_provider_activation_pairing_through_batchnorm() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _TinyConvBN(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(3, 4, kernel_size=3, padding=1)
+            self.bn = nn.BatchNorm2d(4)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(4 * 8 * 8, 2)
+
+        def forward(self, x):
+            h = self.relu(self.bn(self.conv(x)))
+            return self.head(h.flatten(1))
+
+    model = _TinyConvBN()
+    x = torch.randn(4, 3, 8, 8)
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Conv2d, nn.Linear),
+            require_single_output_head=True,
+            include_local_blocks=True,
+            auto_pair_post_activation=True,
+        ),
+    )
+
+    ordered_hidden = [
+        b for b in views["ordered_blocks"]
+        if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
+    ]
+    assert ordered_hidden
+    assert str(ordered_hidden[0]["name"]) == "conv"
+    assert str(ordered_hidden[0]["activation_name"]) == "relu"
+    assert torch.is_tensor(ordered_hidden[0]["h"])
+
+
 def test_cache_provider_activation_pairing_fails_for_functional_activation() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
@@ -540,7 +580,6 @@ def test_cache_provider_reconstructs_local_conv_blocks_with_intermediate_modules
         x,
         cache_spec=cache_provider.CacheSpec(
             trainable_module_types=(nn.Conv2d, nn.Linear),
-            observed_module_types=(nn.Conv2d, nn.BatchNorm2d, nn.ReLU, nn.MaxPool2d, nn.Linear),
             require_single_call=True,
             require_single_output_head=True,
             include_local_blocks=True,

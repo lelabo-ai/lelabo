@@ -56,7 +56,7 @@ def build_cnn(ctx: ModelContext, args):
         pool_kernel=_pick("pool_kernel", 2),
         activation=hidden_activation,
         output_activation=output_activation,
-        head_mode=_pick("head_mode", "gap"),
+        head_mode=_pick("head_mode", "flatten"),
         input_shape=ctx.input_shape,
     )
 
@@ -121,10 +121,11 @@ class ClassicCNN(nn.Module):
             self._act_names.append(act_name)
             c_in = int(w)
 
-        self.gap = nn.AdaptiveAvgPool2d((1, 1))
         if self.head_mode == "gap":
+            self.gap: nn.Module | None = nn.AdaptiveAvgPool2d((1, 1))
             head_in_features = int(c_in)
         else:
+            self.gap = None
             if self.input_shape is None:
                 raise ValueError("head_mode='flatten' requires input_shape=(C,H,W).")
             if len(self.input_shape) != 3:
@@ -166,7 +167,7 @@ class ClassicCNN(nn.Module):
             x = getattr(self, bn_name)(x)
             x = getattr(self, act_name)(x)
             x = getattr(self, pool_name)(x)
-        x = self.gap(x).flatten(1) if self.head_mode == "gap" else x.flatten(1)
+        x = self.gap(x).flatten(1) if self.gap is not None else x.flatten(1)
         logits = self.head(x)
         return self.output_activation(logits)
 

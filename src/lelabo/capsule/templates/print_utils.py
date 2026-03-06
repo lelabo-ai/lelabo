@@ -107,3 +107,26 @@ def print_local_blocks_table(local_blocks) -> None:
     print(sep_line)
     for row in rows:
         print("  " + " | ".join(row[k].ljust(widths[k]) for k in keys))
+
+
+def print_local_block_details(local_blocks) -> None:
+    print("\nLocal block details")
+    if not local_blocks:
+        print("  (empty)")
+        return
+
+    for idx, lb in enumerate(local_blocks):
+        module = lb.get("module")
+        seg = lb.get("segment_names", ())
+        seg_names = [str(name) for name in seg] if isinstance(seg, (tuple, list)) else []
+        print(f"  [{idx}] {lb.get('name', '?')}")
+        print(f"      module: {module.__class__.__name__ if isinstance(module, nn.Module) else '?'}")
+        print(f"      is_output: {bool(lb.get('is_output', False))}")
+        print(f"      x_in: {_shape_of(lb.get('x'))}")
+        print(f"      u_out: {_shape_of(lb.get('u'))}")
+        print(f"      h_post_act: {_shape_of(lb.get('h'))}")
+        if seg_names:
+            print(f"      segment: {' -> '.join(seg_names)}")
+        act_name = lb.get("activation_name", None)
+        if act_name is not None:
+            print(f"      paired_activation: {act_name}")

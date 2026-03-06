@@ -68,7 +68,7 @@ class CacheSpec:
     require_output_ndim: int | None = None
     # --- Optional views
     include_local_blocks: bool = False
-    auto_pair_post_activation: bool = False
+    auto_pair_post_activation: bool = True
     auto_pair_activation_types: tuple[type[nn.Module], ...] = KNOWN_ACTIVATION_MODULE_TYPES
     include_model_blocks: bool = False
 
@@ -160,6 +160,8 @@ def _named_module_specs(model: nn.Module) -> list[BlockSpec]:
     for name, module in model.named_modules():
         if not name:
             continue
+        if any(True for _ in module.children()):
+            continue
         specs.append(BlockSpec(name=name, module=module, rep="identity", is_output=False, group="main"))
     return specs
 
@@ -197,25 +199,18 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
     observed_names = set(_as_strings(spec.observed_module_names))
     explicit_observed_types = _as_types(spec.observed_module_types)
 
-    # If caller did not request explicit runtime selectors, prefer model-native block cuts.
-    if explicit and not observed_names and not explicit_observed_types:
-        selected: list[BlockSpec] = []
-        seen_mod_ids: set[int] = set()
-        for candidate in explicit:
-            mid = id(candidate.module)
-            if mid in seen_mod_ids:
-                continue
-            seen_mod_ids.add(mid)
-            selected.append(candidate)
-        if selected:
-            return selected
-
     observed_types = explicit_observed_types
-    if not observed_types:
-        observed_types = trainable_types if trainable_types else (nn.Linear, nn.Conv2d)
-
-    if spec.auto_pair_post_activation:
+    if observed_types and spec.auto_pair_post_activation:
         observed_types = _dedup_types(observed_types + _as_types(spec.auto_pair_activation_types))
+
+    candidate_pool: list[BlockSpec] = []
+    seen_pool_ids: set[int] = set()
+    for candidate in list(explicit) + list(named):
+        mid = id(candidate.module)
+        if mid in seen_pool_ids:
+            continue
+        seen_pool_ids.add(mid)
+        candidate_pool.append(candidate)
 
     selected: list[BlockSpec] = []
     seen_mod_ids: set[int] = set()
@@ -228,8 +223,7 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
                 + ", ".join(sorted(missing))
             )
 
-        pool = list(explicit) + list(named)
-        for candidate in pool:
+        for candidate in candidate_pool:
             name = str(candidate.name)
             if name not in observed_names:
                 continue
@@ -241,7 +235,7 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
             seen_mod_ids.add(mid)
             selected.append(candidate)
     else:
-        for candidate in named:
+        for candidate in candidate_pool:
             if observed_types and not isinstance(candidate.module, observed_types):
                 continue
             mid = id(candidate.module)
@@ -360,6 +354,8 @@ def _apply_auto_pair_post_activation(
             continue
         first_step_idx_by_name[name] = i
 
+    trainable_types = _as_types(spec.trainable_module_types)
+
     for block in ordered_blocks:
         if not bool(block.get("is_trainable", False)):
             continue
@@ -375,19 +371,38 @@ def _apply_auto_pair_post_activation(
         if out_ref is None:
             continue
 
-        for j in range(step_idx + 1, len(steps)):
-            nxt = steps[j]
-            nxt_name = str(nxt.get("name", ""))
-            nxt_block = by_name.get(nxt_name)
-            if nxt_block is None:
-                continue
-            if not isinstance(nxt_block.module, activation_types):
-                continue
-            if nxt.get("in_ref_id") != out_ref:
-                continue
-            block["h"] = nxt.get("out")
-            block["activation_name"] = nxt_name
-            break
+        current_ref = out_ref
+        search_start = step_idx + 1
+        while current_ref is not None:
+            matched_step: dict[str, Any] | None = None
+            matched_spec: BlockSpec | None = None
+
+            for j in range(search_start, len(steps)):
+                nxt = steps[j]
+                if nxt.get("in_ref_id") != current_ref:
+                    continue
+                nxt_name = str(nxt.get("name", ""))
+                nxt_block = by_name.get(nxt_name)
+                if nxt_block is None:
+                    continue
+                matched_step = nxt
+                matched_spec = nxt_block
+                search_start = j + 1
+                break
+
+            if matched_step is None or matched_spec is None:
+                break
+
+            module = matched_spec.module
+            if isinstance(module, activation_types):
+                block["h"] = matched_step.get("out")
+                block["activation_name"] = str(matched_step.get("name", ""))
+                break
+
+            if trainable_types and isinstance(module, trainable_types):
+                break
+
+            current_ref = matched_step.get("out_ref_id")
 
 
 def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -449,7 +464,6 @@ def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict
 
     module_inputs = cache.get("module_inputs", {})
     module_outputs = cache.get("module_outputs", {})
-    hidden_states = cache.get("hidden_states")
 
     if not isinstance(module_inputs, Mapping):
         module_inputs = {}
@@ -461,33 +475,6 @@ def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict
         name = str(spec.name)
         x = module_inputs.get(name)
         u = module_outputs.get(name)
-
-        # Best-effort HF enrichment.
-        if isinstance(hidden_states, (tuple, list)) and hidden_states:
-            if name.startswith("encoder.layer"):
-                try:
-                    idx = int(name.split("encoder.layer", 1)[1])
-                except Exception:
-                    idx = -1
-                if not torch.is_tensor(x) and 0 <= idx < len(hidden_states) - 1:
-                    hs_in = hidden_states[idx]
-                    if torch.is_tensor(hs_in):
-                        x = hs_in
-                if not torch.is_tensor(u) and 0 <= idx + 1 < len(hidden_states):
-                    hs_out = hidden_states[idx + 1]
-                    if torch.is_tensor(hs_out):
-                        u = hs_out
-            elif name == "head":
-                hs_last = hidden_states[-1]
-                if not torch.is_tensor(x) and torch.is_tensor(hs_last):
-                    if hs_last.dim() >= 3:
-                        x = hs_last[:, 0]
-                    else:
-                        x = hs_last
-            elif name == "embeddings":
-                hs0 = hidden_states[0]
-                if not torch.is_tensor(u) and torch.is_tensor(hs0):
-                    u = hs0
 
         out.append(
             {

@@ -74,7 +74,6 @@ class SoftHebb(OptimizerUpdateRule):
             param_types.insert(0, _SoftHebbBlock)
         return CacheSpec(
             trainable_module_types=tuple(param_types),
-            observed_module_types=tuple(param_types),
             capture_inputs=True,
             capture_outputs=True,
             require_single_call=True,

@@ -184,7 +184,11 @@ if __name__ == "__main__":
 
 
     # import utils to print cache views in a readable way
-    from lelabo.capsule.templates.print_utils import print_blocks_table, print_local_blocks_table
+    from lelabo.capsule.templates.print_utils import (
+        print_blocks_table,
+        print_local_block_details,
+        print_local_blocks_table,
+    )
 
     print("\n=== Param-only cache ===")
     print_blocks_table("Ordered blocks", views["ordered_blocks"])
@@ -193,3 +197,40 @@ if __name__ == "__main__":
     print_blocks_table("Model blocks (if model.get_blocks())", views["model_blocks"])
     print_local_blocks_table(views["local_blocks"])
     print("Cache keys:", sorted(cache.keys()))
+
+    # Example B: inspect the cache of an existing builtin CNN model
+    from lelabo.models.builtins.convnet import ConvNetClassifier
+
+    cnn = ConvNetClassifier(
+        in_channels=3,
+        num_classes=10,
+        channels=[16, 32],
+        use_bn=True,
+        activation="relu",
+    )
+    x_cnn = torch.randn(2, 3, 32, 32)
+
+    cnn_logits, cnn_cache, cnn_views = forward_with_standard_cache(
+        cnn,
+        x_cnn,
+        cache_spec=CacheSpec(
+            trainable_module_types=(nn.Conv2d, nn.Linear),
+            # `observed_module_types` is omitted on purpose:
+            # the provider will observe all leaf modules by default
+            # (Conv/BN/Act/Pool/Linear), which is often what local rules want.
+            require_single_call=True,
+            require_single_output_head=True,
+            include_local_blocks=True,
+        ),
+    )
+
+    print("\n=== Builtin CNN cache example ===")
+    print(cnn)
+    print("CNN input shape:", tuple(x_cnn.shape))
+    print("CNN output shape:", tuple(cnn_logits.shape))
+    print_blocks_table("CNN ordered blocks", cnn_views["ordered_blocks"])
+    cnn_output_block = cnn_views["output_block"]
+    print("CNN output block:", cnn_output_block["name"] if isinstance(cnn_output_block, dict) else "<none>")
+    print_local_blocks_table(cnn_views["local_blocks"])
+    print_local_block_details(cnn_views["local_blocks"])
+    print("CNN cache keys:", sorted(cnn_cache.keys()))
