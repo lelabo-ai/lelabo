@@ -591,21 +591,6 @@ def to_supervised_namespace(
         "robustness_params": dict(cfg.robustness.params),
     }
 
-    # Make component params available at top-level for plugin builders that use args.<key>.
-    for bucket in (
-        dataset_params,
-        model_params,
-        initializer_params,
-        loss_params,
-        update_rule_params,
-        optimizer_params,
-        scheduler_params,
-        cfg.robustness.params,
-    ):
-        for key, value in bucket.items():
-            if key not in raw:
-                raw[key] = value
-
     return Namespace(**raw)
 
 
@@ -649,8 +634,4 @@ def to_rl_namespace(
         "optimizer_params": optimizer_params,
         "rl_params": rl_params,
     }
-    for bucket in (model_params, optimizer_params, update_rule_params, rl_params):
-        for key, value in bucket.items():
-            if key not in raw:
-                raw[key] = value
     return Namespace(**raw)

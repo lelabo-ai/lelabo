@@ -114,3 +114,15 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
             metric_probes=[],
         )
     assert trainer.display_mode == "compact"
+
+
+def test_metric_build_rejects_invalid_positive_label() -> None:
+    ctx = metrics_api.MetricContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="iris",
+        algo="bp",
+        extra={"metric_params": {"precision": {"average": "binary", "positive_label": "oops"}}},
+    )
+    with pytest.raises(ValueError, match="positive_label"):
+        metrics_api.build_metric("precision", ctx)

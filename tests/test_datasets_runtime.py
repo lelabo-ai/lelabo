@@ -133,15 +133,15 @@ def test_mnist_builtin_factory_contract_with_fake_torchvision(monkeypatch: pytes
     )
 
     assert bundle.num_classes == 10
-    assert bundle.in_dim == 28 * 28
-    assert bundle.input_shape is None
+    assert bundle.in_dim is None
+    assert bundle.input_shape == (1, 28, 28)
     assert bundle.train_loader is not None
     assert bundle.val_loader is not None
     assert bundle.test_loader is not None
 
     x, y = _first_supervised_batch(bundle.train_loader)
-    assert x.ndim == 2
-    assert x.shape[1] == 28 * 28
+    assert x.ndim == 4
+    assert tuple(x.shape[1:]) == (1, 28, 28)
     assert y.ndim == 1
 
 

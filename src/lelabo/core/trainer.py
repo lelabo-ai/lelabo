@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 
 import torch
 
-from .callbacks import Callback
+from .callbacks import Callback, EarlyStopping
 from .utils.logger import RunLogger
 from .batch import infer_batch_size
 from .steps import compute_loss_and_stats
@@ -374,7 +374,7 @@ class Trainer:
 
         early_stopping_cb = None
         for cb in self.callbacks:
-            if cb.__class__.__name__.lower() == "earlystopping":
+            if isinstance(cb, EarlyStopping):
                 early_stopping_cb = cb
                 break
 

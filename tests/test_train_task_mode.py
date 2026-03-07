@@ -219,3 +219,69 @@ def test_auto_version_tokens_resolve_to_runtime_values(tmp_path: Path) -> None:
     args = train_api.parse_train_args(["supervised", "--config", str(cfg)])
     assert args.config_version == "1.0"
     assert args.lelabo_version == lab_pkg.__version__
+
+
+def test_supervised_namespace_keeps_official_top_level_but_not_param_promotion(tmp_path: Path) -> None:
+    cfg = tmp_path / "train.toml"
+    cfg.write_text(
+        "\n".join(
+            [
+                'task = "supervised"',
+                "",
+                "[dataset]",
+                'name = "iris"',
+                "",
+                "[model.params]",
+                "hidden = 320",
+                "layers = 3",
+                "my_model_only_flag = 7",
+                "",
+                "[optimizer.params]",
+                "lr = 0.004",
+                "weight_decay = 0.02",
+                "my_optimizer_only_flag = 11",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    args = train_api.parse_train_args(["supervised", "--config", str(cfg)])
+    assert args.hidden == 320
+    assert args.layers == 3
+    assert args.lr == pytest.approx(0.004)
+    assert args.weight_decay == pytest.approx(0.02)
+    assert not hasattr(args, "my_model_only_flag")
+    assert not hasattr(args, "my_optimizer_only_flag")
+    assert args.model_params["my_model_only_flag"] == 7
+    assert args.optimizer_params["my_optimizer_only_flag"] == 11
+
+
+def test_rl_namespace_keeps_official_top_level_but_not_param_promotion(tmp_path: Path) -> None:
+    cfg = tmp_path / "train.rl.toml"
+    cfg.write_text(
+        "\n".join(
+            [
+                'task = "rl"',
+                'env = "CartPole-v1"',
+                "",
+                "[model.params]",
+                "hidden = 128",
+                "layers = 2",
+                "my_model_only_flag = 5",
+                "",
+                "[optimizer.params]",
+                "lr = 0.0015",
+                "weight_decay = 0.03",
+                "my_optimizer_only_flag = 13",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    args = train_api.parse_train_args(["rl", "--config", str(cfg)])
+    assert args.hidden == 128
+    assert args.layers == 2
+    assert args.lr == pytest.approx(0.0015)
+    assert args.weight_decay == pytest.approx(0.03)
+    assert not hasattr(args, "my_model_only_flag")
+    assert not hasattr(args, "my_optimizer_only_flag")
+    assert args.model_params["my_model_only_flag"] == 5
+    assert args.optimizer_params["my_optimizer_only_flag"] == 13

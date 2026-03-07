@@ -27,10 +27,13 @@ def metric_average(params: dict[str, Any], default: str = "macro") -> str:
 
 
 def positive_label(params: dict[str, Any]) -> int:
+    raw = params.get("positive_label", 1)
     try:
-        return int(params.get("positive_label", 1))
-    except Exception:
-        return 1
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid metric param 'positive_label'={raw!r}. Expected an integer."
+        ) from exc
 
 
 def output_key_for(metric: str, average: str) -> str:

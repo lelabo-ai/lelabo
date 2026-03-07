@@ -200,6 +200,19 @@ def test_mlp_classifier_cache_contract() -> None:
     assert tuple(cache["module_outputs"][head_keys[-1]].shape) == (6, 3)
 
 
+def test_mlp_classifier_flattens_image_input_without_flatten_module_in_cache() -> None:
+    torch = importlib.import_module("torch")
+    mlp_mod = importlib.import_module("lelabo.models.builtins.mlp")
+    model = mlp_mod.MLPClassifier(in_dim=28 * 28, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+
+    x = torch.randn(4, 1, 28, 28)
+    out, cache, _blocks = _forward_with_cache(model, x)
+
+    assert tuple(out.shape) == (4, 3)
+    assert all("flatten" not in str(name).lower() for name in cache["module_inputs"].keys())
+    assert all("flatten" not in str(name).lower() for name in cache["module_outputs"].keys())
+
+
 def test_mlp_builder_forwards_model_params() -> None:
     registry = _models_registry()
     args = _default_args()
@@ -221,6 +234,25 @@ def test_mlp_builder_forwards_model_params() -> None:
     assert model.num_layers == 3
     assert model.num_classes == 5
     assert model.activation == "tanh"
+
+
+def test_mlp_builder_derives_in_dim_from_input_shape_when_missing() -> None:
+    registry = _models_registry()
+    args = _default_args()
+    args.model_params = {
+        "hidden": 12,
+        "layers": 2,
+        "activation": "relu",
+    }
+    ctx = registry.ModelContext(
+        dataset="mnist",
+        num_classes=10,
+        in_dim=None,
+        in_channels=1,
+        input_shape=(1, 28, 28),
+    )
+    model = registry.build_model("mlp", ctx, args)
+    assert model.in_dim == 28 * 28
 
 
 def test_convnet_classifier_cache_contract() -> None:
@@ -694,3 +726,102 @@ def test_cache_provider_block_source_declared_and_auto_only() -> None:
     )
     declared_names = sorted(str(b.get("name", "")) for b in views_declared["output_blocks"])
     assert declared_names == ["actor.head", "critic.head"]
+
+
+def test_cache_provider_hybrid_warns_and_falls_back_when_get_blocks_fails() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Broken(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(16, 3)
+
+        def get_blocks(self):
+            raise RuntimeError("broken get_blocks")
+
+        def forward(self, x):
+            return self.head(self.relu(self.fc1(x)))
+
+    model = _Broken()
+    x = torch.randn(4, 8)
+    with pytest.warns(UserWarning, match="block_source='hybrid'"):
+        _out, _cache, views = cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
+                observed_module_types=(nn.Linear,),
+                block_source="hybrid",
+                require_single_output_head=True,
+            ),
+        )
+    assert [str(b["name"]) for b in views["ordered_blocks"]] == ["fc1", "head"]
+
+
+def test_cache_provider_declared_only_raises_when_get_blocks_fails() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Broken(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.head = nn.Linear(16, 3)
+
+        def get_blocks(self):
+            raise RuntimeError("broken get_blocks")
+
+        def forward(self, x):
+            return self.head(self.fc1(x))
+
+    model = _Broken()
+    x = torch.randn(4, 8)
+    with pytest.raises(ValueError, match="block_source='declared_only'.*raised"):
+        cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
+                block_source="declared_only",
+            ),
+        )
+
+
+def test_cache_provider_auto_only_does_not_call_get_blocks() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Broken(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.head = nn.Linear(16, 3)
+            self.get_blocks_calls = 0
+
+        def get_blocks(self):
+            self.get_blocks_calls += 1
+            raise RuntimeError("should not be called in auto_only")
+
+        def forward(self, x):
+            return self.head(self.fc1(x))
+
+    model = _Broken()
+    x = torch.randn(4, 8)
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            block_source="auto_only",
+            require_single_output_head=True,
+        ),
+    )
+    assert model.get_blocks_calls == 0
+    assert [str(b["name"]) for b in views["ordered_blocks"]] == ["fc1", "head"]

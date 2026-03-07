@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
+import warnings
 
 import torch
 import torch.nn as nn
@@ -52,6 +53,7 @@ class CacheSpec:
     include_local_blocks: bool = False
     auto_pair_post_activation: bool = False
     auto_pair_activation_types: tuple[type[nn.Module], ...] = CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES
+    # Advanced optional view: declared model blocks from model.get_blocks().
     include_model_blocks: bool = False
 
 
@@ -120,21 +122,56 @@ def _as_block_spec(raw: Any) -> BlockSpec | None:
     )
 
 
-def _maybe_get_blocks(model: nn.Module) -> list[BlockSpec]:
+@dataclass(frozen=True)
+class _GetBlocksResolution:
+    status: Literal["absent", "ok", "invalid", "error"]
+    specs: tuple[BlockSpec, ...] = ()
+    detail: str = ""
+
+
+def _resolve_get_blocks(model: nn.Module) -> _GetBlocksResolution:
     if not hasattr(model, "get_blocks"):
-        return []
+        return _GetBlocksResolution(status="absent")
+
+    getter = getattr(model, "get_blocks", None)
+    if not callable(getter):
+        return _GetBlocksResolution(
+            status="invalid",
+            detail="attribute 'get_blocks' exists but is not callable.",
+        )
+
     try:
-        raw = model.get_blocks()
-    except Exception:
-        return []
+        raw = getter()
+    except Exception as exc:
+        return _GetBlocksResolution(
+            status="error",
+            detail=f"{exc.__class__.__name__}: {exc}",
+        )
+
     if not isinstance(raw, list):
-        return []
+        return _GetBlocksResolution(
+            status="invalid",
+            detail=f"expected list, got {type(raw).__name__}.",
+        )
+
     out: list[BlockSpec] = []
+    invalid_count = 0
     for item in raw:
         spec = _as_block_spec(item)
-        if spec is not None:
-            out.append(spec)
-    return out
+        if spec is None:
+            invalid_count += 1
+            continue
+        out.append(spec)
+
+    if invalid_count > 0:
+        return _GetBlocksResolution(
+            status="invalid",
+            detail=(
+                "returned list contains invalid block entries "
+                f"({invalid_count} invalid out of {len(raw)})."
+            ),
+        )
+    return _GetBlocksResolution(status="ok", specs=tuple(out))
 
 
 def _named_module_specs(model: nn.Module) -> list[BlockSpec]:
@@ -180,19 +217,49 @@ def _runtime_block_specs(cache: Mapping[str, Any], fallback: Sequence[BlockSpec]
 # ============================================================
 
 def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
-    explicit = _maybe_get_blocks(model)
-    named = _named_module_specs(model)
     block_source = _normalize_block_source(spec.block_source)
+    named = _named_module_specs(model)
+
+    declared = _GetBlocksResolution(status="absent")
+    explicit: list[BlockSpec] = []
+    if block_source != "auto_only":
+        declared = _resolve_get_blocks(model)
+        if declared.status == "ok":
+            explicit = list(declared.specs)
+
     if block_source == "declared_only":
+        if declared.status == "absent":
+            raise ValueError(
+                "Cache provider: block_source='declared_only' requires model.get_blocks(), "
+                "but model has no get_blocks() method."
+            )
+        if declared.status == "error":
+            raise ValueError(
+                "Cache provider: block_source='declared_only' failed because model.get_blocks() raised: "
+                f"{declared.detail}"
+            )
+        if declared.status == "invalid":
+            raise ValueError(
+                "Cache provider: block_source='declared_only' failed because model.get_blocks() "
+                f"returned invalid data ({declared.detail})"
+            )
         if not explicit:
             raise ValueError(
                 "Cache provider: block_source='declared_only' requires model.get_blocks() "
-                "to return a non-empty list of valid block specs."
+                "to return a non-empty list of valid block specs (got empty list)."
             )
         candidate_sources = list(explicit)
     elif block_source == "auto_only":
         candidate_sources = list(named)
     else:
+        if declared.status in {"invalid", "error"}:
+            warnings.warn(
+                "Cache provider: block_source='hybrid' ignored model.get_blocks() "
+                f"because it is {declared.status} ({declared.detail}). "
+                "Falling back to auto-discovered blocks.",
+                UserWarning,
+                stacklevel=2,
+            )
         candidate_sources = list(explicit) + list(named)
 
     by_name_all: dict[str, BlockSpec] = {}
@@ -462,7 +529,27 @@ def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[s
 
 
 def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict[str, Any]]:
-    specs = _maybe_get_blocks(model)
+    declared = _resolve_get_blocks(model)
+    if declared.status == "error":
+        warnings.warn(
+            "Cache provider: include_model_blocks=True ignored model.get_blocks() "
+            f"because it raised ({declared.detail}).",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+    if declared.status == "invalid":
+        warnings.warn(
+            "Cache provider: include_model_blocks=True ignored model.get_blocks() "
+            f"because it returned invalid data ({declared.detail}).",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+    if declared.status != "ok":
+        return []
+
+    specs = list(declared.specs)
     if not specs:
         return []
 

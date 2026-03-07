@@ -49,14 +49,12 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             f"Available: {sorted(available_metrics)}"
         )
 
-    flatten = (args.model == "mlp")
     dataset_seed = derive_seed(args.seed, "supervised", "dataset", args.dataset)
     dataset_kwargs = dict(
         name=args.dataset,
         batch_size=args.batch,
         seed=dataset_seed,
         val_frac=args.val_frac,
-        flatten=flatten,
         input_noise_dataset=args.input_noise_dataset,
         noise_on_test=bool(args.noise_on_test > 0),
     )

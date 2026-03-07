@@ -88,8 +88,14 @@ class MLPStack(nn.Module):
 
 @register_model("mlp")
 def build_mlp(ctx: ModelContext, args):
-    if ctx.in_dim is None:
-        raise ValueError("MLP needs ctx.in_dim")
+    in_dim = ctx.in_dim
+    if in_dim is None and ctx.input_shape is not None:
+        size = 1
+        for dim in ctx.input_shape:
+            size *= int(dim)
+        in_dim = int(size)
+    if in_dim is None:
+        raise ValueError("MLP needs ctx.in_dim or ctx.input_shape")
 
     model_params = getattr(args, "model_params", None)
     params = dict(model_params) if isinstance(model_params, Mapping) else {}
@@ -102,7 +108,7 @@ def build_mlp(ctx: ModelContext, args):
 
     activation = _pick("activation", _pick("hidden_activation", _pick("hidden_act", "relu")))
     return MLPClassifier(
-        in_dim=ctx.in_dim,
+        in_dim=int(in_dim),
         hidden_dim=int(_pick("hidden", 2048)),
         num_layers=int(_pick("layers", 4)),
         num_classes=ctx.num_classes,
@@ -143,6 +149,8 @@ class MLPClassifier(nn.Module):
         return acts[0] if acts else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() > 2:
+            x = x.flatten(1)
         return self.net(x)
 
 
