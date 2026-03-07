@@ -1,0 +1,22 @@
+site_name: LeLabo
+site_description: Modular research lab for learning algorithms
+site_url: https://adrienkegreisz.github.io/lelabo/
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - API: api.md
+  - Research notes: research-notes.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search

@@ -49,6 +49,12 @@ This repository follows a few guiding principles:
 
 ---
 
+## Documentation
+
+Full documentation: https://adrienkegreisz.github.io/lelabo/
+
+---
+
 ## 🧩 High-level Structure
 
 The repository is now split by responsibility:

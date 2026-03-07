@@ -10,19 +10,34 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Adrien Kegreisz" }]
+keywords = ["machine learning", "research", "optimization", "deep learning"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+]
 dependencies = [
     "numpy>=1.26",
     "pyyaml>=6",
     "zstandard>=0.22",
-    "ano-optimizer>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://adrienkegreisz.github.io/lelabo/"
+Repository = "https://github.com/adrienkegreisz/lelabo"
+Issues = "https://github.com/adrienkegreisz/lelabo/issues"
+
 [project.optional-dependencies]
-test = ["pytest>=8", "pyyaml>=6", "numpy>=1.26"]
+test = ["pytest>=8"]
 supervised = [
     "torch>=2.2",
     "torchvision>=0.17",
     "scikit-learn>=1.3",
+    "ano-optimizer>=1.0.0",
 ]
 rl = [
     "gymnasium>=0.29",
@@ -30,6 +45,11 @@ rl = [
 nlp = [
     "transformers>=4.40",
     "datasets>=2.18",
+]
+dev = [
+    "pytest>=8",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
 ]
 
 [project.scripts]
