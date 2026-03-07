@@ -83,3 +83,60 @@ def test_dni_updates_mlp_hidden_and_head(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "loss" in stats_1
     assert any(name.startswith("net.layer0.") for name in changed)
     assert any(name.startswith("net.head.") for name in changed)
+
+
+def test_dni_invalid_activation_raises_on_train_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    mlp_mod, task_mod, dni_mod = _load_modules(monkeypatch)
+
+    model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+    task = task_mod.ClassificationTask(num_classes=3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = dni_mod.DNI(
+        optimizer=optimizer,
+        activation="not-a-real-activation",
+    )
+
+    x = torch.randn(6, 8)
+    y = torch.randint(0, 3, (6,))
+    with pytest.raises(ValueError, match="Unsupported activation"):
+        rule.train_step(model, task, (x, y), device="cpu")
+
+
+def test_dni_state_dict_roundtrip_preserves_sg_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    mlp_mod, task_mod, dni_mod = _load_modules(monkeypatch)
+
+    model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+    task = task_mod.ClassificationTask(num_classes=3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = dni_mod.DNI(
+        optimizer=optimizer,
+        sg_lr=1e-3,
+        sg_hidden=8,
+        condition_on_label=True,
+        lambda_mix=0.5,
+        sg_scale=1.0,
+        activation="relu",
+    )
+
+    x = torch.randn(6, 8)
+    y = torch.randint(0, 3, (6,))
+    _ = rule.train_step(model, task, (x, y), device="cpu")
+    state = rule.state_dict()
+
+    optimizer_2 = torch.optim.SGD(model.parameters(), lr=1e-3)
+    reloaded = dni_mod.DNI(
+        optimizer=optimizer_2,
+        sg_lr=1e-3,
+        sg_hidden=8,
+        condition_on_label=True,
+        lambda_mix=0.5,
+        sg_scale=1.0,
+        activation="relu",
+    )
+    reloaded.load_state_dict(state)
+
+    assert reloaded.global_step == rule.global_step
+    assert reloaded._sg_signatures == rule._sg_signatures
+    assert set(reloaded._sg_models.keys()) == set(rule._sg_models.keys())

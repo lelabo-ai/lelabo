@@ -81,3 +81,56 @@ def test_dfa_updates_conv_and_head(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(stats, dict)
     assert any(name.startswith("conv1.") for name in changed)
     assert any(name.startswith("head.") for name in changed)
+
+
+def test_dfa_invalid_activation_raises_on_train_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    conv_mod, task_mod, dfa_mod = _load_modules(monkeypatch)
+
+    model = conv_mod.ConvNetClassifier(
+        in_channels=1,
+        num_classes=10,
+        channels=[8],
+        kernel_sizes=3,
+        use_bn=False,
+        pool_every=1,
+    )
+    task = task_mod.ClassificationTask(num_classes=10)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = dfa_mod.DirectFeedbackAlignment(optimizer=optimizer, activation_name="not-a-real-activation")
+
+    x = torch.randn(6, 1, 28, 28)
+    y = torch.randint(0, 10, (6,))
+    with pytest.raises(ValueError, match="Unsupported activation"):
+        rule.train_step(model, task, (x, y), device="cpu")
+
+
+def test_dfa_state_dict_roundtrip_preserves_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    conv_mod, task_mod, dfa_mod = _load_modules(monkeypatch)
+
+    model = conv_mod.ConvNetClassifier(
+        in_channels=1,
+        num_classes=10,
+        channels=[8],
+        kernel_sizes=3,
+        use_bn=False,
+        pool_every=1,
+    )
+    task = task_mod.ClassificationTask(num_classes=10)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = dfa_mod.DirectFeedbackAlignment(optimizer=optimizer, activation_name="relu")
+
+    x = torch.randn(6, 1, 28, 28)
+    y = torch.randint(0, 10, (6,))
+    _ = rule.train_step(model, task, (x, y), device="cpu")
+    state = rule.state_dict()
+
+    optimizer_2 = torch.optim.SGD(model.parameters(), lr=1e-3)
+    reloaded = dfa_mod.DirectFeedbackAlignment(optimizer=optimizer_2, activation_name="relu")
+    reloaded.load_state_dict(state)
+
+    assert reloaded.global_step == rule.global_step
+    assert set(reloaded._feedback.keys()) == set(rule._feedback.keys())
+    for key in reloaded._feedback:
+        assert torch.allclose(reloaded._feedback[key], rule._feedback[key].cpu())

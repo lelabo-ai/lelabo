@@ -150,6 +150,8 @@ if __name__ == "__main__":
             observed_module_types=(nn.Linear,),
             # Optional explicit module names to observe (empty means \"use observed_module_types\")
             observed_module_names=(),
+            # Which block source to use for block construction (\"hybrid\" means use model-defined blocks when available, and auto-detect module-based blocks for the rest)
+            block_source = "hybrid",
             # Store first-call input tensor per observed module in cache[\"module_inputs\"]
             capture_inputs=True,
             # Store first-call output tensor per observed module in cache[\"module_outputs\"]
@@ -160,7 +162,7 @@ if __name__ == "__main__":
             capture_steps=True,
             # Enforce that each observed module is called exactly once per forward
             require_single_call=True,
-            # Enforce that exactly one output head is inferred (last trainable observed block)
+            # Enforce that exactly one output head is selected
             require_single_output_head=True,
             # Optional expected ndim for trainable block inputs (None disables the check)
             require_input_ndim=2,
@@ -192,8 +194,8 @@ if __name__ == "__main__":
 
     print("\n=== Param-only cache ===")
     print_blocks_table("Ordered blocks", views["ordered_blocks"])
-    output_block = views["output_block"]
-    print("Output block:", output_block["name"] if isinstance(output_block, dict) else "<none>")
+    output_blocks = views.get("output_blocks", [])
+    print("Output blocks:", [b.get("name", "<unnamed>") for b in output_blocks if isinstance(b, dict)])
     print_blocks_table("Model blocks (if model.get_blocks())", views["model_blocks"])
     print_local_blocks_table(views["local_blocks"])
     print("Cache keys:", sorted(cache.keys()))
@@ -246,8 +248,8 @@ if __name__ == "__main__":
         print("CNN input shape:", tuple(x_cnn.shape))
         print("CNN output shape:", tuple(cnn_logits.shape))
         print_blocks_table("CNN ordered blocks", cnn_views["ordered_blocks"])
-        cnn_output_block = cnn_views["output_block"]
-        print("CNN output block:", cnn_output_block["name"] if isinstance(cnn_output_block, dict) else "<none>")
+        cnn_output_blocks = cnn_views.get("output_blocks", [])
+        print("CNN output blocks:", [b.get("name", "<unnamed>") for b in cnn_output_blocks if isinstance(b, dict)])
         print_local_blocks_table(cnn_views["local_blocks"])
         print_local_block_details(cnn_views["local_blocks"])
         print("CNN cache keys:", sorted(cnn_cache.keys()))

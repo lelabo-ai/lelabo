@@ -104,3 +104,43 @@ def test_fa_updates_conv_and_head(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(stats, dict)
     assert any(name.startswith("conv1.") for name in changed)
     assert any(name.startswith("head.") for name in changed)
+
+
+def test_fa_invalid_activation_raises_on_train_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    mlp_mod, _conv_mod, task_mod, fa_mod = _load_modules(monkeypatch)
+
+    model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+    task = task_mod.ClassificationTask(num_classes=3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = fa_mod.FeedbackAlignment(optimizer=optimizer, activation_name="not-a-real-activation")
+
+    x = torch.randn(6, 8)
+    y = torch.randint(0, 3, (6,))
+
+    with pytest.raises(ValueError, match="Unsupported activation"):
+        rule.train_step(model, task, (x, y), device="cpu")
+
+
+def test_fa_state_dict_roundtrip_preserves_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    mlp_mod, _conv_mod, task_mod, fa_mod = _load_modules(monkeypatch)
+
+    model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+    task = task_mod.ClassificationTask(num_classes=3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = fa_mod.FeedbackAlignment(optimizer=optimizer, activation_name="relu")
+
+    x = torch.randn(6, 8)
+    y = torch.randint(0, 3, (6,))
+    _ = rule.train_step(model, task, (x, y), device="cpu")
+    state = rule.state_dict()
+
+    optimizer_2 = torch.optim.SGD(model.parameters(), lr=1e-3)
+    reloaded = fa_mod.FeedbackAlignment(optimizer=optimizer_2, activation_name="relu")
+    reloaded.load_state_dict(state)
+
+    assert reloaded.global_step == rule.global_step
+    assert set(reloaded._feedback.keys()) == set(rule._feedback.keys())
+    for key in reloaded._feedback:
+        assert torch.allclose(reloaded._feedback[key], rule._feedback[key].cpu())

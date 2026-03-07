@@ -75,6 +75,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         self._proj_by_name = nn.ModuleDict()
         self._local_opt_by_name: dict[str, torch.optim.Optimizer] = {}
         self._local_param_ids_by_name: dict[str, tuple[int, ...]] = {}
+        self._pending_local_opt_state_by_name: dict[str, dict[str, Any]] = {}
 
     # ============================================================
     # block / cache discovery
@@ -115,6 +116,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
                 trainable_module_types=module_types,
                 observed_module_types=module_types,
                 observed_module_names=observed_names,
+                block_source="declared_only",
                 capture_inputs=True,
                 capture_outputs=True,
                 capture_all_calls=True,
@@ -129,6 +131,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         trainable_types = (nn.Linear, nn.Conv2d)
         return CacheSpec(
             trainable_module_types=trainable_types,
+            block_source="auto_only",
             capture_inputs=True,
             capture_outputs=True,
             capture_all_calls=True,
@@ -468,6 +471,81 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         self._set_requires_grad(proj, False)
         return proj
 
+    @staticmethod
+    def _state_to_cpu(raw: Any) -> Any:
+        if torch.is_tensor(raw):
+            return raw.detach().cpu().clone()
+        if isinstance(raw, Mapping):
+            return {str(k): SoftContrastiveLearning._state_to_cpu(v) for k, v in raw.items()}
+        if isinstance(raw, list):
+            return [SoftContrastiveLearning._state_to_cpu(v) for v in raw]
+        if isinstance(raw, tuple):
+            return tuple(SoftContrastiveLearning._state_to_cpu(v) for v in raw)
+        return raw
+
+    def _rebuild_proj_modules_from_state(self, state: Mapping[str, Any]) -> None:
+        roots = sorted(
+            {
+                key.split(".", 1)[0]
+                for key in state.keys()
+                if isinstance(key, str) and "." in key
+            }
+        )
+        self._proj_by_name = nn.ModuleDict()
+        for root in roots:
+            w0 = state.get(f"{root}.0.weight")
+            w2 = state.get(f"{root}.2.weight")
+            if not torch.is_tensor(w0) or not torch.is_tensor(w2):
+                continue
+            in_dim = int(w0.size(1))
+            hidden_dim = int(w0.size(0))
+            out_dim = int(w2.size(0))
+            proj = nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_dim, out_dim),
+            )
+            self._set_requires_grad(proj, False)
+            self._proj_by_name[root] = proj
+        if self._proj_by_name:
+            self._proj_by_name.load_state_dict(dict(state), strict=False)
+
+    def state_dict(self) -> dict[str, Any]:
+        out = super().state_dict()
+        out["proj_by_name"] = self._state_to_cpu(self._proj_by_name.state_dict())
+        out["local_param_ids_by_name"] = {
+            str(key): [int(v) for v in value]
+            for key, value in self._local_param_ids_by_name.items()
+        }
+        out["local_opt_state_by_name"] = {
+            str(name): self._state_to_cpu(opt.state_dict())
+            for name, opt in self._local_opt_by_name.items()
+            if isinstance(opt, torch.optim.Optimizer)
+        }
+        return out
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        super().load_state_dict(state)
+        self._local_opt_by_name = {}
+        self._pending_local_opt_state_by_name = {}
+
+        raw_proj = state.get("proj_by_name", {})
+        if isinstance(raw_proj, Mapping):
+            self._rebuild_proj_modules_from_state(raw_proj)
+
+        raw_param_ids = state.get("local_param_ids_by_name", {})
+        self._local_param_ids_by_name = {}
+        if isinstance(raw_param_ids, Mapping):
+            for key, value in raw_param_ids.items():
+                if isinstance(value, (tuple, list)):
+                    self._local_param_ids_by_name[str(key)] = tuple(int(v) for v in value)
+
+        raw_opt = state.get("local_opt_state_by_name", {})
+        if isinstance(raw_opt, Mapping):
+            for key, opt_state in raw_opt.items():
+                if isinstance(opt_state, Mapping):
+                    self._pending_local_opt_state_by_name[str(key)] = self._state_to_cpu(dict(opt_state))
+
     def _ensure_local_supcon_modules(
         self,
         *,
@@ -497,6 +575,9 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
 
         if name in self._local_opt_by_name and self._local_param_ids_by_name.get(name) == param_ids:
             opt = self._local_opt_by_name[name]
+            pending = self._pending_local_opt_state_by_name.pop(name, None)
+            if isinstance(pending, Mapping):
+                opt.load_state_dict(dict(pending))
             self._set_optimizer_lr(opt, lr_here)
             return proj, opt
 
@@ -528,6 +609,10 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             )
 
         self._local_opt_by_name[name] = opt
+        pending = self._pending_local_opt_state_by_name.pop(name, None)
+        if isinstance(pending, Mapping):
+            opt.load_state_dict(dict(pending))
+            self._set_optimizer_lr(opt, lr_here)
         return proj, opt
 
     @staticmethod

@@ -4,6 +4,7 @@ import importlib
 import json
 import sys
 from argparse import Namespace
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -32,12 +33,13 @@ def test_build_early_stopping_from_registry_context() -> None:
         args=Namespace(),
         mode="supervised",
         dataset="iris",
-        params={"monitor": "val.acc", "mode": "auto", "patience": 3},
+        params={"monitor": "val.acc", "mode": "auto", "patience": 3, "restore_learner_state": True},
     )
     callback = callbacks_api.build_callback("earlystopping", ctx)
     assert isinstance(callback, core_callbacks.EarlyStopping)
     assert callback.cfg.mode == "max"
     assert callback.cfg.patience == 3
+    assert callback.cfg.restore_learner_state is True
 
 
 def test_parse_train_args_exposes_callbacks_list() -> None:
@@ -75,6 +77,39 @@ def test_callback_registry_can_load_capsule_plugin(tmp_path, monkeypatch) -> Non
 
 def test_trainer_callback_hook_is_duck_typed() -> None:
     assert trainer_api.Trainer._call_callback_hook(object(), "on_epoch_end", None) is None
+
+
+def test_early_stopping_capture_restore_learner_state_opt_in() -> None:
+    class _DummyLearner:
+        def __init__(self):
+            self.marker = 3
+            param = torch.nn.Parameter(torch.zeros(()), requires_grad=True)
+            self.optimizer = torch.optim.SGD([param], lr=1e-2)
+
+        def state_dict(self):
+            return {"marker": int(self.marker)}
+
+        def load_state_dict(self, state):
+            self.marker = int(state["marker"])
+
+    trainer = SimpleNamespace(
+        model=torch.nn.Linear(2, 2),
+        learner=_DummyLearner(),
+        schedulers=[],
+        state=SimpleNamespace(epoch=1, batch_idx=2, global_step=3, step=4),
+    )
+
+    cfg_disabled = core_callbacks.EarlyStoppingConfig(restore_learner_state=False)
+    payload_disabled = core_callbacks.EarlyStopping._capture_state(trainer, cfg_disabled)
+    assert "learner" not in payload_disabled
+
+    cfg_enabled = core_callbacks.EarlyStoppingConfig(restore_learner_state=True)
+    payload_enabled = core_callbacks.EarlyStopping._capture_state(trainer, cfg_enabled)
+    assert "learner" in payload_enabled
+
+    trainer.learner.marker = 99
+    core_callbacks.EarlyStopping._restore_state(trainer, payload_enabled)
+    assert trainer.learner.marker == 3
 
 
 def test_early_stopping_integration_stops_iris_training_early(tmp_path, monkeypatch) -> None:

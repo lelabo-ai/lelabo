@@ -8,6 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import OptimizerUpdateRule
+from ..helpers import (
+    activation_derivative_from_preact,
+    activation_from_preact,
+    normalize_activation_name,
+)
 from ...core.batch import extract_loss_and_stats, to_device
 from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
@@ -93,19 +98,10 @@ class DNI(OptimizerUpdateRule):
         )
 
     def _act(self, u: torch.Tensor) -> torch.Tensor:
-        if self.activation == "relu":
-            return F.relu(u)
-        if self.activation == "tanh":
-            return torch.tanh(u)
-        return u
+        return activation_from_preact(self.activation, u)
 
     def _act_grad(self, u: torch.Tensor) -> torch.Tensor:
-        if self.activation == "relu":
-            return (u > 0).to(u.dtype)
-        if self.activation == "tanh":
-            t = torch.tanh(u)
-            return 1.0 - t * t
-        return torch.ones_like(u)
+        return activation_derivative_from_preact(self.activation, u)
 
     @staticmethod
     def _as_tensor_output(out: Any) -> torch.Tensor:
@@ -146,6 +142,60 @@ class DNI(OptimizerUpdateRule):
         onehot = torch.zeros(labels.size(0), int(num_classes), device=device, dtype=dtype)
         onehot.scatter_(1, labels.view(-1, 1), 1.0)
         return onehot
+
+    def state_dict(self) -> dict[str, Any]:
+        out = super().state_dict()
+        out["sg_signatures"] = {
+            str(key): tuple(int(v) for v in signature)
+            for key, signature in self._sg_signatures.items()
+        }
+        out["num_classes"] = self._num_classes
+        out["sg_models"] = self._sg_models.state_dict()
+        if self._sg_optimizer is not None:
+            out["sg_optimizer"] = self._sg_optimizer.state_dict()
+        return out
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        super().load_state_dict(state)
+        raw_signatures = state.get("sg_signatures", {})
+        self._sg_signatures = {}
+        if isinstance(raw_signatures, Mapping):
+            for key, signature in raw_signatures.items():
+                if isinstance(signature, (tuple, list)):
+                    self._sg_signatures[str(key)] = tuple(int(v) for v in signature)
+
+        raw_num_classes = state.get("num_classes", None)
+        self._num_classes = None if raw_num_classes is None else int(raw_num_classes)
+
+        self._sg_models = nn.ModuleDict()
+        cond_dim = int(self._num_classes or 0) if self.condition_on_label else 0
+        for key, signature in self._sg_signatures.items():
+            if len(signature) < 4:
+                self._sg_models[key] = nn.ModuleList()
+                continue
+            models = nn.ModuleList()
+            num_layers = len(signature) // 2
+            for i in range(num_layers - 1):
+                hidden_dim = int(signature[(2 * i) + 1])
+                models.append(
+                    _SGModel(
+                        in_dim=hidden_dim + cond_dim,
+                        out_dim=hidden_dim,
+                        hidden_dim=self.sg_hidden,
+                    )
+                )
+            self._sg_models[key] = models
+
+        raw_models_state = state.get("sg_models", {})
+        if isinstance(raw_models_state, Mapping):
+            self._sg_models.load_state_dict(dict(raw_models_state), strict=False)
+
+        self._sg_optimizer = None
+        raw_opt_state = state.get("sg_optimizer", None)
+        if isinstance(raw_opt_state, Mapping):
+            self._ensure_sg_optimizer()
+            if self._sg_optimizer is not None:
+                self._sg_optimizer.load_state_dict(dict(raw_opt_state))
 
     def _linear_chain(self, views: Mapping[str, Any]) -> list[dict[str, Any]]:
         ordered_blocks = views.get("ordered_blocks", [])
@@ -202,6 +252,7 @@ class DNI(OptimizerUpdateRule):
             and isinstance(current, nn.ModuleList)
             and len(current) == (len(chain) - 1)
         ):
+            self._sg_models[key] = current.to(device)
             return
 
         cond_dim = 0
@@ -328,6 +379,7 @@ class DNI(OptimizerUpdateRule):
 
     def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
         model.train()
+        self.activation = normalize_activation_name(self.activation)
         if not isinstance(batch, (tuple, list)) or len(batch) != 2:
             raise RuntimeError(f"DNI v1 expects batch=(x, y), got {type(batch)}.")
 

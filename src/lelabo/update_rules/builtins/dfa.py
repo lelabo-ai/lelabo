@@ -10,6 +10,7 @@ import torch.nn as nn
 from ..base import OptimizerUpdateRule
 from ..helpers import (
     activation_derivative_from_preact,
+    normalize_activation_name,
     assign_conv2d_grads_from_activations_,
     assign_linear_grads_from_activations_,
     resolve_activation_name,
@@ -65,6 +66,42 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         self._feedback_shapes[key] = shape
         return mat
 
+    def state_dict(self) -> dict[str, Any]:
+        out = super().state_dict()
+        out["activation_name"] = self.activation_name
+        out["feedback"] = {
+            str(key): value.detach().cpu().clone()
+            for key, value in self._feedback.items()
+            if torch.is_tensor(value)
+        }
+        out["feedback_shapes"] = {
+            str(key): tuple(int(v) for v in shape)
+            for key, shape in self._feedback_shapes.items()
+        }
+        return out
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        super().load_state_dict(state)
+        if "activation_name" in state and state["activation_name"] is not None:
+            self.activation_name = str(state["activation_name"]).lower()
+
+        raw_feedback = state.get("feedback", {})
+        self._feedback = {}
+        if isinstance(raw_feedback, Mapping):
+            for key, value in raw_feedback.items():
+                if torch.is_tensor(value):
+                    self._feedback[str(key)] = value.detach().clone()
+
+        raw_shapes = state.get("feedback_shapes", {})
+        self._feedback_shapes = {}
+        if isinstance(raw_shapes, Mapping):
+            for key, shape in raw_shapes.items():
+                if isinstance(shape, (tuple, list)):
+                    self._feedback_shapes[str(key)] = tuple(int(v) for v in shape)
+        for key, value in self._feedback.items():
+            if key not in self._feedback_shapes:
+                self._feedback_shapes[key] = tuple(int(v) for v in value.shape)
+
     def _output_delta_logits(self, task, out: Any, y: Any) -> torch.Tensor:
         if isinstance(y, Mapping):
             raise NotImplementedError("DFA v1 does not support RL/mapping labels.")
@@ -119,6 +156,7 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
 
         if self.activation_name is None:
             self.activation_name = resolve_activation_name(model)
+        self.activation_name = normalize_activation_name(self.activation_name)
 
         x, y = batch
         x = to_device(x, device)
@@ -134,11 +172,17 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         )
         out, _cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
         ordered_blocks = views.get("ordered_blocks", [])
-        output_block = views.get("output_block")
+        output_blocks = views.get("output_blocks", [])
         if not isinstance(ordered_blocks, list):
             raise RuntimeError("DFA v1 expects views['ordered_blocks'] list.")
-        if not isinstance(output_block, dict):
-            raise RuntimeError("DFA v1 expects views['output_block'] dict.")
+        if not isinstance(output_blocks, list):
+            output_blocks = []
+        output_blocks = [b for b in output_blocks if isinstance(b, Mapping)]
+        if len(output_blocks) != 1:
+            raise RuntimeError(
+                f"DFA v1 expects exactly one output block in views['output_blocks'], got {len(output_blocks)}."
+            )
+        output_block = output_blocks[0]
 
         output_name = str(output_block.get("name", ""))
         output_layer = output_block.get("module")

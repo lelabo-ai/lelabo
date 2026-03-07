@@ -369,9 +369,16 @@ class SoftHebb(OptimizerUpdateRule):
             )
 
         ordered_blocks = views.get("ordered_blocks", [])
-        output_block = views.get("output_block")
-        if not isinstance(output_block, Mapping):
-            raise RuntimeError("SoftHebb supervised phase requires exactly one output head.")
+        output_blocks = views.get("output_blocks", [])
+        if not isinstance(output_blocks, list):
+            output_blocks = []
+        output_blocks = [b for b in output_blocks if isinstance(b, Mapping)]
+        if len(output_blocks) != 1:
+            raise RuntimeError(
+                "SoftHebb supervised phase requires exactly one output head "
+                f"in views['output_blocks'], got {len(output_blocks)}."
+            )
+        output_block = output_blocks[0]
         hidden_blocks = [
             b for b in ordered_blocks
             if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))

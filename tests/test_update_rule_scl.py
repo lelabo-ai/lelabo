@@ -247,3 +247,34 @@ def test_scl_mapping_batch_hf_like_uses_hidden_state_local_view(monkeypatch: pyt
     assert "supcon_loss" in stats
     assert any(name.startswith("layer0.") for name in changed)
     assert any(name.startswith("head.") for name in changed)
+
+
+def test_scl_state_dict_roundtrip_preserves_local_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    mlp_mod, task_mod, scl_mod = _load_modules(monkeypatch)
+
+    model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
+    task = task_mod.ClassificationTask(num_classes=3)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = scl_mod.SoftContrastiveLearning(
+        optimizer=optimizer,
+        supcon_tau=0.1,
+        proj_dim=8,
+    )
+
+    x = torch.randn(8, 8)
+    y = torch.randint(0, 3, (8,))
+    _ = rule.train_step(model, task, (x, y), device="cpu")
+    state = rule.state_dict()
+
+    optimizer_2 = torch.optim.SGD(model.parameters(), lr=1e-3)
+    reloaded = scl_mod.SoftContrastiveLearning(
+        optimizer=optimizer_2,
+        supcon_tau=0.1,
+        proj_dim=8,
+    )
+    reloaded.load_state_dict(state)
+
+    assert reloaded.global_step == rule.global_step
+    assert set(reloaded._proj_by_name.keys()) == set(rule._proj_by_name.keys())
+    assert set(reloaded._pending_local_opt_state_by_name.keys()) == set(rule._local_opt_by_name.keys())

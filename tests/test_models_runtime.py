@@ -410,7 +410,10 @@ def test_cache_provider_v3_selective_linear_view() -> None:
     ordered_blocks = views["ordered_blocks"]
     assert len(ordered_blocks) == 2
     assert all(isinstance(b["module"], nn.Linear) for b in ordered_blocks)
-    assert isinstance(views["output_block"], dict)
+    output_blocks = views["output_blocks"]
+    assert isinstance(output_blocks, list)
+    assert len(output_blocks) == 1
+    assert isinstance(output_blocks[0], dict)
 
 
 def test_cache_provider_single_call_uses_call_counts() -> None:
@@ -600,3 +603,94 @@ def test_cache_provider_reconstructs_local_conv_blocks_with_intermediate_modules
     replay = conv1_local["module"](conv1_local["x"])
     assert torch.is_tensor(replay)
     assert tuple(replay.shape) == tuple(conv1_local["u"].shape)
+
+
+def test_cache_provider_multi_head_views_and_single_head_constraint() -> None:
+    torch = importlib.import_module("torch")
+    actor_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    model = actor_mod.ActorCriticDiscrete(obs_dim=4, n_actions=3, hidden_dim=8, num_layers=1)
+    x = torch.randn(5, 4)
+
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(torch.nn.Linear,),
+            observed_module_types=(torch.nn.Linear,),
+            auto_pair_post_activation=False,
+        ),
+    )
+
+    output_blocks = views["output_blocks"]
+    names = sorted(str(b.get("name", "")) for b in output_blocks if isinstance(b, dict))
+    assert names == ["actor.head", "critic.head"]
+
+    with pytest.raises(cache_provider.ContractError, match="exactly one output head"):
+        cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(torch.nn.Linear,),
+                observed_module_types=(torch.nn.Linear,),
+                require_single_output_head=True,
+                auto_pair_post_activation=False,
+            ),
+        )
+
+
+def test_cache_provider_block_source_declared_and_auto_only() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Tiny(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(16, 3)
+
+        def forward(self, x):
+            return self.head(self.relu(self.fc1(x)))
+
+    model = _Tiny()
+    x = torch.randn(4, 8)
+
+    _out, _cache, views_auto = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            block_source="auto_only",
+            require_single_output_head=True,
+        ),
+    )
+    assert [str(b["name"]) for b in views_auto["ordered_blocks"]] == ["fc1", "head"]
+
+    with pytest.raises(ValueError, match="block_source='declared_only'"):
+        cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
+                block_source="declared_only",
+            ),
+        )
+
+    actor_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
+    actor_model = actor_mod.ActorCriticDiscrete(obs_dim=4, n_actions=2, hidden_dim=8, num_layers=1)
+    _out, _cache, views_declared = cache_provider.forward_with_standard_cache(
+        actor_model,
+        torch.randn(3, 4),
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            block_source="declared_only",
+            auto_pair_post_activation=False,
+        ),
+    )
+    declared_names = sorted(str(b.get("name", "")) for b in views_declared["output_blocks"])
+    assert declared_names == ["actor.head", "critic.head"]

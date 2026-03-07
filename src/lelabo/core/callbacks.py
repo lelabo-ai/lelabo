@@ -41,6 +41,7 @@ class EarlyStoppingConfig:
     check_every_n_epochs: int = 1
     restore_best: bool = True
     restore_optimizer: bool = False
+    restore_learner_state: bool = False
     restore_schedulers: bool = False
     restore_train_state: bool = False
 
@@ -65,6 +66,18 @@ class EarlyStopping(Callback):
         return value < (self.best - delta)
 
     @staticmethod
+    def _to_cpu_state(raw: Any) -> Any:
+        if torch.is_tensor(raw):
+            return raw.detach().cpu().clone()
+        if isinstance(raw, dict):
+            return {str(k): EarlyStopping._to_cpu_state(v) for k, v in raw.items()}
+        if isinstance(raw, list):
+            return [EarlyStopping._to_cpu_state(v) for v in raw]
+        if isinstance(raw, tuple):
+            return tuple(EarlyStopping._to_cpu_state(v) for v in raw)
+        return raw
+
+    @staticmethod
     def _capture_state(trainer: Any, cfg: EarlyStoppingConfig) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "model": {k: v.detach().cpu().clone() for k, v in trainer.model.state_dict().items()},
@@ -75,6 +88,11 @@ class EarlyStopping(Callback):
             optimizer = getattr(learner, "optimizer", None)
             if isinstance(optimizer, torch.optim.Optimizer):
                 payload["optimizer"] = optimizer.state_dict()
+        if cfg.restore_learner_state:
+            learner = getattr(trainer, "learner", None)
+            state_dict = getattr(learner, "state_dict", None)
+            if callable(state_dict):
+                payload["learner"] = EarlyStopping._to_cpu_state(state_dict())
 
         if cfg.restore_schedulers:
             sched_states: list[dict[str, Any] | None] = []
@@ -109,6 +127,12 @@ class EarlyStopping(Callback):
             optimizer = getattr(learner, "optimizer", None)
             if isinstance(optimizer, torch.optim.Optimizer):
                 optimizer.load_state_dict(optimizer_state)
+
+        learner_state = payload.get("learner")
+        learner = getattr(trainer, "learner", None)
+        load_learner_state = getattr(learner, "load_state_dict", None)
+        if isinstance(learner_state, dict) and callable(load_learner_state):
+            load_learner_state(learner_state)
 
         sched_states = payload.get("schedulers")
         if isinstance(sched_states, list):

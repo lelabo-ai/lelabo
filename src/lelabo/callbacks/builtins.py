@@ -50,6 +50,7 @@ def build_early_stopping(ctx: CallbackContext):
         check_every_n_epochs=check_every,
         restore_best=bool(params.get("restore_best", True)),
         restore_optimizer=bool(params.get("restore_optimizer", False)),
+        restore_learner_state=bool(params.get("restore_learner_state", False)),
         restore_schedulers=bool(params.get("restore_schedulers", False)),
         restore_train_state=bool(params.get("restore_train_state", False)),
     )
