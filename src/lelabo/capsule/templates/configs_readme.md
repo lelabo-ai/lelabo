@@ -42,6 +42,8 @@ Use `name + params` for extensible components:
 
 - `dataset`
 - `model`
+- `initializer`
+- `loss`
 - `update_rule`
 - `optimizer`
 - `scheduler`
@@ -59,6 +61,18 @@ For a custom metric plugin starter, see:
 - `metrics/example.py`
   This file shows how to register a streaming metric with `register_metric`
   and `ClassificationStreamingMetric`.
+
+For a custom initializer plugin starter, see:
+
+- `initializers/example.py`
+  This file shows how to register an initializer with `register_initializer`
+  and explains the contract `builder(ctx) -> callable(model)`.
+
+For a custom loss plugin starter, see:
+
+- `losses/example.py`
+  This file shows how to register a loss with `register_loss`
+  and explains the contract `builder(ctx) -> callable(pred, target)`.
 
 For a custom scheduler plugin starter, see:
 
@@ -80,6 +94,25 @@ lr = 0.001
 weight_decay = 0.01
 betas = [0.9, 0.999]
 eps = 1e-8
+```
+
+Quick custom initializer snippet:
+
+```toml
+[initializer]
+name = "example_all_ones"
+[initializer.params]
+weight_value = 1.0
+bias_value = 0.0
+```
+
+Quick custom loss snippet:
+
+```toml
+[loss]
+name = "example_scaled_l1"
+[loss.params]
+scale = 0.5
 ```
 
 Quick custom scheduler snippet:

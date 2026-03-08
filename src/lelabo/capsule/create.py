@@ -22,6 +22,8 @@ _SCAFFOLD_DIRS = (
     "update_rules",
     "datasets",
     "metrics",
+    "initializers",
+    "losses",
     "optimizers",
     "schedulers",
     "callbacks",
@@ -34,6 +36,9 @@ _EXAMPLE_TEMPLATE_MAP = {
     "update_rules/example.py": "update_rules_example.py",
     "datasets/example.py": "datasets_example.py",
     "metrics/example.py": "metrics_example.py",
+    "initializers/initializer_helpers.py": "initializers_helper.py",
+    "initializers/example.py": "initializers_example.py",
+    "losses/example.py": "losses_example.py",
     "optimizers/example.py": "optimizers_example.py",
     "schedulers/example.py": "schedulers_example.py",
     "callbacks/example.py": "callbacks_example.py",
@@ -67,6 +72,8 @@ def _readme_template(name: str) -> str:
         "- `update_rules/`: custom learning rules\n"
         "- `datasets/`: local dataset helpers\n"
         "- `metrics/`: local training metrics\n"
+        "- `initializers/`: local parameter initializers\n"
+        "- `losses/`: local losses\n"
         "- `optimizers/`: local optimizer builders\n"
         "- `schedulers/`: local learning-rate schedulers\n"
         "- `callbacks/`: local trainer callbacks\n"
@@ -78,12 +85,15 @@ def _readme_template(name: str) -> str:
         "## Local Registries\n\n"
         "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"
         "`models/*.py`, `update_rules/*.py`, `datasets/*.py`, `metrics/*.py`,\n"
-        "`optimizers/*.py`, `schedulers/*.py`, and `callbacks/*.py`.\n"
+        "`initializers/*.py`, `losses/*.py`, `optimizers/*.py`, `schedulers/*.py`,\n"
+        "and `callbacks/*.py`.\n"
         "Use the standard decorators in these files:\n\n"
         "- `from lelabo.models.registry import register_model`\n"
         "- `from lelabo.update_rules.registry import register_update_rule`\n"
         "- `from lelabo.supervised.datasets.registry import register_dataset`\n"
         "- `from lelabo.metrics.registry import register_metric`\n"
+        "- `from lelabo.initializers.registry import register_initializer`\n"
+        "- `from lelabo.losses.registry import register_loss`\n"
         "- `from lelabo.optimizers import register_optimizer`\n"
         "- `from lelabo.schedulers import register_scheduler`\n"
         "- `from lelabo.callbacks import register_callback`\n"
@@ -159,6 +169,8 @@ def _template_files(name: str) -> dict[str, str]:
         "update_rules/__init__.py": '"""Custom update rules for this capsule."""\n',
         "datasets/__init__.py": '"""Custom datasets for this capsule."""\n',
         "metrics/__init__.py": '"""Custom metrics for this capsule."""\n',
+        "initializers/__init__.py": '"""Custom initializers for this capsule."""\n',
+        "losses/__init__.py": '"""Custom losses for this capsule."""\n',
         "optimizers/__init__.py": '"""Custom optimizers for this capsule."""\n',
         "schedulers/__init__.py": '"""Custom schedulers for this capsule."""\n',
         "callbacks/__init__.py": '"""Custom callbacks for this capsule."""\n',

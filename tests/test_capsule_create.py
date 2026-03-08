@@ -33,6 +33,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "update_rules").is_dir()
     assert (out / "datasets").is_dir()
     assert (out / "metrics").is_dir()
+    assert (out / "initializers").is_dir()
+    assert (out / "losses").is_dir()
     assert (out / "optimizers").is_dir()
     assert (out / "schedulers").is_dir()
     assert (out / "callbacks").is_dir()
@@ -46,6 +48,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
+    assert (out / "initializers" / "initializer_helpers.py").exists()
+    assert (out / "initializers" / "example.py").exists()
+    assert (out / "losses" / "example.py").exists()
     assert (out / "optimizers" / "example.py").exists()
     assert (out / "schedulers" / "example.py").exists()
     assert (out / "callbacks" / "example.py").exists()
@@ -56,6 +61,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
     metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
+    initializer_helper = (out / "initializers" / "initializer_helpers.py").read_text(encoding="utf-8")
+    initializer_example = (out / "initializers" / "example.py").read_text(encoding="utf-8")
+    loss_example = (out / "losses" / "example.py").read_text(encoding="utf-8")
     optimizer_example = (out / "optimizers" / "example.py").read_text(encoding="utf-8")
     scheduler_example = (out / "schedulers" / "example.py").read_text(encoding="utf-8")
     callback_example = (out / "callbacks" / "example.py").read_text(encoding="utf-8")
@@ -69,10 +77,19 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_metric" in metric_example
     assert "ClassificationStreamingMetric" in metric_example
     assert "register_metric_fn" not in metric_example
+    assert "make_initializer" in initializer_helper
+    assert "from lelabo.initializers.registry import InitializerContext" in initializer_helper
+    assert "register_initializer" in initializer_example
+    assert 'register_initializer("row_sum_one")' in initializer_example
+    assert "from .initializer_helpers import make_initializer" in initializer_example
+    assert "register_loss" in loss_example
+    assert 'register_loss("example_scaled_l1")' in loss_example
     assert "from lelabo.optimizers import OptimizerContext, register_optimizer" in optimizer_example
     assert "from lelabo.schedulers import SchedulerContext, register_scheduler" in scheduler_example
     assert "from lelabo.callbacks import CallbackContext, register_callback" in callback_example
     assert "register_optimizer" in readme_text
+    assert "register_initializer" in readme_text
+    assert "register_loss" in readme_text
     assert "register_callback" in readme_text
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
@@ -81,6 +98,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert 'config_version = "auto"' not in cfg_quick
     assert "layered config resolution" in configs_readme.lower()
     assert "train.supervised.quickstart.toml" in configs_readme
+    assert "initializers/example.py" in configs_readme
+    assert "losses/example.py" in configs_readme
     row = registry.get_capsule("demo_capsule", capsules_dir)
     assert row is not None
     assert row["capsule_id"] == "demo_capsule"
