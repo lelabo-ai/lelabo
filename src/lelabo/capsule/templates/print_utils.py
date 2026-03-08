@@ -65,14 +65,14 @@ def print_blocks_table(title: str, blocks) -> None:
         print("  " + " | ".join(row[k].ljust(widths[k]) for k in keys))
 
 
-def print_local_blocks_table(local_blocks) -> None:
-    print("\nLocal blocks (rule-friendly view)")
-    if not local_blocks:
+def print_trainable_segments_table(trainable_segments) -> None:
+    print("\nTrainable segments (rule-friendly view)")
+    if not trainable_segments:
         print("  (empty)")
         return
 
     rows = []
-    for idx, lb in enumerate(local_blocks):
+    for idx, lb in enumerate(trainable_segments):
         module = lb.get("module")
         rows.append(
             {
@@ -109,13 +109,13 @@ def print_local_blocks_table(local_blocks) -> None:
         print("  " + " | ".join(row[k].ljust(widths[k]) for k in keys))
 
 
-def print_local_block_details(local_blocks) -> None:
-    print("\nLocal block details")
-    if not local_blocks:
+def print_trainable_segment_details(trainable_segments) -> None:
+    print("\nTrainable segment details")
+    if not trainable_segments:
         print("  (empty)")
         return
 
-    for idx, lb in enumerate(local_blocks):
+    for idx, lb in enumerate(trainable_segments):
         module = lb.get("module")
         seg = lb.get("segment_names", ())
         seg_names = [str(name) for name in seg] if isinstance(seg, (tuple, list)) else []

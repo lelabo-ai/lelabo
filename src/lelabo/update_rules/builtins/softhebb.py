@@ -320,9 +320,9 @@ class SoftHebb(OptimizerUpdateRule):
                 **x_kwargs,
             )
 
-        ordered_blocks = views.get("ordered_blocks", [])
+        execution_blocks = views.get("execution_blocks", [])
         hidden_blocks = [
-            b for b in ordered_blocks
+            b for b in execution_blocks
             if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
         ]
 
@@ -368,7 +368,7 @@ class SoftHebb(OptimizerUpdateRule):
                 **x_kwargs,
             )
 
-        ordered_blocks = views.get("ordered_blocks", [])
+        execution_blocks = views.get("execution_blocks", [])
         output_blocks = views.get("output_blocks", [])
         if not isinstance(output_blocks, list):
             output_blocks = []
@@ -380,7 +380,7 @@ class SoftHebb(OptimizerUpdateRule):
             )
         output_block = output_blocks[0]
         hidden_blocks = [
-            b for b in ordered_blocks
+            b for b in execution_blocks
             if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
         ]
 

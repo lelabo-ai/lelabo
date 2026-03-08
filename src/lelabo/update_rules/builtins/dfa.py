@@ -171,10 +171,10 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
             require_single_output_head=True,
         )
         out, _cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
-        ordered_blocks = views.get("ordered_blocks", [])
+        execution_blocks = views.get("execution_blocks", [])
         output_blocks = views.get("output_blocks", [])
-        if not isinstance(ordered_blocks, list):
-            raise RuntimeError("DFA v1 expects views['ordered_blocks'] list.")
+        if not isinstance(execution_blocks, list):
+            raise RuntimeError("DFA v1 expects views['execution_blocks'] list.")
         if not isinstance(output_blocks, list):
             output_blocks = []
         output_blocks = [b for b in output_blocks if isinstance(b, Mapping)]
@@ -210,7 +210,7 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
             average_batch=self.average_grads,
         )
 
-        trainable_blocks = [b for b in ordered_blocks if bool(b.get("is_trainable", False))]
+        trainable_blocks = [b for b in execution_blocks if bool(b.get("is_trainable", False))]
         hidden_blocks = [b for b in trainable_blocks if not bool(b.get("is_output", False))]
         for block in hidden_blocks:
             name = str(block.get("name", ""))

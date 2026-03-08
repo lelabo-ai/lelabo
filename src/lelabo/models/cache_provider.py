@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Literal
 import warnings
 
@@ -38,8 +38,8 @@ class CacheSpec:
     trainable_module_types: tuple[type[nn.Module], ...] = (nn.Linear, nn.Conv2d)
     observed_module_types: tuple[type[nn.Module], ...] = ()
     observed_module_names: tuple[str, ...] = ()
-    block_source: Literal["hybrid", "declared_only", "auto_only"] = "hybrid"
-    # --- Capture
+    declared_blocks_mode: Literal["ignore", "merge", "only"] = "merge"
+    # --- Advanced capture controls
     capture_inputs: bool = True
     capture_outputs: bool = True
     capture_all_calls: bool = True
@@ -49,12 +49,9 @@ class CacheSpec:
     require_single_output_head: bool = False
     require_input_ndim: int | None = None
     require_output_ndim: int | None = None
-    # --- Optional views
-    include_local_blocks: bool = False
+    # --- Derived views / post-processing
     auto_pair_post_activation: bool = False
     auto_pair_activation_types: tuple[type[nn.Module], ...] = CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES
-    # Advanced optional view: declared model blocks from model.get_blocks().
-    include_model_blocks: bool = False
 
 
 # ============================================================
@@ -189,12 +186,12 @@ def _normalize_cache(cache: Mapping[str, Any]) -> dict[str, Any]:
     return normalize_standard_cache(dict(cache))
 
 
-def _normalize_block_source(raw: Any) -> Literal["hybrid", "declared_only", "auto_only"]:
+def _normalize_declared_blocks_mode(raw: Any) -> Literal["ignore", "merge", "only"]:
     source = str(raw).strip().lower()
-    if source not in {"hybrid", "declared_only", "auto_only"}:
+    if source not in {"ignore", "merge", "only"}:
         raise ValueError(
-            f"Cache provider: unsupported block_source '{raw}'. "
-            "Expected one of: hybrid, declared_only, auto_only."
+            f"Cache provider: unsupported declared_blocks_mode '{raw}'. "
+            "Expected one of: ignore, merge, only."
         )
     return source
 
@@ -216,45 +213,47 @@ def _runtime_block_specs(cache: Mapping[str, Any], fallback: Sequence[BlockSpec]
 # Selection
 # ============================================================
 
-def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
-    block_source = _normalize_block_source(spec.block_source)
+def _raise_declared_blocks_only_error(resolution: _GetBlocksResolution) -> None:
+    if resolution.status == "absent":
+        raise ValueError(
+            "Cache provider: declared_blocks_mode='only' requires model.get_blocks(), "
+            "but model has no get_blocks() method."
+        )
+    if resolution.status == "error":
+        raise ValueError(
+            "Cache provider: declared_blocks_mode='only' failed because model.get_blocks() raised: "
+            f"{resolution.detail}"
+        )
+    if resolution.status == "invalid":
+        raise ValueError(
+            "Cache provider: declared_blocks_mode='only' failed because model.get_blocks() "
+            f"returned invalid data ({resolution.detail})"
+        )
+    raise ValueError(
+        "Cache provider: declared_blocks_mode='only' requires model.get_blocks() "
+        "to return a non-empty list of valid block specs (got empty list)."
+    )
+
+
+def _select_block_specs(
+    model: nn.Module,
+    spec: CacheSpec,
+    declared: _GetBlocksResolution,
+) -> list[BlockSpec]:
+    declared_mode = _normalize_declared_blocks_mode(spec.declared_blocks_mode)
     named = _named_module_specs(model)
+    explicit = list(declared.specs) if declared.status == "ok" else []
 
-    declared = _GetBlocksResolution(status="absent")
-    explicit: list[BlockSpec] = []
-    if block_source != "auto_only":
-        declared = _resolve_get_blocks(model)
-        if declared.status == "ok":
-            explicit = list(declared.specs)
-
-    if block_source == "declared_only":
-        if declared.status == "absent":
-            raise ValueError(
-                "Cache provider: block_source='declared_only' requires model.get_blocks(), "
-                "but model has no get_blocks() method."
-            )
-        if declared.status == "error":
-            raise ValueError(
-                "Cache provider: block_source='declared_only' failed because model.get_blocks() raised: "
-                f"{declared.detail}"
-            )
-        if declared.status == "invalid":
-            raise ValueError(
-                "Cache provider: block_source='declared_only' failed because model.get_blocks() "
-                f"returned invalid data ({declared.detail})"
-            )
+    if declared_mode == "only":
         if not explicit:
-            raise ValueError(
-                "Cache provider: block_source='declared_only' requires model.get_blocks() "
-                "to return a non-empty list of valid block specs (got empty list)."
-            )
+            _raise_declared_blocks_only_error(declared)
         candidate_sources = list(explicit)
-    elif block_source == "auto_only":
+    elif declared_mode == "ignore":
         candidate_sources = list(named)
     else:
         if declared.status in {"invalid", "error"}:
             warnings.warn(
-                "Cache provider: block_source='hybrid' ignored model.get_blocks() "
+                "Cache provider: declared_blocks_mode='merge' ignored model.get_blocks() "
                 f"because it is {declared.status} ({declared.detail}). "
                 "Falling back to auto-discovered blocks.",
                 UserWarning,
@@ -324,11 +323,9 @@ def _select_block_specs(model: nn.Module, spec: CacheSpec) -> list[BlockSpec]:
 # Views
 # ============================================================
 
-def _build_ordered_blocks(
+def _cache_maps(
     cache: Mapping[str, Any],
-    selected_blocks: Sequence[BlockSpec],
-    spec: CacheSpec,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], list[dict[str, Any]]]:
     module_inputs = cache.get("module_inputs", {})
     module_outputs = cache.get("module_outputs", {})
     call_count = cache.get("call_count_by_name", {})
@@ -342,7 +339,49 @@ def _build_ordered_blocks(
         call_count = {}
     if not isinstance(steps, list):
         steps = []
+    steps = [step for step in steps if isinstance(step, dict)]
+    return module_inputs, module_outputs, call_count, steps
 
+
+def _make_block_entry(
+    *,
+    name: str,
+    module: nn.Module,
+    rep: str,
+    group: str,
+    is_trainable: bool,
+    is_output: bool,
+    x: Any,
+    u: Any,
+    h: Any = None,
+    activation_name: str | None = None,
+    call_count: int = 0,
+    segment_names: Sequence[str] = (),
+) -> dict[str, Any]:
+    return {
+        "name": str(name),
+        "module": module,
+        "type": module.__class__.__name__,
+        "rep": str(rep),
+        "group": str(group),
+        "is_trainable": bool(is_trainable),
+        "is_output": bool(is_output),
+        "x": x,
+        "u": u,
+        "h": h,
+        "activation_name": activation_name,
+        "call_count": int(call_count),
+        "available": bool(torch.is_tensor(x) or torch.is_tensor(u)),
+        "segment_names": tuple(str(item) for item in segment_names),
+    }
+
+
+def _build_execution_blocks(
+    cache: Mapping[str, Any],
+    selected_blocks: Sequence[BlockSpec],
+    spec: CacheSpec,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    module_inputs, module_outputs, call_count, steps = _cache_maps(cache)
     trainable_types = _as_types(spec.trainable_module_types)
     by_name = {str(b.name): b for b in selected_blocks}
 
@@ -357,7 +396,6 @@ def _build_ordered_blocks(
         seen.add(name)
         ordered_names.append(name)
 
-    # If capture_steps=False or a block never emitted steps, keep deterministic fallback order.
     for block in selected_blocks:
         name = str(block.name)
         if name in seen:
@@ -365,7 +403,7 @@ def _build_ordered_blocks(
         seen.add(name)
         ordered_names.append(name)
 
-    ordered: list[dict[str, Any]] = []
+    execution: list[dict[str, Any]] = []
     declared_output_names = {str(block.name) for block in selected_blocks if bool(block.is_output)}
     has_declared_output = bool(declared_output_names)
     fallback_output_idx = -1
@@ -375,32 +413,29 @@ def _build_ordered_blocks(
         is_trainable = bool(trainable_types and isinstance(module, trainable_types))
         if is_trainable:
             fallback_output_idx = i
-
-        entry: dict[str, Any] = {
-            "name": name,
-            "module": module,
-            "type": module.__class__.__name__,
-            "rep": str(block.rep),
-            "group": str(block.group),
-            "is_trainable": is_trainable,
-            "is_output": bool(name in declared_output_names),
-            "x": module_inputs.get(name),
-            "u": module_outputs.get(name),
-            "h": None,
-            "activation_name": None,
-            "call_count": int(call_count.get(name, 0)),
-        }
-        ordered.append(entry)
+        execution.append(
+            _make_block_entry(
+                name=name,
+                module=module,
+                rep=str(block.rep),
+                group=str(block.group),
+                is_trainable=is_trainable,
+                is_output=bool(name in declared_output_names),
+                x=module_inputs.get(name),
+                u=module_outputs.get(name),
+                call_count=int(call_count.get(name, 0)),
+            )
+        )
 
     if (not has_declared_output) and fallback_output_idx >= 0:
-        ordered[fallback_output_idx]["is_output"] = True
+        execution[fallback_output_idx]["is_output"] = True
 
-    output_blocks = [entry for entry in ordered if bool(entry.get("is_output", False))]
-    return ordered, output_blocks
+    output_blocks = [entry for entry in execution if bool(entry.get("is_output", False))]
+    return execution, output_blocks
 
 
 def _apply_auto_pair_post_activation(
-    ordered_blocks: Sequence[dict[str, Any]],
+    execution_blocks: Sequence[dict[str, Any]],
     selected_blocks: Sequence[BlockSpec],
     cache: Mapping[str, Any],
     spec: CacheSpec,
@@ -408,8 +443,8 @@ def _apply_auto_pair_post_activation(
     if not spec.auto_pair_post_activation:
         return
 
-    steps = cache.get("steps", [])
-    if not isinstance(steps, list) or not steps:
+    _module_inputs, _module_outputs, _call_count, steps = _cache_maps(cache)
+    if not steps:
         return
 
     activation_types = _as_types(spec.auto_pair_activation_types)
@@ -417,7 +452,6 @@ def _apply_auto_pair_post_activation(
         return
 
     by_name = {str(b.name): b for b in selected_blocks}
-
     first_step_idx_by_name: dict[str, int] = {}
     for i, step in enumerate(steps):
         name = str(step.get("name", ""))
@@ -427,7 +461,7 @@ def _apply_auto_pair_post_activation(
 
     trainable_types = _as_types(spec.trainable_module_types)
 
-    for block in ordered_blocks:
+    for block in execution_blocks:
         if not bool(block.get("is_trainable", False)):
             continue
         if bool(block.get("is_output", False)):
@@ -476,9 +510,9 @@ def _apply_auto_pair_post_activation(
             current_ref = matched_step.get("out_ref_id")
 
 
-def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_trainable_segments(execution_blocks: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     trainable_indices = [
-        i for i, block in enumerate(ordered_blocks)
+        i for i, block in enumerate(execution_blocks)
         if bool(block.get("is_trainable", False))
     ]
     if not trainable_indices:
@@ -486,17 +520,20 @@ def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[s
 
     out: list[dict[str, Any]] = []
     for pos, start_idx in enumerate(trainable_indices):
-        stop_idx = (trainable_indices[pos + 1] - 1) if (pos + 1 < len(trainable_indices)) else (len(ordered_blocks) - 1)
+        stop_idx = (
+            trainable_indices[pos + 1] - 1
+            if (pos + 1 < len(trainable_indices))
+            else (len(execution_blocks) - 1)
+        )
         if stop_idx < start_idx:
             continue
 
-        segment = list(ordered_blocks[start_idx : stop_idx + 1])
+        segment = list(execution_blocks[start_idx : stop_idx + 1])
         segment_names = tuple(str(b.get("name", "")) for b in segment)
         modules = [b.get("module") for b in segment if isinstance(b.get("module"), nn.Module)]
         if not modules:
             continue
 
-        local_module: nn.Module
         if len(modules) == 1:
             local_module = modules[0]
         else:
@@ -504,48 +541,31 @@ def _build_local_blocks(ordered_blocks: Sequence[dict[str, Any]]) -> list[dict[s
 
         root = segment[0]
         tail = segment[-1]
-        x = root.get("x")
-        u = tail.get("u")
-
         out.append(
-            {
-                "name": str(root.get("name", "")),
-                "module": local_module,
-                "type": local_module.__class__.__name__,
-                "rep": str(root.get("rep", "identity")),
-                "group": str(root.get("group", "main")),
-                "is_trainable": True,
-                "is_output": bool(root.get("is_output", False)),
-                "x": x,
-                "u": u,
-                "h": root.get("h"),
-                "activation_name": root.get("activation_name"),
-                "segment_names": segment_names,
-                "available": bool(torch.is_tensor(x) or torch.is_tensor(u)),
-            }
+            _make_block_entry(
+                name=str(root.get("name", "")),
+                module=local_module,
+                rep=str(root.get("rep", "identity")),
+                group=str(root.get("group", "main")),
+                is_trainable=True,
+                is_output=any(bool(block.get("is_output", False)) for block in segment),
+                x=root.get("x"),
+                u=tail.get("u"),
+                h=root.get("h"),
+                activation_name=root.get("activation_name"),
+                call_count=int(root.get("call_count", 0)),
+                segment_names=segment_names,
+            )
         )
 
     return out
 
 
-def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict[str, Any]]:
-    declared = _resolve_get_blocks(model)
-    if declared.status == "error":
-        warnings.warn(
-            "Cache provider: include_model_blocks=True ignored model.get_blocks() "
-            f"because it raised ({declared.detail}).",
-            UserWarning,
-            stacklevel=2,
-        )
-        return []
-    if declared.status == "invalid":
-        warnings.warn(
-            "Cache provider: include_model_blocks=True ignored model.get_blocks() "
-            f"because it returned invalid data ({declared.detail}).",
-            UserWarning,
-            stacklevel=2,
-        )
-        return []
+def _build_declared_blocks(
+    cache: Mapping[str, Any],
+    declared: _GetBlocksResolution,
+    spec: CacheSpec,
+) -> list[dict[str, Any]]:
     if declared.status != "ok":
         return []
 
@@ -553,54 +573,45 @@ def _build_model_blocks(model: nn.Module, cache: Mapping[str, Any]) -> list[dict
     if not specs:
         return []
 
-    module_inputs = cache.get("module_inputs", {})
-    module_outputs = cache.get("module_outputs", {})
-
-    if not isinstance(module_inputs, Mapping):
-        module_inputs = {}
-    if not isinstance(module_outputs, Mapping):
-        module_outputs = {}
+    module_inputs, module_outputs, call_count, _steps = _cache_maps(cache)
+    trainable_types = _as_types(spec.trainable_module_types)
 
     out: list[dict[str, Any]] = []
-    for spec in specs:
-        name = str(spec.name)
-        x = module_inputs.get(name)
-        u = module_outputs.get(name)
-
+    for block in specs:
+        name = str(block.name)
         out.append(
-            {
-                "name": name,
-                "module": spec.module,
-                "type": spec.module.__class__.__name__,
-                "rep": str(spec.rep),
-                "group": str(spec.group),
-                "is_output": bool(spec.is_output),
-                "x": x,
-                "u": u,
-                "available": bool(torch.is_tensor(x) or torch.is_tensor(u)),
-            }
+            _make_block_entry(
+                name=name,
+                module=block.module,
+                rep=str(block.rep),
+                group=str(block.group),
+                is_trainable=bool(trainable_types and isinstance(block.module, trainable_types)),
+                is_output=bool(block.is_output),
+                x=module_inputs.get(name),
+                u=module_outputs.get(name),
+                h=None,
+                activation_name=None,
+                call_count=int(call_count.get(name, 0)),
+            )
         )
-
     return out
 
 
 def _build_views(
-    model: nn.Module,
     cache: Mapping[str, Any],
     selected_blocks: Sequence[BlockSpec],
     spec: CacheSpec,
+    declared: _GetBlocksResolution,
 ) -> dict[str, Any]:
-    ordered_blocks, output_blocks = _build_ordered_blocks(cache, selected_blocks, spec)
-    _apply_auto_pair_post_activation(ordered_blocks, selected_blocks, cache, spec)
-
-    local_blocks = _build_local_blocks(ordered_blocks) if spec.include_local_blocks else []
-    model_blocks = _build_model_blocks(model, cache) if spec.include_model_blocks else []
-
+    execution_blocks, output_blocks = _build_execution_blocks(cache, selected_blocks, spec)
+    _apply_auto_pair_post_activation(execution_blocks, selected_blocks, cache, spec)
+    trainable_segments = _build_trainable_segments(execution_blocks)
+    declared_blocks = _build_declared_blocks(cache, declared, spec)
     return {
-        "ordered_blocks": ordered_blocks,
+        "execution_blocks": execution_blocks,
         "output_blocks": output_blocks,
-        "model_blocks": model_blocks,
-        "local_blocks": local_blocks,
+        "declared_blocks": declared_blocks,
+        "trainable_segments": trainable_segments,
     }
 
 
@@ -609,9 +620,9 @@ def _build_views(
 # ============================================================
 
 def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: CacheSpec) -> None:
-    ordered = views.get("ordered_blocks", [])
-    if not isinstance(ordered, list):
-        ordered = []
+    execution = views.get("execution_blocks", [])
+    if not isinstance(execution, list):
+        execution = []
 
     output_blocks = views.get("output_blocks", [])
     if not isinstance(output_blocks, list):
@@ -630,7 +641,7 @@ def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: Cac
         if not isinstance(counts, Mapping):
             raise ContractError("CacheSpec requires single-call validation, but call counts are missing.")
         bad: list[str] = []
-        for block in ordered:
+        for block in execution:
             name = str(block.get("name", ""))
             if int(counts.get(name, 0)) != 1:
                 bad.append(f"{name}:{int(counts.get(name, 0))}")
@@ -643,7 +654,7 @@ def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: Cac
     if spec.require_input_ndim is not None:
         exp = int(spec.require_input_ndim)
         bad: list[str] = []
-        for block in ordered:
+        for block in execution:
             if not bool(block.get("is_trainable", False)):
                 continue
             x = block.get("x")
@@ -659,7 +670,7 @@ def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: Cac
     if spec.require_output_ndim is not None:
         exp = int(spec.require_output_ndim)
         bad: list[str] = []
-        for block in ordered:
+        for block in execution:
             if not bool(block.get("is_trainable", False)):
                 continue
             u = block.get("u")
@@ -674,7 +685,7 @@ def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: Cac
 
     if spec.auto_pair_post_activation:
         missing: list[str] = []
-        for block in ordered:
+        for block in execution:
             if not bool(block.get("is_trainable", False)):
                 continue
             if bool(block.get("is_output", False)):
@@ -700,12 +711,10 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
 
     needs_inputs = bool(
         spec.capture_inputs
-        or spec.include_local_blocks
         or (spec.require_input_ndim is not None)
     )
     needs_outputs = bool(
         spec.capture_outputs
-        or spec.include_local_blocks
         or (spec.require_output_ndim is not None)
         or spec.auto_pair_post_activation
     )
@@ -713,7 +722,6 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
     needs_steps = bool(
         spec.capture_steps
         or spec.require_single_call
-        or spec.include_local_blocks
         or spec.auto_pair_post_activation
     )
 
@@ -721,8 +729,11 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
         wrapper = model
         selected_specs = wrapper.get_blocks()
         source_model = wrapper.model
+        declared = _resolve_get_blocks(source_model)
     else:
-        selected_specs = _select_block_specs(model, spec)
+        source_model = model
+        declared = _resolve_get_blocks(source_model)
+        selected_specs = _select_block_specs(model, spec, declared)
         wrapper = ModelCacheWrapper(
             model,
             block_specs=selected_specs,
@@ -731,11 +742,10 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
             capture_all_calls=needs_all_calls,
             include_steps=needs_steps,
         )
-        source_model = model
 
     out, cache_raw = wrapper(*args, return_cache=True, **kwargs)
     cache = _normalize_cache(cache_raw)
     runtime_specs = _runtime_block_specs(cache, selected_specs)
-    views = _build_views(source_model, cache, runtime_specs, spec)
+    views = _build_views(cache, runtime_specs, spec, declared)
     _validate_spec(cache, views, spec)
     return out, cache, views

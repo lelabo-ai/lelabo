@@ -198,10 +198,10 @@ class DNI(OptimizerUpdateRule):
                 self._sg_optimizer.load_state_dict(dict(raw_opt_state))
 
     def _linear_chain(self, views: Mapping[str, Any]) -> list[dict[str, Any]]:
-        ordered_blocks = views.get("ordered_blocks", [])
-        if not isinstance(ordered_blocks, list):
-            ordered_blocks = []
-        param_blocks = [b for b in ordered_blocks if bool(b.get("is_trainable", False))]
+        execution_blocks = views.get("execution_blocks", [])
+        if not isinstance(execution_blocks, list):
+            execution_blocks = []
+        param_blocks = [b for b in execution_blocks if bool(b.get("is_trainable", False))]
         if not param_blocks:
             raise RuntimeError("DNI found no linear param blocks in cache views.")
 

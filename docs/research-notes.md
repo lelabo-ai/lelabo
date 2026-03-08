@@ -62,3 +62,19 @@ Use LeLabo as a research workbench:
 - inspect the cache if you work on local rules
 - add custom components through capsules
 - expect some internal refactors over time
+
+
+## Cache : 
+
+selection
+
+quels modules/blocs on observe
+ex: trainable_module_types, observed_module_types, observed_module_names, block_source
+views
+
+quelles représentations dérivées on veut obtenir
+ex: include_local_blocks, include_model_blocks, auto_pair_post_activation
+contract
+
+quelles hypothèses la règle impose sur le cache
+ex: require_single_call, require_single_output_head, require_input_ndim, require_output_ndim

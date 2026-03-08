@@ -82,7 +82,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
     # ============================================================
 
     @staticmethod
-    def _model_blocks(model: nn.Module) -> list[Any]:
+    def _declared_block_specs(model: nn.Module) -> list[Any]:
         if not hasattr(model, "get_blocks"):
             return []
         try:
@@ -100,7 +100,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         return out
 
     def _cache_spec_for_model(self, model: nn.Module) -> CacheSpec:
-        blocks = self._model_blocks(model)
+        blocks = self._declared_block_specs(model)
         if blocks:
             observed_names = tuple(str(getattr(b, "name")) for b in blocks)
             module_types = _dedup_types(
@@ -116,30 +116,26 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
                 trainable_module_types=module_types,
                 observed_module_types=module_types,
                 observed_module_names=observed_names,
-                block_source="declared_only",
+                declared_blocks_mode="only",
                 capture_inputs=True,
                 capture_outputs=True,
                 capture_all_calls=True,
                 capture_steps=True,
                 require_single_call=True,
                 require_single_output_head=True,
-                include_model_blocks=True,
-                include_local_blocks=True,
                 auto_pair_post_activation=False,
             )
 
         trainable_types = (nn.Linear, nn.Conv2d)
         return CacheSpec(
             trainable_module_types=trainable_types,
-            block_source="auto_only",
+            declared_blocks_mode="ignore",
             capture_inputs=True,
             capture_outputs=True,
             capture_all_calls=True,
             capture_steps=True,
             require_single_call=True,
             require_single_output_head=True,
-            include_model_blocks=False,
-            include_local_blocks=True,
             auto_pair_post_activation=False,
         )
 
@@ -166,16 +162,16 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         return out
 
     def _ordered_training_blocks(self, views: Mapping[str, Any]) -> tuple[list[dict[str, Any]], int]:
-        model_blocks = self._as_view_blocks(views.get("model_blocks", []))
-        local_blocks = self._as_view_blocks(views.get("local_blocks", []))
-        ordered_blocks = [
+        declared_blocks = self._as_view_blocks(views.get("declared_blocks", []))
+        trainable_segments = self._as_view_blocks(views.get("trainable_segments", []))
+        execution_blocks = [
             block
-            for block in self._as_view_blocks(views.get("ordered_blocks", []))
+            for block in self._as_view_blocks(views.get("execution_blocks", []))
             if bool(block.get("is_trainable", False))
         ]
-        blocks = model_blocks if model_blocks else (local_blocks if local_blocks else ordered_blocks)
+        blocks = declared_blocks if declared_blocks else (trainable_segments if trainable_segments else execution_blocks)
         if not blocks:
-            raise RuntimeError("SCL requires non-empty model blocks in views.")
+            raise RuntimeError("SCL requires non-empty declared/trainable execution blocks in views.")
 
         output_idx = -1
         for i, block in enumerate(blocks):
@@ -266,8 +262,8 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         if out:
             return out
 
-        # finally inspect model_blocks / ordered_blocks if they embed input tensors
-        for key in ("model_blocks", "ordered_blocks"):
+        # finally inspect declared/execution blocks if they embed input tensors
+        for key in ("declared_blocks", "execution_blocks"):
             raw = views.get(key, None)
             if not isinstance(raw, list):
                 continue
@@ -856,7 +852,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         # 1) Snapshot forward with cache + head-only global update
         #    (faithful to the first implementation)
         # ------------------------------------------------------------
-        raw_blocks = self._model_blocks(model)
+        raw_blocks = self._declared_block_specs(model)
         if raw_blocks:
             head_params: list[nn.Parameter] = []
             seen: set[int] = set()

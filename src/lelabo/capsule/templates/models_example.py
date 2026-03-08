@@ -150,8 +150,9 @@ if __name__ == "__main__":
             observed_module_types=(nn.Linear,),
             # Optional explicit module names to observe (empty means \"use observed_module_types\")
             observed_module_names=(),
-            # Which block source to use for block construction (\"hybrid\" means use model-defined blocks when available, and auto-detect module-based blocks for the rest)
-            block_source = "hybrid",
+            # How declared blocks from model.get_blocks() are used:
+            # "ignore" = auto-only selection, "merge" = declared + auto, "only" = declared only
+            declared_blocks_mode="merge",
             # Store first-call input tensor per observed module in cache[\"module_inputs\"]
             capture_inputs=True,
             # Store first-call output tensor per observed module in cache[\"module_outputs\"]
@@ -168,8 +169,6 @@ if __name__ == "__main__":
             require_input_ndim=2,
             # Optional expected ndim for trainable block outputs (None disables the check)
             require_output_ndim=2,
-            # Build rule-friendly local replay blocks from trainable segments
-            include_local_blocks=True,
             # Try to auto-pair trainable block output with next activation output
             auto_pair_post_activation=True,
             # Activation module types used for auto-pairing when enabled
@@ -177,10 +176,6 @@ if __name__ == "__main__":
             # This parameter is actually very useful to enable auto-pairing for non-standard activations (e.g. Swish, Triangle) by just
             # adding the activation types here, without needing to change the model code or use explicit module naming.
             auto_pair_activation_types=(nn.ReLU, nn.Tanh, nn.Sigmoid),
-            # Include model-defined pre-cut blocks from model.get_blocks() when available
-            # This is particularly useful if you want to have more control over the block definitions
-            # Or you want for ResNet/Transformer style models where the natural block definitions are not strictly module-based.
-            include_model_blocks=True,
         ),
     )
 
@@ -188,16 +183,16 @@ if __name__ == "__main__":
     # import utils to print cache views in a readable way
     from lelabo.capsule.templates.print_utils import (
         print_blocks_table,
-        print_local_block_details,
-        print_local_blocks_table,
+        print_trainable_segment_details,
+        print_trainable_segments_table,
     )
 
     print("\n=== Param-only cache ===")
-    print_blocks_table("Ordered blocks", views["ordered_blocks"])
+    print_blocks_table("Execution blocks", views["execution_blocks"])
     output_blocks = views.get("output_blocks", [])
     print("Output blocks:", [b.get("name", "<unnamed>") for b in output_blocks if isinstance(b, dict)])
-    print_blocks_table("Model blocks (if model.get_blocks())", views["model_blocks"])
-    print_local_blocks_table(views["local_blocks"])
+    print_blocks_table("Declared blocks (if model.get_blocks())", views["declared_blocks"])
+    print_trainable_segments_table(views["trainable_segments"])
     print("Cache keys:", sorted(cache.keys()))
 
     # Example B: inspect the cache of a registered model by its registry key.
@@ -239,7 +234,7 @@ if __name__ == "__main__":
                 # (Conv/BN/Act/Pool/Linear), which is often what local rules want.
                 require_single_call=True,
                 require_single_output_head=True,
-                include_local_blocks=True,
+                auto_pair_post_activation=True,
             ),
         )
 
@@ -247,9 +242,9 @@ if __name__ == "__main__":
         print(registered_model)
         print("CNN input shape:", tuple(x_cnn.shape))
         print("CNN output shape:", tuple(cnn_logits.shape))
-        print_blocks_table("CNN ordered blocks", cnn_views["ordered_blocks"])
+        print_blocks_table("CNN execution blocks", cnn_views["execution_blocks"])
         cnn_output_blocks = cnn_views.get("output_blocks", [])
         print("CNN output blocks:", [b.get("name", "<unnamed>") for b in cnn_output_blocks if isinstance(b, dict)])
-        print_local_blocks_table(cnn_views["local_blocks"])
-        print_local_block_details(cnn_views["local_blocks"])
+        print_trainable_segments_table(cnn_views["trainable_segments"])
+        print_trainable_segment_details(cnn_views["trainable_segments"])
         print("CNN cache keys:", sorted(cnn_cache.keys()))

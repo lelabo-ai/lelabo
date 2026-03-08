@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+import warnings
 from argparse import Namespace
 from types import SimpleNamespace
 
@@ -439,13 +440,15 @@ def test_cache_provider_v3_selective_linear_view() -> None:
     assert tuple(out.shape) == (5, 3)
     assert "module_inputs" in cache
     assert "module_outputs" in cache
-    ordered_blocks = views["ordered_blocks"]
-    assert len(ordered_blocks) == 2
-    assert all(isinstance(b["module"], nn.Linear) for b in ordered_blocks)
+    execution_blocks = views["execution_blocks"]
+    assert len(execution_blocks) == 2
+    assert all(isinstance(b["module"], nn.Linear) for b in execution_blocks)
     output_blocks = views["output_blocks"]
     assert isinstance(output_blocks, list)
     assert len(output_blocks) == 1
     assert isinstance(output_blocks[0], dict)
+    assert views["declared_blocks"] == []
+    assert [str(b["name"]) for b in views["trainable_segments"]] == ["fc1", "head"]
 
 
 def test_cache_provider_single_call_uses_call_counts() -> None:
@@ -502,13 +505,12 @@ def test_cache_provider_activation_pairing_with_module_activation() -> None:
             trainable_module_types=(nn.Linear,),
             observed_module_types=(nn.Linear, nn.ReLU),
             require_single_output_head=True,
-            include_local_blocks=True,
             auto_pair_post_activation=True,
         ),
     )
 
     ordered_hidden = [
-        b for b in views["ordered_blocks"]
+        b for b in views["execution_blocks"]
         if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
     ]
     assert ordered_hidden
@@ -540,13 +542,12 @@ def test_cache_provider_activation_pairing_through_batchnorm() -> None:
         cache_spec=cache_provider.CacheSpec(
             trainable_module_types=(nn.Conv2d, nn.Linear),
             require_single_output_head=True,
-            include_local_blocks=True,
             auto_pair_post_activation=True,
         ),
     )
 
     ordered_hidden = [
-        b for b in views["ordered_blocks"]
+        b for b in views["execution_blocks"]
         if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
     ]
     assert ordered_hidden
@@ -579,7 +580,6 @@ def test_cache_provider_activation_pairing_fails_for_functional_activation() -> 
                 trainable_module_types=(nn.Linear,),
                 observed_module_types=(nn.Linear,),
                 require_single_output_head=True,
-                include_local_blocks=True,
                 auto_pair_post_activation=True,
             ),
         )
@@ -617,11 +617,10 @@ def test_cache_provider_reconstructs_local_conv_blocks_with_intermediate_modules
             trainable_module_types=(nn.Conv2d, nn.Linear),
             require_single_call=True,
             require_single_output_head=True,
-            include_local_blocks=True,
         ),
     )
 
-    local_blocks = views["local_blocks"]
+    local_blocks = views["trainable_segments"]
     hidden_locals = [b for b in local_blocks if not bool(b["is_output"])]
     assert hidden_locals
 
@@ -672,7 +671,90 @@ def test_cache_provider_multi_head_views_and_single_head_constraint() -> None:
         )
 
 
-def test_cache_provider_block_source_declared_and_auto_only() -> None:
+def test_cache_provider_declared_blocks_mode_ignore_populates_view_but_uses_auto_selection() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    class _Tiny(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.head = nn.Linear(16, 3)
+
+        def get_blocks(self):
+            return [
+                SimpleNamespace(name="head", module=self.head, rep="identity", is_output=True, group="main"),
+            ]
+
+        def forward(self, x):
+            return self.head(self.relu(self.fc1(x)))
+
+    model = _Tiny()
+    x = torch.randn(4, 8)
+
+    _out, _cache, views_ignore = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            declared_blocks_mode="ignore",
+            require_single_output_head=True,
+        ),
+    )
+    assert [str(b["name"]) for b in views_ignore["execution_blocks"]] == ["fc1", "head"]
+    assert [str(b["name"]) for b in views_ignore["declared_blocks"]] == ["head"]
+
+
+def test_cache_provider_declared_blocks_view_schema_is_canonical() -> None:
+    torch = importlib.import_module("torch")
+    actor_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
+
+    model = actor_mod.ActorCriticDiscrete(obs_dim=4, n_actions=2, hidden_dim=8, num_layers=1)
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        torch.randn(3, 4),
+        cache_spec=cache_provider.CacheSpec(
+            trainable_module_types=(torch.nn.Linear,),
+            observed_module_types=(torch.nn.Linear,),
+            declared_blocks_mode="only",
+            auto_pair_post_activation=False,
+        ),
+    )
+
+    expected_keys = {
+        "name",
+        "module",
+        "type",
+        "rep",
+        "group",
+        "is_trainable",
+        "is_output",
+        "x",
+        "u",
+        "h",
+        "activation_name",
+        "call_count",
+        "available",
+        "segment_names",
+    }
+    for view_key in ("execution_blocks", "declared_blocks", "trainable_segments", "output_blocks"):
+        blocks = views[view_key]
+        assert isinstance(blocks, list)
+        assert blocks
+        assert expected_keys == set(blocks[0].keys())
+    assert tuple(views["declared_blocks"][0]["segment_names"]) == ()
+    assert views["declared_blocks"][0]["h"] is None
+    assert views["declared_blocks"][0]["activation_name"] is None
+    execution_names = {str(block["name"]) for block in views["execution_blocks"]}
+    output_names = {str(block["name"]) for block in views["output_blocks"]}
+    assert output_names.issubset(execution_names)
+
+
+def test_cache_provider_declared_blocks_mode_only_requires_valid_get_blocks() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -688,30 +770,21 @@ def test_cache_provider_block_source_declared_and_auto_only() -> None:
             return self.head(self.relu(self.fc1(x)))
 
     model = _Tiny()
-    x = torch.randn(4, 8)
-
-    _out, _cache, views_auto = cache_provider.forward_with_standard_cache(
-        model,
-        x,
-        cache_spec=cache_provider.CacheSpec(
-            trainable_module_types=(nn.Linear,),
-            observed_module_types=(nn.Linear,),
-            block_source="auto_only",
-            require_single_output_head=True,
-        ),
-    )
-    assert [str(b["name"]) for b in views_auto["ordered_blocks"]] == ["fc1", "head"]
-
-    with pytest.raises(ValueError, match="block_source='declared_only'"):
+    with pytest.raises(ValueError, match="declared_blocks_mode='only'"):
         cache_provider.forward_with_standard_cache(
             model,
-            x,
+            torch.randn(4, 8),
             cache_spec=cache_provider.CacheSpec(
                 trainable_module_types=(nn.Linear,),
-                block_source="declared_only",
+                declared_blocks_mode="only",
             ),
         )
 
+
+def test_cache_provider_declared_blocks_mode_only_uses_declared_selection() -> None:
+    torch = importlib.import_module("torch")
+    nn = importlib.import_module("torch.nn")
+    cache_provider = importlib.import_module("lelabo.models.cache_provider")
     actor_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
     actor_model = actor_mod.ActorCriticDiscrete(obs_dim=4, n_actions=2, hidden_dim=8, num_layers=1)
     _out, _cache, views_declared = cache_provider.forward_with_standard_cache(
@@ -720,15 +793,16 @@ def test_cache_provider_block_source_declared_and_auto_only() -> None:
         cache_spec=cache_provider.CacheSpec(
             trainable_module_types=(nn.Linear,),
             observed_module_types=(nn.Linear,),
-            block_source="declared_only",
+            declared_blocks_mode="only",
             auto_pair_post_activation=False,
         ),
     )
     declared_names = sorted(str(b.get("name", "")) for b in views_declared["output_blocks"])
     assert declared_names == ["actor.head", "critic.head"]
+    assert views_declared["declared_blocks"]
 
 
-def test_cache_provider_hybrid_warns_and_falls_back_when_get_blocks_fails() -> None:
+def test_cache_provider_declared_blocks_mode_merge_warns_and_falls_back_when_get_blocks_fails() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -748,21 +822,22 @@ def test_cache_provider_hybrid_warns_and_falls_back_when_get_blocks_fails() -> N
 
     model = _Broken()
     x = torch.randn(4, 8)
-    with pytest.warns(UserWarning, match="block_source='hybrid'"):
+    with pytest.warns(UserWarning, match="declared_blocks_mode='merge'"):
         _out, _cache, views = cache_provider.forward_with_standard_cache(
             model,
             x,
             cache_spec=cache_provider.CacheSpec(
                 trainable_module_types=(nn.Linear,),
                 observed_module_types=(nn.Linear,),
-                block_source="hybrid",
+                declared_blocks_mode="merge",
                 require_single_output_head=True,
             ),
         )
-    assert [str(b["name"]) for b in views["ordered_blocks"]] == ["fc1", "head"]
+    assert [str(b["name"]) for b in views["execution_blocks"]] == ["fc1", "head"]
+    assert views["declared_blocks"] == []
 
 
-def test_cache_provider_declared_only_raises_when_get_blocks_fails() -> None:
+def test_cache_provider_declared_blocks_mode_only_raises_when_get_blocks_fails() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -781,18 +856,18 @@ def test_cache_provider_declared_only_raises_when_get_blocks_fails() -> None:
 
     model = _Broken()
     x = torch.randn(4, 8)
-    with pytest.raises(ValueError, match="block_source='declared_only'.*raised"):
+    with pytest.raises(ValueError, match="declared_blocks_mode='only'.*raised"):
         cache_provider.forward_with_standard_cache(
             model,
             x,
             cache_spec=cache_provider.CacheSpec(
                 trainable_module_types=(nn.Linear,),
-                block_source="declared_only",
+                declared_blocks_mode="only",
             ),
         )
 
 
-def test_cache_provider_auto_only_does_not_call_get_blocks() -> None:
+def test_cache_provider_declared_blocks_mode_ignore_resolves_silently_when_get_blocks_fails() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -806,22 +881,26 @@ def test_cache_provider_auto_only_does_not_call_get_blocks() -> None:
 
         def get_blocks(self):
             self.get_blocks_calls += 1
-            raise RuntimeError("should not be called in auto_only")
+            raise RuntimeError("broken get_blocks")
 
         def forward(self, x):
             return self.head(self.fc1(x))
 
     model = _Broken()
     x = torch.randn(4, 8)
-    _out, _cache, views = cache_provider.forward_with_standard_cache(
-        model,
-        x,
-        cache_spec=cache_provider.CacheSpec(
-            trainable_module_types=(nn.Linear,),
-            observed_module_types=(nn.Linear,),
-            block_source="auto_only",
-            require_single_output_head=True,
-        ),
-    )
-    assert model.get_blocks_calls == 0
-    assert [str(b["name"]) for b in views["ordered_blocks"]] == ["fc1", "head"]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _out, _cache, views = cache_provider.forward_with_standard_cache(
+            model,
+            x,
+            cache_spec=cache_provider.CacheSpec(
+                trainable_module_types=(nn.Linear,),
+                observed_module_types=(nn.Linear,),
+                declared_blocks_mode="ignore",
+                require_single_output_head=True,
+            ),
+        )
+    assert model.get_blocks_calls == 1
+    assert not caught
+    assert views["declared_blocks"] == []
+    assert [str(b["name"]) for b in views["execution_blocks"]] == ["fc1", "head"]
