@@ -65,6 +65,11 @@ def test_supervised_initializer_override_is_exposed() -> None:
     assert args.initializer == "xavier_uniform"
 
 
+def test_supervised_unknown_dataset_is_validated_after_config_resolution() -> None:
+    with pytest.raises(ValueError, match="Unknown dataset 'does_not_exist'"):
+        train_api.parse_train_args(["supervised", "--dataset", "does_not_exist"])
+
+
 def test_supervised_set_override_parses_nested_field() -> None:
     args = train_api.parse_train_args(
         ["supervised", "--dataset", "iris", "--set", "robustness.max_samples=123"]

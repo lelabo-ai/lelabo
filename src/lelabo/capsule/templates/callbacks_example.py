@@ -5,14 +5,12 @@ You can either subclass `lelabo.core.callbacks.Callback`
 or return any object implementing the hooks you need.
 """
 
-# from __future__ import annotations
-#
-# from typing import Any
-#
-# from lelabo.callbacks import CallbackContext, register_callback
-# from lelabo.core.callbacks import Callback
-#
-#
+from typing import Any
+
+from lelabo.callbacks import CallbackContext, register_callback
+from lelabo.core.callbacks import Callback
+
+
 # @register_callback("my_callback_minimal")
 # def build_my_callback_minimal(ctx: CallbackContext):
 #     # Minimal object can implement only the hooks it needs.

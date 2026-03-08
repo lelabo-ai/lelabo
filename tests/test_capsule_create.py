@@ -56,15 +56,22 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
     metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
+    optimizer_example = (out / "optimizers" / "example.py").read_text(encoding="utf-8")
+    scheduler_example = (out / "schedulers" / "example.py").read_text(encoding="utf-8")
+    callback_example = (out / "callbacks" / "example.py").read_text(encoding="utf-8")
     readme_text = (out / "README.md").read_text(encoding="utf-8")
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
     cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
+    assert "from lelabo.models.registry import ModelContext, build_model, register_model" in model_example
     assert "register_metric" in metric_example
     assert "ClassificationStreamingMetric" in metric_example
     assert "register_metric_fn" not in metric_example
+    assert "from lelabo.optimizers import OptimizerContext, register_optimizer" in optimizer_example
+    assert "from lelabo.schedulers import SchedulerContext, register_scheduler" in scheduler_example
+    assert "from lelabo.callbacks import CallbackContext, register_callback" in callback_example
     assert "register_optimizer" in readme_text
     assert "register_callback" in readme_text
     assert "lelabo_version" in capsule_toml

@@ -20,7 +20,7 @@ from collections.abc import Mapping
 import torch
 import torch.nn as nn
 
-from lelabo.models.registry import ModelContext, build_model
+from lelabo.models.registry import ModelContext, build_model, register_model
 
 
 class ExampleMLP(nn.Module):
@@ -72,6 +72,7 @@ class ExampleMLP(nn.Module):
         return self.head(h)
 
 
+# Uncomment this decorator to make the model visible to `lelabo list` / `lelabo train`.
 # @register_model("example_mlp")
 def build_example_mlp(ctx: ModelContext, args):
     """

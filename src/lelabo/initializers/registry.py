@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from ..capsule.registry import index_path
 from ..core.registry import Registry
-from ..core.utils.capsule_plugins import (
-    find_active_capsule_root,
-    load_capsule_plugins,
-    load_installed_capsule_plugins,
-    plugin_files_fingerprint,
-    reset_capsule_plugin_cache,
-)
+from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
 
 
 INITIALIZER_REGISTRY = Registry("initializers", package="lelabo.initializers")
@@ -45,69 +37,23 @@ def _ensure_initializer_baseline() -> None:
         return
     _BASE_INITIALIZER_ITEMS = INITIALIZER_REGISTRY.snapshot_discovered_items()
 
-
-def _normalize_extra_roots(extra_capsule_roots: Sequence[Path] | None) -> tuple[Path, ...]:
-    roots = {Path(root).resolve() for root in list(extra_capsule_roots or [])}
-    return tuple(sorted(roots, key=str))
-
-
-def _capsules_index_mtime_ns(capsules_dir: Path | None) -> int | None:
-    idx = index_path(capsules_dir)
-    try:
-        return int(idx.stat().st_mtime_ns)
-    except OSError:
-        return None
-
-
-def _build_refresh_key(
-    *,
-    capsules_dir: Path | None,
-    extra_capsule_roots: Sequence[Path] | None,
-) -> tuple[Any, ...]:
-    active_root = find_active_capsule_root()
-    normalized_extra = _normalize_extra_roots(extra_capsule_roots)
-    strict_plugins = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
-    return (
-        str(index_path(capsules_dir).parent.resolve()),
-        _capsules_index_mtime_ns(capsules_dir),
-        str(active_root) if active_root is not None else None,
-        plugin_files_fingerprint(active_root, kinds=("initializers",)),
-        tuple(
-            (str(root), plugin_files_fingerprint(root, kinds=("initializers",)))
-            for root in normalized_extra
-        ),
-        strict_plugins,
-    )
-
-
-def _refresh_initializer_registry(
+def _initializer_snapshot(
     *,
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
-) -> None:
-    global _LAST_INITIALIZER_REFRESH_KEY, _LAST_INITIALIZER_ITEMS
+) -> Any:
     _ensure_initializer_baseline()
-    refresh_key = _build_refresh_key(
+    return build_capsule_registry_snapshot(
+        registry_name="initializers",
+        kind="initializers",
+        builtins=dict(_BASE_INITIALIZER_ITEMS or {}),
         capsules_dir=capsules_dir,
         extra_capsule_roots=extra_capsule_roots,
     )
-    if _LAST_INITIALIZER_REFRESH_KEY == refresh_key and _LAST_INITIALIZER_ITEMS is not None:
-        INITIALIZER_REGISTRY._items = dict(_LAST_INITIALIZER_ITEMS)
-        return
-
-    INITIALIZER_REGISTRY._items = dict(_BASE_INITIALIZER_ITEMS or {})
-    reset_capsule_plugin_cache()
-    load_capsule_plugins(kinds=("initializers",))
-    for root in _normalize_extra_roots(extra_capsule_roots):
-        load_capsule_plugins(kinds=("initializers",), capsule_root=Path(root).resolve())
-    load_installed_capsule_plugins(kinds=("initializers",), capsules_dir=capsules_dir)
-    _LAST_INITIALIZER_REFRESH_KEY = refresh_key
-    _LAST_INITIALIZER_ITEMS = dict(INITIALIZER_REGISTRY._items)
 
 
 def build_initializer(name: str, ctx: InitializerContext) -> Callable[[Any], Any]:
-    _refresh_initializer_registry()
-    builder = INITIALIZER_REGISTRY.get(name)
+    builder = _initializer_snapshot().get(name)
     out = builder(ctx)
     if not callable(out):
         raise TypeError(
@@ -121,8 +67,7 @@ def get_initializer_names(
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
 ) -> list[str]:
-    _refresh_initializer_registry(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots)
-    return INITIALIZER_REGISTRY.names()
+    return _initializer_snapshot(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots).names()
 
 
 def make_initializer(

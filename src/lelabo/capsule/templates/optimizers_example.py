@@ -1,10 +1,10 @@
 """Optimizer templates for this capsule."""
 
-# import torch
-#
-# from lelabo.optimizers import OptimizerContext, register_optimizer
-#
-#
+import torch
+
+from lelabo.optimizers import OptimizerContext, register_optimizer
+
+
 # @register_optimizer("my_sgd")
 # def build_my_sgd(ctx: OptimizerContext):
 #     # Minimal builder using the normalized context.
@@ -28,4 +28,3 @@
 #         weight_decay=ctx.weight_decay,
 #         amsgrad=bool(params.get("amsgrad", False)),
 #     )
-

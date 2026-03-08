@@ -1,8 +1,8 @@
 """Minimal scheduler template for this capsule."""
 
-# import torch
-# from lelabo.schedulers import SchedulerContext, register_scheduler
-#
+import torch
+from lelabo.schedulers import SchedulerContext, register_scheduler
+
 # @register_scheduler("my_cosine")
 # def build_my_cosine(ctx: SchedulerContext):
 #     params = ctx.scheduler_params()

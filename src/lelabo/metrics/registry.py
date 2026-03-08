@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from ..capsule.registry import index_path
 from ..core.registry import Registry
-from ..core.utils.capsule_plugins import (
-    find_active_capsule_root,
-    load_capsule_plugins,
-    load_installed_capsule_plugins,
-    plugin_files_fingerprint,
-    reset_capsule_plugin_cache,
-)
+from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
 
 
 METRIC_REGISTRY = Registry("metrics", package="lelabo.metrics")
@@ -79,69 +71,23 @@ def _ensure_metric_baseline() -> None:
         return
     _BASE_METRIC_ITEMS = METRIC_REGISTRY.snapshot_discovered_items()
 
-
-def _normalize_extra_roots(extra_capsule_roots: Sequence[Path] | None) -> tuple[Path, ...]:
-    roots = {Path(root).resolve() for root in list(extra_capsule_roots or [])}
-    return tuple(sorted(roots, key=str))
-
-
-def _capsules_index_mtime_ns(capsules_dir: Path | None) -> int | None:
-    idx = index_path(capsules_dir)
-    try:
-        return int(idx.stat().st_mtime_ns)
-    except OSError:
-        return None
-
-
-def _build_refresh_key(
-    *,
-    capsules_dir: Path | None,
-    extra_capsule_roots: Sequence[Path] | None,
-) -> tuple[Any, ...]:
-    active_root = find_active_capsule_root()
-    normalized_extra = _normalize_extra_roots(extra_capsule_roots)
-    strict_plugins = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
-    return (
-        str(index_path(capsules_dir).parent.resolve()),
-        _capsules_index_mtime_ns(capsules_dir),
-        str(active_root) if active_root is not None else None,
-        plugin_files_fingerprint(active_root, kinds=("metrics",)),
-        tuple(
-            (str(root), plugin_files_fingerprint(root, kinds=("metrics",)))
-            for root in normalized_extra
-        ),
-        strict_plugins,
-    )
-
-
-def _refresh_metric_registry(
+def _metric_snapshot(
     *,
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
-) -> None:
-    global _LAST_METRIC_REFRESH_KEY, _LAST_METRIC_ITEMS
+) -> Any:
     _ensure_metric_baseline()
-    refresh_key = _build_refresh_key(
+    return build_capsule_registry_snapshot(
+        registry_name="metrics",
+        kind="metrics",
+        builtins=dict(_BASE_METRIC_ITEMS or {}),
         capsules_dir=capsules_dir,
         extra_capsule_roots=extra_capsule_roots,
     )
-    if _LAST_METRIC_REFRESH_KEY == refresh_key and _LAST_METRIC_ITEMS is not None:
-        METRIC_REGISTRY._items = dict(_LAST_METRIC_ITEMS)
-        return
-
-    METRIC_REGISTRY._items = dict(_BASE_METRIC_ITEMS or {})
-    reset_capsule_plugin_cache()
-    load_capsule_plugins(kinds=("metrics",))
-    for root in _normalize_extra_roots(extra_capsule_roots):
-        load_capsule_plugins(kinds=("metrics",), capsule_root=Path(root).resolve())
-    load_installed_capsule_plugins(kinds=("metrics",), capsules_dir=capsules_dir)
-    _LAST_METRIC_REFRESH_KEY = refresh_key
-    _LAST_METRIC_ITEMS = dict(METRIC_REGISTRY._items)
 
 
 def build_metric(name: str, ctx: MetricContext):
-    _refresh_metric_registry()
-    builder = METRIC_REGISTRY.get(name)
+    builder = _metric_snapshot().get(name)
     return builder(ctx)
 
 
@@ -150,8 +96,7 @@ def get_metric_names(
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
 ) -> list[str]:
-    _refresh_metric_registry(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots)
-    return METRIC_REGISTRY.names()
+    return _metric_snapshot(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots).names()
 
 
 def validate_metric_requests(
@@ -164,14 +109,23 @@ def validate_metric_requests(
     if normalized_task not in {None, "classification", "regression"}:
         raise ValueError("task_kind must be one of: classification, regression, or None.")
 
-    _refresh_metric_registry()
+    snapshot = _metric_snapshot()
     for name in metric_names:
         key = str(name).strip().lower()
-        builder = METRIC_REGISTRY._items.get(key)
-        if builder is None:
+        builder = snapshot.get_builtin(key)
+        export = snapshot.get_export(key)
+        if builder is None and export is None:
             continue
 
-        metric_kind = str(getattr(builder, "__metric_kind__", "any")).strip().lower()
+        if builder is not None:
+            metric_kind = str(getattr(builder, "__metric_kind__", "any")).strip().lower()
+            declared = getattr(builder, "__metric_params__", None)
+        else:
+            metadata = dict(export.metadata or {})
+            metric_kind = str(metadata.get("metric_kind", "any")).strip().lower()
+            declared_raw = metadata.get("metric_params", None)
+            declared = tuple(declared_raw) if isinstance(declared_raw, list) else declared_raw
+
         if (
             normalized_task is not None
             and metric_kind in {"classification", "regression"}
@@ -181,7 +135,6 @@ def validate_metric_requests(
                 f"Metric '{key}' is for {metric_kind}, but task is {normalized_task}."
             )
 
-        declared = getattr(builder, "__metric_params__", None)
         if declared is None:
             continue
         allowed = set(str(x) for x in declared)

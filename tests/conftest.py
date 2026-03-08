@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -25,33 +24,12 @@ def load_module_from_path(module_name: str, path: Path) -> ModuleType:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_default_installed_capsules(monkeypatch: pytest.MonkeyPatch):
-    registry_modules = [
-        "lelabo.callbacks.registry",
-        "lelabo.initializers.registry",
-        "lelabo.losses.registry",
-        "lelabo.metrics.registry",
-        "lelabo.models.registry",
-        "lelabo.optimizers.registry",
-        "lelabo.schedulers.registry",
-        "lelabo.supervised.datasets.registry",
-        "lelabo.update_rules.registry",
-    ]
-
-    for module_name in registry_modules:
-        mod = importlib.import_module(module_name)
-        original = getattr(mod, "load_installed_capsule_plugins", None)
-        if not callable(original):
-            continue
-
-        def _isolated_load_installed_capsule_plugins(
-            *,
-            kinds,
-            capsules_dir=None,
-            _original=original,
-        ):
-            if capsules_dir is None and not os.getenv("LELABO_CAPSULES_DIR", "").strip():
-                return []
-            return _original(kinds=kinds, capsules_dir=capsules_dir)
-
-        monkeypatch.setattr(mod, "load_installed_capsule_plugins", _isolated_load_installed_capsule_plugins)
+def _isolate_capsule_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+):
+    capsules_dir = tmp_path_factory.mktemp("capsules_env")
+    cache_dir = tmp_path_factory.mktemp("plugin_cache_env")
+    monkeypatch.setenv("LELABO_CAPSULES_DIR", str(capsules_dir))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_dir))
+    monkeypatch.setenv("LELABO_PLUGIN_CACHE_DIR", str(cache_dir / "lelabo" / "plugin_index"))

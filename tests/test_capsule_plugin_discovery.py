@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -89,7 +90,9 @@ def test_active_capsule_registry_state_is_isolated_between_roots(tmp_path, monke
 
     original_model_items = dict(models_registry.MODEL_REGISTRY._items)
     plugins.reset_capsule_plugin_cache()
-    monkeypatch.delenv("LELABO_CAPSULES_DIR", raising=False)
+    empty_capsules_dir = tmp_path / "empty_capsules_dir"
+    empty_capsules_dir.mkdir()
+    monkeypatch.setenv("LELABO_CAPSULES_DIR", str(empty_capsules_dir))
     try:
         monkeypatch.chdir(cap_a)
         names_a = set(models_registry.get_model_names())
@@ -145,4 +148,171 @@ def test_capsule_plugin_internal_import_error_raises_with_context(tmp_path) -> N
         with pytest.raises(RuntimeError, match="kind='models'.*capsule_internal_bug"):
             plugins.load_capsule_plugins(kinds=("models",), capsule_root=capsule_root)
     finally:
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_capsule_plugin_missing_register_import_has_actionable_error(tmp_path) -> None:
+    capsule_root = tmp_path / "capsule_missing_register_import"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_missing_register_import\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    plugin_path = capsule_root / "models" / "broken.py"
+    plugin_path.write_text(
+        "@register_model('broken_template_model')\n"
+        "def build_broken(ctx, args):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    plugins.reset_capsule_plugin_cache()
+    try:
+        with pytest.raises(RuntimeError, match="does not import 'register_model'"):
+            plugins.load_capsule_plugins(kinds=("models",), capsule_root=capsule_root)
+    finally:
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_active_capsule_helper_edit_invalidates_plugin_index(tmp_path, monkeypatch) -> None:
+    capsule_root = tmp_path / "capsule_helper_refresh"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_helper_refresh\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "helpers.py").write_text('MODEL_NAME = "helper_model_v1"\n', encoding="utf-8")
+    (capsule_root / "models" / "plugin.py").write_text(
+        "from helpers import MODEL_NAME\n"
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model(MODEL_NAME)\n"
+        "def build_helper_model(ctx, args):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    original_model_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    monkeypatch.chdir(capsule_root)
+    try:
+        names_v1 = set(models_registry.get_model_names())
+        assert "helper_model_v1" in names_v1
+        assert "helper_model_v2" not in names_v1
+
+        (capsule_root / "helpers.py").write_text('MODEL_NAME = "helper_model_v2"\n', encoding="utf-8")
+
+        names_v2 = set(models_registry.get_model_names())
+        assert "helper_model_v2" in names_v2
+        assert "helper_model_v1" not in names_v2
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_model_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_active_capsule_supports_multiple_plugins_in_one_file(tmp_path, monkeypatch) -> None:
+    capsule_root = tmp_path / "capsule_multi_models"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_multi_models\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "models" / "multi.py").write_text(
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model('capsule_model_alpha')\n"
+        "def build_alpha(ctx, args):\n"
+        "    return None\n\n"
+        "@register_model('capsule_model_beta')\n"
+        "def build_beta(ctx, args):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    original_model_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    monkeypatch.chdir(capsule_root)
+    try:
+        names = set(models_registry.get_model_names())
+        assert "capsule_model_alpha" in names
+        assert "capsule_model_beta" in names
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_model_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_listing_capsule_models_does_not_import_plugin_modules_into_main_process(tmp_path, monkeypatch) -> None:
+    capsule_root = tmp_path / "capsule_no_main_import"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_no_main_import\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    plugin_file = (capsule_root / "models" / "probe.py").resolve()
+    plugin_file.write_text(
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model('capsule_probe_model')\n"
+        "def build_probe(ctx, args):\n"
+        "    return object()\n",
+        encoding="utf-8",
+    )
+
+    original_model_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    monkeypatch.chdir(capsule_root)
+    try:
+        names = set(models_registry.get_model_names())
+        assert "capsule_probe_model" in names
+        imported_files = {
+            str(Path(path).resolve())
+            for mod in list(sys.modules.values())
+            for path in [getattr(mod, "__file__", None)]
+            if isinstance(path, str) and path.strip()
+        }
+        assert str(plugin_file) not in imported_files
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_model_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_build_model_lazily_imports_only_selected_capsule_plugin(tmp_path, monkeypatch) -> None:
+    capsule_root = tmp_path / "capsule_lazy_build"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_lazy_build\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    selected_file = (capsule_root / "models" / "selected.py").resolve()
+    skipped_file = (capsule_root / "models" / "skipped.py").resolve()
+    selected_file.write_text(
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model('selected_capsule_model')\n"
+        "def build_selected(ctx, args):\n"
+        "    return {'name': 'selected'}\n",
+        encoding="utf-8",
+    )
+    skipped_file.write_text(
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model('skipped_capsule_model')\n"
+        "def build_skipped(ctx, args):\n"
+        "    return {'name': 'skipped'}\n",
+        encoding="utf-8",
+    )
+
+    original_model_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    monkeypatch.chdir(capsule_root)
+    try:
+        ctx = models_registry.ModelContext(dataset="iris", num_classes=3, in_dim=4)
+        out = models_registry.build_model("selected_capsule_model", ctx, args=None)
+        assert out == {"name": "selected"}
+
+        imported_files = {
+            str(Path(path).resolve())
+            for mod in list(sys.modules.values())
+            for path in [getattr(mod, "__file__", None)]
+            if isinstance(path, str) and path.strip()
+        }
+        assert str(selected_file) in imported_files
+        assert str(skipped_file) not in imported_files
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_model_items
         plugins.reset_capsule_plugin_cache()

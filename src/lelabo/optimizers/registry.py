@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import torch
 
-from ..capsule.registry import index_path
 from ..core.registry import Registry
-from ..core.utils.capsule_plugins import (
-    find_active_capsule_root,
-    load_capsule_plugins,
-    load_installed_capsule_plugins,
-    plugin_files_fingerprint,
-    reset_capsule_plugin_cache,
-)
+from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
 
 
 OPTIMIZER_REGISTRY = Registry("optimizers", package="lelabo.optimizers")
@@ -50,69 +42,23 @@ def _ensure_optimizer_baseline() -> None:
         return
     _BASE_OPTIMIZER_ITEMS = OPTIMIZER_REGISTRY.snapshot_discovered_items()
 
-
-def _normalize_extra_roots(extra_capsule_roots: Sequence[Path] | None) -> tuple[Path, ...]:
-    roots = {Path(root).resolve() for root in list(extra_capsule_roots or [])}
-    return tuple(sorted(roots, key=str))
-
-
-def _capsules_index_mtime_ns(capsules_dir: Path | None) -> int | None:
-    idx = index_path(capsules_dir)
-    try:
-        return int(idx.stat().st_mtime_ns)
-    except OSError:
-        return None
-
-
-def _build_refresh_key(
-    *,
-    capsules_dir: Path | None,
-    extra_capsule_roots: Sequence[Path] | None,
-) -> tuple[Any, ...]:
-    active_root = find_active_capsule_root()
-    normalized_extra = _normalize_extra_roots(extra_capsule_roots)
-    strict_plugins = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
-    return (
-        str(index_path(capsules_dir).parent.resolve()),
-        _capsules_index_mtime_ns(capsules_dir),
-        str(active_root) if active_root is not None else None,
-        plugin_files_fingerprint(active_root, kinds=("optimizers",)),
-        tuple(
-            (str(root), plugin_files_fingerprint(root, kinds=("optimizers",)))
-            for root in normalized_extra
-        ),
-        strict_plugins,
-    )
-
-
-def _refresh_optimizer_registry(
+def _optimizer_snapshot(
     *,
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
-) -> None:
-    global _LAST_OPTIMIZER_REFRESH_KEY, _LAST_OPTIMIZER_ITEMS
+) -> Any:
     _ensure_optimizer_baseline()
-    refresh_key = _build_refresh_key(
+    return build_capsule_registry_snapshot(
+        registry_name="optimizers",
+        kind="optimizers",
+        builtins=dict(_BASE_OPTIMIZER_ITEMS or {}),
         capsules_dir=capsules_dir,
         extra_capsule_roots=extra_capsule_roots,
     )
-    if _LAST_OPTIMIZER_REFRESH_KEY == refresh_key and _LAST_OPTIMIZER_ITEMS is not None:
-        OPTIMIZER_REGISTRY._items = dict(_LAST_OPTIMIZER_ITEMS)
-        return
-
-    OPTIMIZER_REGISTRY._items = dict(_BASE_OPTIMIZER_ITEMS or {})
-    reset_capsule_plugin_cache()
-    load_capsule_plugins(kinds=("optimizers",))
-    for root in _normalize_extra_roots(extra_capsule_roots):
-        load_capsule_plugins(kinds=("optimizers",), capsule_root=Path(root).resolve())
-    load_installed_capsule_plugins(kinds=("optimizers",), capsules_dir=capsules_dir)
-    _LAST_OPTIMIZER_REFRESH_KEY = refresh_key
-    _LAST_OPTIMIZER_ITEMS = dict(OPTIMIZER_REGISTRY._items)
 
 
 def build_optimizer(name: str, ctx: OptimizerContext) -> torch.optim.Optimizer:
-    _refresh_optimizer_registry()
-    builder = OPTIMIZER_REGISTRY.get(name)
+    builder = _optimizer_snapshot().get(name)
     out = builder(ctx)
     if not isinstance(out, torch.optim.Optimizer):
         raise TypeError(f"Optimizer builder '{name}' must return torch.optim.Optimizer, got {type(out).__name__}.")
@@ -124,8 +70,7 @@ def get_optimizer_names(
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
 ) -> list[str]:
-    _refresh_optimizer_registry(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots)
-    return OPTIMIZER_REGISTRY.names()
+    return _optimizer_snapshot(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots).names()
 
 
 def make_optimizer(
@@ -156,4 +101,3 @@ def make_optimizer(
         extra=dict(extra or {}),
     )
     return build_optimizer(raw_name, ctx)
-

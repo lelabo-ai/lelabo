@@ -112,15 +112,14 @@ def _add_runtime_override_args(parser: argparse.ArgumentParser) -> None:
 def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--dataset",
-        choices=list(get_dataset_names()),
         type=str,
         default=None,
     )
-    parser.add_argument("--model", choices=list(get_model_names()), default=None)
-    parser.add_argument("--initializer", choices=list(get_initializer_names()), default=None)
-    parser.add_argument("--loss", choices=list(get_loss_names()), default=None)
-    parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
-    parser.add_argument("--optimizer", choices=list(get_optimizer_names()), default=None)
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--initializer", default=None)
+    parser.add_argument("--loss", default=None)
+    parser.add_argument("--algo", default=None)
+    parser.add_argument("--optimizer", default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--epochs", type=int, default=None)
@@ -135,8 +134,8 @@ def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="ENV_ID",
     )
-    parser.add_argument("--algo", choices=list(get_update_rule_names()), default=None)
-    parser.add_argument("--optimizer", choices=list(get_optimizer_names()), default=None)
+    parser.add_argument("--algo", default=None)
+    parser.add_argument("--optimizer", default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--rl-algo", type=str, default=None, choices=list(get_rl_algo_names()))
@@ -255,6 +254,49 @@ def _build_rl_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
     return out
 
 
+def _validate_component_name(
+    value: Any,
+    *,
+    label: str,
+    available: Sequence[str],
+) -> None:
+    token = str(value if value is not None else "").strip().lower()
+    if not token:
+        return
+    options = sorted({str(item).strip().lower() for item in available if str(item).strip()})
+    if token in options:
+        return
+    raise ValueError(f"Unknown {label} '{value}'. Available: {options}")
+
+
+def _validate_supervised_namespace(args: argparse.Namespace) -> argparse.Namespace:
+    _validate_component_name(getattr(args, "dataset", None), label="dataset", available=get_dataset_names())
+    _validate_component_name(getattr(args, "model", None), label="model", available=get_model_names())
+    _validate_component_name(
+        getattr(args, "initializer", None),
+        label="initializer",
+        available=get_initializer_names(),
+    )
+    _validate_component_name(getattr(args, "loss", None), label="loss", available=get_loss_names())
+    _validate_component_name(getattr(args, "algo", None), label="algorithm", available=get_update_rule_names())
+    _validate_component_name(
+        getattr(args, "optimizer", None),
+        label="optimizer",
+        available=get_optimizer_names(),
+    )
+    return args
+
+
+def _validate_rl_namespace(args: argparse.Namespace) -> argparse.Namespace:
+    _validate_component_name(getattr(args, "algo", None), label="algorithm", available=get_update_rule_names())
+    _validate_component_name(
+        getattr(args, "optimizer", None),
+        label="optimizer",
+        available=get_optimizer_names(),
+    )
+    return args
+
+
 def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
     parsed = build_train_parser().parse_args(raw_argv)
@@ -265,7 +307,9 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             cli_overrides=_build_supervised_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
         )
-        return to_supervised_namespace(cfg, device_resolver=_default_device)
+        return _validate_supervised_namespace(
+            to_supervised_namespace(cfg, device_resolver=_default_device)
+        )
     if parsed.mode == "rl":
         config_path = _resolve_mode_config_path("rl", parsed.config)
         cfg = resolve_rl_config(
@@ -273,7 +317,7 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             cli_overrides=_build_rl_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
         )
-        return to_rl_namespace(cfg, device_resolver=_default_device)
+        return _validate_rl_namespace(to_rl_namespace(cfg, device_resolver=_default_device))
     raise ValueError(f"Unknown train mode '{parsed.mode}'.")
 
 
