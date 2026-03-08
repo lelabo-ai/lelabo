@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 
@@ -9,21 +10,101 @@ from .base import TrainingMetric
 from .payload import extract_metric_payload
 
 
-class ScalarMeanMetric(TrainingMetric):
-    """Utility metric that averages a scalar key over train/eval batches."""
+@dataclass
+class _ScalarState:
+    value_sum: float = 0.0
+    weight_sum: float = 0.0
 
-    def __init__(self, *, stat_key: str, output_key: str):
-        self.stat_key = str(stat_key)
+    def update(self, value: float, weight: float) -> None:
+        self.value_sum += float(value) * float(weight)
+        self.weight_sum += float(weight)
+
+
+@dataclass
+class _RegressionState:
+    sse: float = 0.0
+    sae: float = 0.0
+    sum_y: float = 0.0
+    sum_y2: float = 0.0
+    count: float = 0.0
+
+    def update(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:
+        true_f = y_true.reshape(-1).to(dtype=torch.float64)
+        pred_f = y_pred.reshape(-1).to(dtype=torch.float64)
+        if true_f.numel() == 0 or pred_f.numel() == 0:
+            return
+        n = int(min(true_f.numel(), pred_f.numel()))
+        true_f = true_f[:n]
+        pred_f = pred_f[:n]
+        err = pred_f - true_f
+        self.sse += float((err * err).sum().item())
+        self.sae += float(err.abs().sum().item())
+        self.sum_y += float(true_f.sum().item())
+        self.sum_y2 += float((true_f * true_f).sum().item())
+        self.count += float(n)
+
+
+class _ClassificationState:
+    def __init__(self) -> None:
+        self.cm = torch.zeros((0, 0), dtype=torch.float64)
+
+    def _ensure_size(self, size: int) -> None:
+        if size <= int(self.cm.size(0)):
+            return
+        old = self.cm
+        self.cm = torch.zeros((size, size), dtype=torch.float64)
+        if old.numel() > 0:
+            n = int(old.size(0))
+            self.cm[:n, :n] = old
+
+    def update(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:
+        true_i = y_true.reshape(-1).to(dtype=torch.int64)
+        pred_i = y_pred.reshape(-1).to(dtype=torch.int64)
+        if true_i.numel() == 0 or pred_i.numel() == 0:
+            return
+        n = int(min(true_i.numel(), pred_i.numel()))
+        true_i = true_i[:n]
+        pred_i = pred_i[:n]
+        valid = (true_i >= 0) & (pred_i >= 0)
+        if not bool(valid.any()):
+            return
+        true_i = true_i[valid]
+        pred_i = pred_i[valid]
+        size = int(max(int(true_i.max().item()), int(pred_i.max().item())) + 1)
+        self._ensure_size(size)
+        k = int(self.cm.size(0))
+        idx = true_i * k + pred_i
+        bincount = torch.bincount(idx, minlength=k * k).reshape(k, k).to(dtype=torch.float64)
+        self.cm += bincount
+
+
+class _StreamingMetricBase(TrainingMetric, ABC):
+    def __init__(self, *, output_key: str):
         self.output_key = str(output_key)
-        self._train_sum = 0.0
-        self._train_count = 0.0
-        self._eval_sum = 0.0
-        self._eval_count = 0.0
+        self._train_state = self.make_state()
+        self._eval_state = self.make_state()
         self._last_train: float | None = None
 
+    @abstractmethod
+    def make_state(self) -> Any:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_state(
+        self,
+        state: Any,
+        *,
+        stats: dict[str, Any],
+        batch_size: int,
+    ) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def compute_from_state(self, state: Any) -> float | None:
+        raise NotImplementedError
+
     def on_epoch_start(self, trainer, epoch: int, state: Any | None = None) -> None:
-        self._train_sum = 0.0
-        self._train_count = 0.0
+        self._train_state = self.make_state()
 
     def on_batch_end(
         self,
@@ -32,84 +113,10 @@ class ScalarMeanMetric(TrainingMetric):
         batch_size: int,
         state: Any | None = None,
     ) -> None:
-        value = stats.get(self.stat_key)
-        if not isinstance(value, (int, float)):
-            return
-        w = float(max(1, int(batch_size)))
-        self._train_sum += float(value) * w
-        self._train_count += w
+        self.update_state(self._train_state, stats=stats, batch_size=batch_size)
 
     def on_epoch_end(self, trainer, epoch: int, state: Any | None = None) -> dict[str, float]:
-        if self._train_count <= 0.0:
-            return {}
-        self._last_train = float(self._train_sum / self._train_count)
-        return {self.output_key: float(self._last_train)}
-
-    def on_train_end(self, trainer, state: Any | None = None) -> dict[str, float]:
-        if self._last_train is None:
-            return {}
-        return {self.output_key: float(self._last_train)}
-
-    def on_eval_start(self, trainer, split: str | None, state: Any | None = None) -> None:
-        self._eval_sum = 0.0
-        self._eval_count = 0.0
-
-    def on_eval_batch_end(
-        self,
-        trainer,
-        split: str | None,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        value = stats.get(self.stat_key)
-        if not isinstance(value, (int, float)):
-            return
-        w = float(max(1, int(batch_size)))
-        self._eval_sum += float(value) * w
-        self._eval_count += w
-
-    def on_eval_end(
-        self,
-        trainer,
-        split: str | None,
-        state: Any | None = None,
-    ) -> dict[str, float]:
-        if self._eval_count <= 0.0:
-            return {}
-        return {self.output_key: float(self._eval_sum / self._eval_count)}
-
-
-class _PayloadMetricBase(TrainingMetric, ABC):
-    def __init__(self, *, output_key: str, expected_kind: str):
-        self.output_key = str(output_key)
-        self.expected_kind = str(expected_kind).strip().lower()
-        self._train_true: list[torch.Tensor] = []
-        self._train_pred: list[torch.Tensor] = []
-        self._eval_true: list[torch.Tensor] = []
-        self._eval_pred: list[torch.Tensor] = []
-        self._last_train: float | None = None
-
-    def on_epoch_start(self, trainer, epoch: int, state: Any | None = None) -> None:
-        self._train_true = []
-        self._train_pred = []
-
-    def on_batch_end(
-        self,
-        trainer,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        _ = batch_size
-        payload = extract_metric_payload(stats)
-        if payload is None or payload.kind != self.expected_kind:
-            return
-        self._train_true.append(payload.y_true)
-        self._train_pred.append(payload.y_pred)
-
-    def on_epoch_end(self, trainer, epoch: int, state: Any | None = None) -> dict[str, float]:
-        value = self._compute(self._train_true, self._train_pred)
+        value = self.compute_from_state(self._train_state)
         if value is None:
             return {}
         self._last_train = float(value)
@@ -121,8 +128,7 @@ class _PayloadMetricBase(TrainingMetric, ABC):
         return {self.output_key: float(self._last_train)}
 
     def on_eval_start(self, trainer, split: str | None, state: Any | None = None) -> None:
-        self._eval_true = []
-        self._eval_pred = []
+        self._eval_state = self.make_state()
 
     def on_eval_batch_end(
         self,
@@ -132,12 +138,7 @@ class _PayloadMetricBase(TrainingMetric, ABC):
         batch_size: int,
         state: Any | None = None,
     ) -> None:
-        _ = split, batch_size, state
-        payload = extract_metric_payload(stats)
-        if payload is None or payload.kind != self.expected_kind:
-            return
-        self._eval_true.append(payload.y_true)
-        self._eval_pred.append(payload.y_pred)
+        self.update_state(self._eval_state, stats=stats, batch_size=batch_size)
 
     def on_eval_end(
         self,
@@ -145,162 +146,134 @@ class _PayloadMetricBase(TrainingMetric, ABC):
         split: str | None,
         state: Any | None = None,
     ) -> dict[str, float]:
-        _ = split, state
-        value = self._compute(self._eval_true, self._eval_pred)
+        value = self.compute_from_state(self._eval_state)
         if value is None:
             return {}
         return {self.output_key: float(value)}
 
+
+class ClassificationStreamingMetric(_StreamingMetricBase, ABC):
+    """Streaming classification metric backed by a confusion matrix."""
+
+    def make_state(self) -> _ClassificationState:
+        return _ClassificationState()
+
+    def update_state(
+        self,
+        state: _ClassificationState,
+        *,
+        stats: dict[str, Any],
+        batch_size: int,
+    ) -> None:
+        _ = batch_size
+        payload = extract_metric_payload(stats)
+        if payload is None or payload.kind != "classification":
+            return
+        state.update(payload.y_true, payload.y_pred)
+
+    def compute_from_state(self, state: _ClassificationState) -> float | None:
+        return self.compute_from_confusion_matrix(state.cm.clone())
+
     @abstractmethod
-    def compute_from_tensors(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float | None:
+    def compute_from_confusion_matrix(self, confusion_matrix: torch.Tensor) -> float | None:
         raise NotImplementedError
 
-    def _compute(self, y_true_parts: list[torch.Tensor], y_pred_parts: list[torch.Tensor]) -> float | None:
-        if not y_true_parts or not y_pred_parts:
-            return None
-        y_true = torch.cat([x.reshape(-1) for x in y_true_parts], dim=0)
-        y_pred = torch.cat([x.reshape(-1) for x in y_pred_parts], dim=0)
-        n = int(min(y_true.numel(), y_pred.numel()))
-        if n <= 0:
-            return None
-        return self.compute_from_tensors(y_true[:n], y_pred[:n])
 
+class RegressionStreamingMetric(_StreamingMetricBase, ABC):
+    """Streaming regression metric backed by running error summaries."""
 
-class ClassificationMetricBase(_PayloadMetricBase):
-    """Utility base class for classification metrics driven by y_true/y_pred payload."""
+    def make_state(self) -> _RegressionState:
+        return _RegressionState()
 
-    def __init__(self, *, output_key: str):
-        super().__init__(output_key=output_key, expected_kind="classification")
+    def update_state(
+        self,
+        state: _RegressionState,
+        *,
+        stats: dict[str, Any],
+        batch_size: int,
+    ) -> None:
+        _ = batch_size
+        payload = extract_metric_payload(stats)
+        if payload is None or payload.kind != "regression":
+            return
+        state.update(payload.y_true, payload.y_pred)
 
+    def compute_from_state(self, state: _RegressionState) -> float | None:
+        return self.compute_from_regression_state(
+            sse=float(state.sse),
+            sae=float(state.sae),
+            sum_y=float(state.sum_y),
+            sum_y2=float(state.sum_y2),
+            count=float(state.count),
+        )
 
-class RegressionMetricBase(_PayloadMetricBase):
-    """Utility base class for regression metrics driven by y_true/y_pred payload."""
-
-    def __init__(self, *, output_key: str):
-        super().__init__(output_key=output_key, expected_kind="regression")
-
-
-class FunctionClassificationMetric(ClassificationMetricBase):
-    def __init__(
+    @abstractmethod
+    def compute_from_regression_state(
         self,
         *,
-        output_key: str,
-        fn: Callable[[torch.Tensor, torch.Tensor, dict[str, Any]], float],
-        metric_params: dict[str, Any] | None = None,
-    ):
-        super().__init__(output_key=output_key)
-        self.fn = fn
-        self.metric_params = dict(metric_params or {})
+        sse: float,
+        sae: float,
+        sum_y: float,
+        sum_y2: float,
+        count: float,
+    ) -> float | None:
+        raise NotImplementedError
 
-    def compute_from_tensors(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float | None:
-        value = self.fn(y_true, y_pred, self.metric_params)
+
+class ScalarStreamingMetric(_StreamingMetricBase, ABC):
+    """Streaming scalar metric backed by weighted running sums."""
+
+    def __init__(self, *, stat_key: str, output_key: str):
+        super().__init__(output_key=output_key)
+        self.stat_key = str(stat_key)
+
+    def make_state(self) -> _ScalarState:
+        return _ScalarState()
+
+    def extract_scalar_value(self, stats: dict[str, Any]) -> float | None:
+        value = stats.get(self.stat_key)
         if not isinstance(value, (int, float)):
             return None
         return float(value)
 
-
-class FunctionRegressionMetric(RegressionMetricBase):
-    def __init__(
+    def update_state(
         self,
+        state: _ScalarState,
         *,
-        output_key: str,
-        fn: Callable[[torch.Tensor, torch.Tensor, dict[str, Any]], float],
-        metric_params: dict[str, Any] | None = None,
-    ):
-        super().__init__(output_key=output_key)
-        self.fn = fn
-        self.metric_params = dict(metric_params or {})
+        stats: dict[str, Any],
+        batch_size: int,
+    ) -> None:
+        value = self.extract_scalar_value(stats)
+        if value is None:
+            return
+        state.update(value, float(max(1, int(batch_size))))
 
-    def compute_from_tensors(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float | None:
-        value = self.fn(y_true, y_pred, self.metric_params)
-        if not isinstance(value, (int, float)):
+    def compute_from_state(self, state: _ScalarState) -> float | None:
+        return self.compute_from_scalar_state(
+            value_sum=float(state.value_sum),
+            weight_sum=float(state.weight_sum),
+        )
+
+    @abstractmethod
+    def compute_from_scalar_state(self, *, value_sum: float, weight_sum: float) -> float | None:
+        raise NotImplementedError
+
+
+class ScalarMeanMetric(ScalarStreamingMetric):
+    """Utility metric that averages a scalar key over train/eval batches."""
+
+    def __init__(self, *, stat_key: str, output_key: str):
+        super().__init__(stat_key=stat_key, output_key=output_key)
+
+    def compute_from_scalar_state(self, *, value_sum: float, weight_sum: float) -> float | None:
+        if weight_sum <= 0.0:
             return None
-        return float(value)
+        return float(value_sum / weight_sum)
 
 
-class FunctionScalarMetric(TrainingMetric):
-    """Function metric for scalar streams (value_sum, weight_sum, params) -> float."""
+class ClassificationMetricBase(ClassificationStreamingMetric):
+    """Backward-compatible alias for the streaming classification base."""
 
-    def __init__(
-        self,
-        *,
-        output_key: str,
-        fn: Callable[[float, float, dict[str, Any]], float],
-        metric_params: dict[str, Any] | None = None,
-    ):
-        self.output_key = str(output_key)
-        self.fn = fn
-        self.metric_params = dict(metric_params or {})
-        self._train_sum = 0.0
-        self._train_count = 0.0
-        self._eval_sum = 0.0
-        self._eval_count = 0.0
-        self._last_train: float | None = None
 
-    def _scalar_key(self) -> str:
-        key = self.metric_params.get("key", "loss")
-        return str(key)
-
-    def on_epoch_start(self, trainer, epoch: int, state: Any | None = None) -> None:
-        self._train_sum = 0.0
-        self._train_count = 0.0
-
-    def on_batch_end(
-        self,
-        trainer,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        value = stats.get(self._scalar_key())
-        if not isinstance(value, (int, float)):
-            return
-        w = float(max(1, int(batch_size)))
-        self._train_sum += float(value) * w
-        self._train_count += w
-
-    def on_epoch_end(self, trainer, epoch: int, state: Any | None = None) -> dict[str, float]:
-        if self._train_count <= 0.0:
-            return {}
-        out = self.fn(float(self._train_sum), float(self._train_count), dict(self.metric_params))
-        if not isinstance(out, (int, float)):
-            return {}
-        self._last_train = float(out)
-        return {self.output_key: float(self._last_train)}
-
-    def on_train_end(self, trainer, state: Any | None = None) -> dict[str, float]:
-        if self._last_train is None:
-            return {}
-        return {self.output_key: float(self._last_train)}
-
-    def on_eval_start(self, trainer, split: str | None, state: Any | None = None) -> None:
-        self._eval_sum = 0.0
-        self._eval_count = 0.0
-
-    def on_eval_batch_end(
-        self,
-        trainer,
-        split: str | None,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        value = stats.get(self._scalar_key())
-        if not isinstance(value, (int, float)):
-            return
-        w = float(max(1, int(batch_size)))
-        self._eval_sum += float(value) * w
-        self._eval_count += w
-
-    def on_eval_end(
-        self,
-        trainer,
-        split: str | None,
-        state: Any | None = None,
-    ) -> dict[str, float]:
-        if self._eval_count <= 0.0:
-            return {}
-        out = self.fn(float(self._eval_sum), float(self._eval_count), dict(self.metric_params))
-        if not isinstance(out, (int, float)):
-            return {}
-        return {self.output_key: float(out)}
+class RegressionMetricBase(RegressionStreamingMetric):
+    """Backward-compatible alias for the streaming regression base."""

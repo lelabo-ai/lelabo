@@ -352,6 +352,8 @@ class Trainer:
         best_train_metric = float("-inf")
         best_train_loss = float("inf")
 
+        final_train_loss = None
+        final_train_metric = None
         final_val_metric = None
         final_val_loss = None
 
@@ -387,13 +389,6 @@ class Trainer:
 
         val_samples_fixed = self._loader_num_samples(val_loader) if val_loader is not None else None
 
-        total_loss_sum = 0.0
-        total_metric_sum = 0.0
-        total_samples = 0
-        total_batches = 0
-
-        epoch_times: list[float] = []
-        epoch_samples_per_sec: list[float] = []
         last_epoch_custom_metrics: dict[str, float] = {}
 
         self._maybe_sync_cuda()
@@ -504,7 +499,6 @@ class Trainer:
 
                 self._maybe_sync_cuda()
                 ep_time = time.perf_counter() - ep_start
-                epoch_times.append(float(ep_time))
 
                 denom = max(1.0, float(ep_samples))
                 mean_loss = ep_loss_sum / denom
@@ -512,15 +506,8 @@ class Trainer:
 
                 best_train_metric = max(best_train_metric, mean_metric)
                 best_train_loss = min(best_train_loss, mean_loss)
-
-                samples_per_sec = (ep_samples / ep_time) if ep_time > 0 else 0.0
-                batches_per_sec = (ep_batches / ep_time) if ep_time > 0 else 0.0
-                epoch_samples_per_sec.append(float(samples_per_sec))
-
-                total_loss_sum += ep_loss_sum
-                total_metric_sum += ep_metric_sum
-                total_samples += ep_samples
-                total_batches += ep_batches
+                final_train_loss = float(mean_loss)
+                final_train_metric = float(mean_metric)
 
                 epoch_custom_metrics: dict[str, float] = {}
                 for probe in self.metric_probes:
@@ -656,9 +643,6 @@ class Trainer:
         self._maybe_sync_cuda()
         total_time = time.perf_counter() - train_start
 
-        final_train_loss = float(total_loss_sum / max(1.0, float(total_samples)))
-        final_train_metric = float(total_metric_sum / max(1.0, float(total_samples)))
-
         final_custom_metrics: dict[str, float] = {}
         for probe in self.metric_probes:
             out = self._call_probe_hook(probe, "on_train_end", self, state)
@@ -674,16 +658,32 @@ class Trainer:
             self._call_callback_hook(cb, "on_train_end", self, {"last_epoch": float(last_epoch_ran)}, state)
         self._in_fit = False
 
+        restored_best_model = False
+        restored_best_epoch: int | None = None
+        if early_stopping_cb is not None:
+            cfg = getattr(early_stopping_cb, "cfg", None)
+            has_best_state = getattr(early_stopping_cb, "best_state", None) is not None
+            if bool(getattr(cfg, "restore_best", False)) and has_best_state:
+                restored_best_model = True
+                best_epoch = getattr(early_stopping_cb, "best_epoch", None)
+                if isinstance(best_epoch, int) and best_epoch > 0:
+                    restored_best_epoch = int(best_epoch)
+
+        if final_train_loss is None or final_train_metric is None:
+            raise RuntimeError("Trainer.fit() completed without producing final train metrics.")
+
         result = {
             "best_train_loss": float(best_train_loss),
             "best_train_metric": float(best_train_metric),
-            "final_train_loss": final_train_loss,
-            "final_train_metric": final_train_metric,
+            "final_train_loss": float(final_train_loss),
+            "final_train_metric": float(final_train_metric),
             "best_val_loss": None if val_loader is None else float(best_val_loss),
             "best_val_metric": None if val_loader is None else float(best_val_metric),
             "final_val_loss": None if val_loader is None else final_val_loss,
             "final_val_metric": None if val_loader is None else final_val_metric,
             "best_epoch_by_val": None if val_loader is None else best_epoch_by_val,
+            "restored_best_model": bool(restored_best_model),
+            "restored_best_epoch": restored_best_epoch,
             "total_train_time_sec": float(total_time),
         }
         if final_custom_metrics:

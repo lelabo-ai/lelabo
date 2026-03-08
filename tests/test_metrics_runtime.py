@@ -108,22 +108,38 @@ def test_builtin_regression_metrics_compute_from_payload(
     assert out[expected_key] == pytest.approx(expected_value, rel=1e-6)
 
 
-def test_register_metric_fn_classification_smoke() -> None:
+def test_metrics_api_no_longer_exports_register_metric_fn() -> None:
+    assert not hasattr(metrics_api, "register_metric_fn")
+
+
+def test_register_streaming_classification_metric_smoke() -> None:
     name = _new_metric_name("unit_cls_metric")
     output_key = f"{name}_score"
-    called_params: list[dict[str, object]] = []
 
-    @metrics_api.register_metric_fn(
+    class _ExactMatchRate(metrics_api.ClassificationStreamingMetric):
+        def compute_from_confusion_matrix(self, confusion_matrix: torch.Tensor) -> float | None:
+            total = float(confusion_matrix.sum().item())
+            if total <= 0.0:
+                return None
+            return float(confusion_matrix.diag().sum().item() / total)
+
+    @metrics_api.register_metric(
         name,
         kind="classification",
-        output_key=output_key,
         params={"bonus": "float additive offset"},
     )
-    def _cls_metric(y_true: torch.Tensor, y_pred: torch.Tensor, metric_params: dict[str, object]) -> float:
-        called_params.append(dict(metric_params))
-        bonus = float(metric_params.get("bonus", 0.0))
-        base = float((y_true == y_pred).to(torch.float32).mean().item())
-        return base + bonus
+    def _builder(ctx):
+        params = ctx.metric_params(name)
+        bonus = float(params.get("bonus", 0.0))
+
+        class _MetricWithBonus(_ExactMatchRate):
+            def compute_from_confusion_matrix(self, confusion_matrix: torch.Tensor) -> float | None:
+                base = super().compute_from_confusion_matrix(confusion_matrix)
+                if base is None:
+                    return None
+                return float(base + bonus)
+
+        return _MetricWithBonus(output_key=output_key)
 
     builder = metrics_registry.METRIC_REGISTRY.get(name)
     assert getattr(builder, "__metric_kind__", None) == "classification"
@@ -144,18 +160,37 @@ def test_register_metric_fn_classification_smoke() -> None:
     out = probe.on_epoch_end(None, 1, None)
     assert output_key in out
     assert out[output_key] == pytest.approx(1.0, rel=1e-6)
-    assert called_params and called_params[-1].get("bonus") == 0.25
+    assert hasattr(probe, "_train_state")
+    assert not isinstance(probe._train_state, list)
 
 
-def test_register_metric_fn_regression_smoke() -> None:
+def test_register_streaming_regression_metric_smoke() -> None:
     name = _new_metric_name("unit_reg_metric")
     output_key = f"{name}_score"
 
-    @metrics_api.register_metric_fn(name, kind="regression", output_key=output_key)
-    def _reg_metric(y_true: torch.Tensor, y_pred: torch.Tensor, metric_params: dict[str, object]) -> float:
-        shift = float(metric_params.get("shift", 0.0))
-        mae = torch.mean(torch.abs(y_true.to(torch.float32) - y_pred.to(torch.float32))).item()
-        return float(mae + shift)
+    class _ShiftedMae(metrics_api.RegressionStreamingMetric):
+        def __init__(self, *, shift: float):
+            super().__init__(output_key=output_key)
+            self.shift = float(shift)
+
+        def compute_from_regression_state(
+            self,
+            *,
+            sse: float,
+            sae: float,
+            sum_y: float,
+            sum_y2: float,
+            count: float,
+        ) -> float | None:
+            _ = (sse, sum_y, sum_y2)
+            if count <= 0.0:
+                return None
+            return float((sae / count) + self.shift)
+
+    @metrics_api.register_metric(name, kind="regression", params={"shift": "float additive offset"})
+    def _builder(ctx):
+        params = ctx.metric_params(name)
+        return _ShiftedMae(shift=float(params.get("shift", 0.0)))
 
     builder = metrics_registry.METRIC_REGISTRY.get(name)
     assert getattr(builder, "__metric_kind__", None) == "regression"
@@ -175,29 +210,85 @@ def test_register_metric_fn_regression_smoke() -> None:
     out = probe.on_epoch_end(None, 1, None)
     assert output_key in out
     assert out[output_key] == pytest.approx(2.0, rel=1e-6)
+    assert hasattr(probe, "_train_state")
+    assert not isinstance(probe._train_state, list)
 
 
-def test_register_metric_fn_scalar_smoke() -> None:
+def test_register_streaming_scalar_metric_smoke() -> None:
     name = _new_metric_name("unit_scalar_metric")
     output_key = f"{name}_score"
 
-    @metrics_api.register_metric_fn(name, kind="scalar", output_key=output_key)
-    def _scalar_metric(value_sum: float, weight_sum: float, metric_params: dict[str, object]) -> float:
-        scale = float(metric_params.get("scale", 1.0))
-        if weight_sum <= 0.0:
-            return 0.0
-        return float((value_sum / weight_sum) * scale)
+    class _ScaledMean(metrics_api.ScalarStreamingMetric):
+        def __init__(self, *, scale: float):
+            super().__init__(stat_key="my_loss", output_key=output_key)
+            self.scale = float(scale)
+
+        def compute_from_scalar_state(self, *, value_sum: float, weight_sum: float) -> float | None:
+            if weight_sum <= 0.0:
+                return None
+            return float((value_sum / weight_sum) * self.scale)
+
+    @metrics_api.register_metric(name, kind="scalar", params={"scale": "multiply the running mean"})
+    def _builder(ctx):
+        params = ctx.metric_params(name)
+        return _ScaledMean(scale=float(params.get("scale", 1.0)))
 
     builder = metrics_registry.METRIC_REGISTRY.get(name)
     assert getattr(builder, "__metric_kind__", None) == "scalar"
 
-    probe = builder(_ctx(extra={"metric_params": {name: {"key": "my_loss", "scale": 2.0}}}))
+    probe = builder(_ctx(extra={"metric_params": {name: {"scale": 2.0}}}))
     probe.on_epoch_start(None, 1, None)
     probe.on_batch_end(None, stats={"my_loss": 1.0}, batch_size=2, state=None)
     probe.on_batch_end(None, stats={"my_loss": 3.0}, batch_size=1, state=None)
     out = probe.on_epoch_end(None, 1, None)
     assert output_key in out
     assert out[output_key] == pytest.approx((5.0 / 3.0) * 2.0, rel=1e-6)
+    assert hasattr(probe, "_train_state")
+    assert not isinstance(probe._train_state, list)
+
+
+def test_streaming_metrics_keep_split_states_separate() -> None:
+    class _Accuracy(metrics_api.ClassificationStreamingMetric):
+        def __init__(self):
+            super().__init__(output_key="stream_acc")
+
+        def compute_from_confusion_matrix(self, confusion_matrix: torch.Tensor) -> float | None:
+            total = float(confusion_matrix.sum().item())
+            if total <= 0.0:
+                return None
+            return float(confusion_matrix.diag().sum().item() / total)
+
+    probe = _Accuracy()
+    probe.on_epoch_start(None, 1, None)
+    probe.on_batch_end(
+        None,
+        stats={
+            metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1]),
+            metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([0, 1]),
+            metrics_payload.METRIC_KIND_KEY: "classification",
+        },
+        batch_size=2,
+        state=None,
+    )
+    train_out = probe.on_epoch_end(None, 1, None)
+
+    probe.on_eval_start(None, "val", None)
+    probe.on_eval_batch_end(
+        None,
+        "val",
+        stats={
+            metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1]),
+            metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([1, 1]),
+            metrics_payload.METRIC_KIND_KEY: "classification",
+        },
+        batch_size=2,
+        state=None,
+    )
+    eval_out = probe.on_eval_end(None, "val", None)
+
+    assert train_out["stream_acc"] == pytest.approx(1.0, rel=1e-6)
+    assert eval_out["stream_acc"] == pytest.approx(0.5, rel=1e-6)
+    assert probe.on_train_end(None, None)["stream_acc"] == pytest.approx(1.0, rel=1e-6)
 
 
 def test_register_metric_rejects_invalid_kind() -> None:
@@ -232,4 +323,3 @@ def test_metric_payload_roundtrip_and_validation() -> None:
     invalid_kind_payload = dict(payload)
     invalid_kind_payload[metrics_payload.METRIC_KIND_KEY] = "scalar"
     assert metrics_payload.extract_metric_payload(invalid_kind_payload) is None
-

@@ -63,8 +63,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
     assert "register_metric" in metric_example
-    assert "register_metric_fn" in metric_example
-    assert "ClassificationMetricBase" in metric_example
+    assert "ClassificationStreamingMetric" in metric_example
+    assert "register_metric_fn" not in metric_example
     assert "register_optimizer" in readme_text
     assert "register_callback" in readme_text
     assert "lelabo_version" in capsule_toml

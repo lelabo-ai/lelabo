@@ -73,65 +73,6 @@ def register_metric(
     return _decorator
 
 
-def register_metric_fn(
-    name: str,
-    *,
-    kind: str = "classification",
-    fn: Callable[..., float] | None = None,
-    output_key: str | None = None,
-    params: Mapping[str, str] | None = None,
-):
-    """
-    Register a metric from a single function.
-
-    Supported kinds:
-      - classification: fn(y_true, y_pred, metric_params) -> float
-      - regression: fn(y_true, y_pred, metric_params) -> float
-      - scalar: fn(value_sum, weight_sum, metric_params) -> float
-    """
-    def _decorate(user_fn: Callable[..., float]) -> Callable[..., float]:
-        normalized_kind = _normalize_kind(kind)
-        key_name = str(output_key or name)
-
-        @register_metric(
-            name,
-            kind=normalized_kind,
-            params=params,
-        )
-        def _builder(ctx: MetricContext):
-            metric_params = ctx.metric_params(name)
-            if normalized_kind == "classification":
-                from .helpers import FunctionClassificationMetric
-
-                return FunctionClassificationMetric(
-                    output_key=key_name,
-                    fn=user_fn,
-                    metric_params=metric_params,
-                )
-            if normalized_kind == "regression":
-                from .helpers import FunctionRegressionMetric
-
-                return FunctionRegressionMetric(
-                    output_key=key_name,
-                    fn=user_fn,
-                    metric_params=metric_params,
-                )
-            from .helpers import FunctionScalarMetric
-
-            return FunctionScalarMetric(
-                output_key=key_name,
-                fn=user_fn,
-                metric_params=metric_params,
-            )
-
-        _ = _builder
-        return user_fn
-
-    if fn is not None:
-        return _decorate(fn)
-    return _decorate
-
-
 def _ensure_metric_baseline() -> None:
     global _BASE_METRIC_ITEMS
     if _BASE_METRIC_ITEMS is not None:

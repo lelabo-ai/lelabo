@@ -57,9 +57,8 @@ Built-in supervised metrics include:
 For a custom metric plugin starter, see:
 
 - `metrics/example.py`
-  This file includes:
-  - a function metric (`register_metric_fn`)
-  - an advanced class metric (`ClassificationMetricBase`)
+  This file shows how to register a streaming metric with `register_metric`
+  and `ClassificationStreamingMetric`.
 
 For a custom scheduler plugin starter, see:
 
@@ -119,7 +118,7 @@ Quick custom metric snippets:
 
 ```toml
 [[metrics]]
-name = "example_fn_accuracy"
+name = "example_error_rate"
 ```
 
 ```toml

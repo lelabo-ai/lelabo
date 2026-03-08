@@ -2,32 +2,40 @@
 example_metric.py
 
 Custom metric template for capsule plugins.
-
-This file intentionally shows a function metric with register_metric_fn
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
 import torch
 
 from lelabo.metrics import (
-    ClassificationMetricBase,
+    ClassificationStreamingMetric,
     MetricContext,
     register_metric,
-    register_metric_fn,
 )
 
-# To register the metrics you need to uncomment the @register_metric_fn decorator and implement the function.
-#@register_metric_fn(
-#    "example_fn_accuracy",
-#    kind="classification",
-#)
-def example_fn_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, metric_params: dict[str, Any]) -> float:
-    _ = metric_params
-    if y_true.numel() == 0 or y_pred.numel() == 0:
-        return 0.0
-    n = min(int(y_true.numel()), int(y_pred.numel()))
-    return float((y_true[:n] == y_pred[:n]).float().mean().item())
+
+class ExampleErrorRate(ClassificationStreamingMetric):
+    def __init__(self, *, output_key: str = "example_error_rate", as_percent: bool = False):
+        super().__init__(output_key=output_key)
+        self.as_percent = bool(as_percent)
+
+    def compute_from_confusion_matrix(self, confusion_matrix: torch.Tensor) -> float | None:
+        total = float(confusion_matrix.sum().item())
+        if total <= 0.0:
+            return None
+        correct = float(confusion_matrix.diag().sum().item())
+        error_rate = 1.0 - (correct / total)
+        if self.as_percent:
+            error_rate *= 100.0
+        return float(error_rate)
+
+
+@register_metric(
+    "example_error_rate",
+    kind="classification",
+    params={"as_percent": "return the metric on a 0-100 scale instead of 0-1"},
+)
+def build_example_error_rate(ctx: MetricContext) -> ExampleErrorRate:
+    params = ctx.metric_params("example_error_rate")
+    return ExampleErrorRate(as_percent=bool(params.get("as_percent", False)))
