@@ -12,6 +12,37 @@ def _strict_plugin_loading() -> bool:
     raw = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
+
+def _is_internal_missing_module(pkg_name: str, missing_name: str) -> bool:
+    package_root = str(pkg_name).partition(".")[0]
+    token = str(missing_name or "").strip()
+    if not token:
+        return True
+    return token == package_root or token.startswith(f"{package_root}.")
+
+
+def _warn_or_raise_optional_import(
+    *,
+    registry_name: str,
+    package_name: str,
+    module_name: str,
+    exc: ImportError,
+) -> None:
+    if not isinstance(exc, ModuleNotFoundError):
+        raise exc
+    missing_name = str(getattr(exc, "name", "") or "").strip()
+    if _is_internal_missing_module(package_name, missing_name):
+        raise exc
+    if _strict_plugin_loading():
+        raise exc
+    warnings.warn(
+        f"[{registry_name}] Skipping '{module_name}' due to missing optional dependency "
+        f"'{missing_name}': {exc}",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+
 class Registry:
     def __init__(self, name: str, package: str | None = None):
         self.name = name
@@ -56,13 +87,11 @@ class Registry:
                 else:
                     importlib.import_module(full_name)
             except ImportError as exc:
-                # Ignore missing optional deps in plugin-like modules.
-                if _strict_plugin_loading():
-                    raise
-                warnings.warn(
-                    f"[{self.name}] Skipping '{full_name}' due missing optional dependency: {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
+                _warn_or_raise_optional_import(
+                    registry_name=self.name,
+                    package_name=pkg.__name__,
+                    module_name=full_name,
+                    exc=exc,
                 )
 
     def snapshot_discovered_items(self, package: str | None = None) -> Dict[str, Callable[..., object]]:
@@ -100,12 +129,11 @@ class Registry:
                     try:
                         importlib.reload(sys.modules[full_name])
                     except ImportError as exc:
-                        if _strict_plugin_loading():
-                            raise
-                        warnings.warn(
-                            f"[{self.name}] Skipping '{full_name}' due missing optional dependency: {exc}",
-                            RuntimeWarning,
-                            stacklevel=2,
+                        _warn_or_raise_optional_import(
+                            registry_name=self.name,
+                            package_name=pkg.__name__,
+                            module_name=full_name,
+                            exc=exc,
                         )
             return dict(self._items)
         finally:

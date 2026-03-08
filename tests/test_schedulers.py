@@ -51,6 +51,27 @@ def test_onecycle_requires_batch_interval() -> None:
         )
 
 
+def test_cosineannealing_requires_resolvable_horizon_without_t_max() -> None:
+    optimizer = _make_optimizer()
+    with pytest.raises(ValueError, match="CosineAnnealingLR requires 'T_max'"):
+        schedulers_api.make_scheduler(
+            "cosineannealinglr",
+            optimizer,
+            interval="epoch",
+        )
+
+
+def test_linearlr_requires_resolvable_horizon_without_total_iters() -> None:
+    optimizer = _make_optimizer()
+    with pytest.raises(ValueError, match="LinearLR requires 'total_iters'"):
+        schedulers_api.make_scheduler(
+            "linearlr",
+            optimizer,
+            interval="batch",
+            epochs=4,
+        )
+
+
 def test_scheduler_can_be_loaded_from_capsule_plugin(tmp_path, monkeypatch) -> None:
     capsule_root = tmp_path / "capsule_with_scheduler"
     (capsule_root / "schedulers").mkdir(parents=True)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import copy
+import re
 from argparse import Namespace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from ..core.utils.display import normalize_display_mode
 from .defaults import DEFAULT_RL_CONFIG, DEFAULT_SUPERVISED_CONFIG
 from .schema import (
     CallbackSpec,
@@ -26,6 +28,9 @@ from .versioning import (
 )
 
 import tomllib
+
+
+_SET_BAREWORD_RE = re.compile(r"^[A-Za-z0-9_./:+-]+$")
 
 
 def _normalize_key(key: str) -> str:
@@ -87,8 +92,14 @@ def _coerce_scalar_from_toml(raw: str) -> Any:
     try:
         parsed = tomllib.loads(snippet)
         return parsed["value"]
-    except Exception:
-        return raw
+    except tomllib.TOMLDecodeError as exc:
+        token = str(raw).strip()
+        if _SET_BAREWORD_RE.fullmatch(token):
+            return token
+        raise ValueError(
+            f"Invalid --set value {raw!r}. Use valid TOML literals for structured values "
+            "and quote strings that contain spaces or special characters."
+        ) from exc
 
 
 def parse_set_overrides(entries: list[str] | tuple[str, ...]) -> dict[str, Any]:
@@ -240,14 +251,9 @@ def _reject_legacy_callback_config(merged: Mapping[str, Any]) -> None:
 def _display_from_runtime(runtime_raw: Mapping[str, Any]) -> str:
     if "verbose" in runtime_raw:
         raise ValueError("runtime.verbose has been removed. Use runtime.display = 'none'|'compact'|'rich'.")
-    token = str(runtime_raw.get("display", "") or "").strip().lower()
-    if token in {"none", "compact", "rich"}:
-        return token
-    if token in {"0", "false", "off", "silent", "quiet"}:
-        return "none"
-    if token in {"1", "true", "on"}:
+    if "display" not in runtime_raw:
         return "compact"
-    return "compact"
+    return normalize_display_mode(runtime_raw.get("display"), where="runtime.display")
 
 
 def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -81,6 +83,65 @@ def test_snapshot_discovered_items_handles_preloaded_modules(tmp_path) -> None:
         sys.path.remove(str(tmp_path))
         for mod_name in list(sys.modules):
             if mod_name == "demo_snapshot_pkg" or mod_name.startswith("demo_snapshot_pkg."):
+                sys.modules.pop(mod_name, None)
+
+
+def test_discover_warns_and_skips_missing_external_dependency(tmp_path) -> None:
+    pkg_root = tmp_path / "demo_optional_pkg"
+    pkg_root.mkdir(parents=True)
+
+    (pkg_root / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_root / "api.py").write_text(
+        "from lelabo.core.registry import Registry\n\n"
+        "REG = Registry('demo_optional', package='demo_optional_pkg')\n\n"
+        "def register(name):\n"
+        "    return REG.register(name)\n",
+        encoding="utf-8",
+    )
+    (pkg_root / "plugin.py").write_text(
+        "import definitely_missing_registry_dep\n",
+        encoding="utf-8",
+    )
+
+    sys.path.insert(0, str(tmp_path))
+    try:
+        api = importlib.import_module("demo_optional_pkg.api")
+        with pytest.warns(RuntimeWarning, match="missing optional dependency 'definitely_missing_registry_dep'"):
+            api.REG.discover()
+        assert api.REG.names() == []
+    finally:
+        sys.path.remove(str(tmp_path))
+        for mod_name in list(sys.modules):
+            if mod_name == "demo_optional_pkg" or mod_name.startswith("demo_optional_pkg."):
+                sys.modules.pop(mod_name, None)
+
+
+def test_discover_raises_on_internal_import_bug(tmp_path) -> None:
+    pkg_root = tmp_path / "demo_internal_pkg"
+    pkg_root.mkdir(parents=True)
+
+    (pkg_root / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_root / "api.py").write_text(
+        "from lelabo.core.registry import Registry\n\n"
+        "REG = Registry('demo_internal', package='demo_internal_pkg')\n\n"
+        "def register(name):\n"
+        "    return REG.register(name)\n",
+        encoding="utf-8",
+    )
+    (pkg_root / "plugin.py").write_text(
+        "from demo_internal_pkg import missing_symbol\n",
+        encoding="utf-8",
+    )
+
+    sys.path.insert(0, str(tmp_path))
+    try:
+        api = importlib.import_module("demo_internal_pkg.api")
+        with pytest.raises(ImportError):
+            api.REG.discover()
+    finally:
+        sys.path.remove(str(tmp_path))
+        for mod_name in list(sys.modules):
+            if mod_name == "demo_internal_pkg" or mod_name.startswith("demo_internal_pkg."):
                 sys.modules.pop(mod_name, None)
 
 

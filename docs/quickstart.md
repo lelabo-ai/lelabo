@@ -49,6 +49,7 @@ lelabo train supervised \
 ```
 
 Use `--set` when you want a quick ablation without editing the TOML file.
+Structured values must be valid TOML, and strings with spaces or special characters should be quoted.
 
 ## 5. Save a run directory
 

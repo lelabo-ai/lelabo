@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import re
 import sys
+import warnings
 from pathlib import Path
 from typing import Sequence
 
@@ -49,6 +50,35 @@ def _iter_plugin_files(capsule_root: Path, kind: str) -> list[Path]:
         for p in folder.glob("*.py")
         if p.is_file() and p.name != "__init__.py" and not p.name.startswith("_")
     )
+
+
+def _missing_module_name(exc: BaseException) -> str:
+    return str(getattr(exc, "name", "") or "").strip()
+
+
+def _looks_like_local_capsule_module(capsule_root: Path, missing_name: str) -> bool:
+    first = str(missing_name).strip().split(".", 1)[0]
+    if not first:
+        return False
+    candidates = (
+        capsule_root / f"{first}.py",
+        capsule_root / first / "__init__.py",
+        capsule_root / first,
+    )
+    return any(candidate.exists() for candidate in candidates)
+
+
+def _is_optional_capsule_dependency(exc: BaseException, *, capsule_root: Path) -> bool:
+    if not isinstance(exc, ModuleNotFoundError):
+        return False
+    missing_name = _missing_module_name(exc)
+    if not missing_name:
+        return False
+    if missing_name == "lelabo" or missing_name.startswith("lelabo."):
+        return False
+    if _looks_like_local_capsule_module(capsule_root, missing_name):
+        return False
+    return True
 
 
 def plugin_files_fingerprint(capsule_root: Path | None, *, kinds: Sequence[str]) -> tuple[tuple[str, tuple[tuple[str, int, int], ...]], ...]:
@@ -110,8 +140,20 @@ def load_capsule_plugins(
                 continue
             try:
                 mod_name = _load_plugin(path, kind)
-            except Exception as exc:  # pragma: no cover - surfaced to caller with path context
-                raise RuntimeError(f"Failed to load capsule plugin '{path}': {exc}") from exc
+            except Exception as exc:
+                if _is_optional_capsule_dependency(exc, capsule_root=root):
+                    warnings.warn(
+                        "Skipping capsule plugin due to missing optional dependency: "
+                        f"kind='{kind}', plugin='{path}', capsule_root='{root}', "
+                        f"missing_dependency='{_missing_module_name(exc)}'.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                raise RuntimeError(
+                    f"Failed to load capsule plugin kind='{kind}' at '{path}' "
+                    f"from capsule '{root}': {exc}"
+                ) from exc
             _LOADED_BY_FILE[key] = mod_name
             loaded.append(path)
     return loaded

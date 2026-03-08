@@ -116,6 +116,23 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
     assert trainer.display_mode == "compact"
 
 
+def test_trainer_rejects_invalid_display_mode() -> None:
+    model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+    task = task_api.ClassificationTask(num_classes=2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+    learner = backprop_api.Backprop(optimizer=optimizer)
+
+    with pytest.raises(ValueError, match="display_mode must be one of: none, compact, rich"):
+        trainer_api.Trainer(
+            model=model,
+            task=task,
+            learner=learner,
+            device="cpu",
+            display_mode="quiet",
+            metric_probes=[],
+        )
+
+
 def test_metric_build_rejects_invalid_positive_label() -> None:
     ctx = metrics_api.MetricContext(
         args=Namespace(),
@@ -126,3 +143,15 @@ def test_metric_build_rejects_invalid_positive_label() -> None:
     )
     with pytest.raises(ValueError, match="positive_label"):
         metrics_api.build_metric("precision", ctx)
+
+
+def test_metric_build_rejects_invalid_average() -> None:
+    ctx = metrics_api.MetricContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="iris",
+        algo="bp",
+        extra={"metric_params": {"f1": {"average": "weigthted"}}},
+    )
+    with pytest.raises(ValueError, match="Invalid metric param 'average'"):
+        metrics_api.build_metric("f1", ctx)

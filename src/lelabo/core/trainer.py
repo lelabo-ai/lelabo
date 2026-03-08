@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from .callbacks import Callback, EarlyStopping
+from .utils.display import normalize_display_mode
 from .utils.logger import RunLogger
 from .batch import infer_batch_size
 from .steps import compute_loss_and_stats
@@ -78,14 +79,8 @@ class Trainer:
 
     @staticmethod
     def _normalize_display_mode(mode: Any) -> str:
-        token = str(mode or "compact").strip().lower()
-        if token in {"none", "compact", "rich"}:
-            return token
-        if token in {"0", "false", "off", "quiet", "silent"}:
-            return "none"
-        if token in {"1", "true", "on"}:
-            return "compact"
-        return "compact"
+        token = mode if mode is not None else "compact"
+        return normalize_display_mode(token, where="display_mode")
 
     def _is_silent(self) -> bool:
         return self.display_mode == "none"

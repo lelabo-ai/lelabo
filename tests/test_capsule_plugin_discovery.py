@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -100,4 +102,47 @@ def test_active_capsule_registry_state_is_isolated_between_roots(tmp_path, monke
         assert model_a not in names_b
     finally:
         models_registry.MODEL_REGISTRY._items = original_model_items
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_capsule_plugin_missing_external_dependency_warns_and_skips(tmp_path) -> None:
+    capsule_root = tmp_path / "capsule_missing_dep"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_missing_dep\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    plugin_path = capsule_root / "models" / "missing_dep.py"
+    plugin_path.write_text(
+        "import definitely_missing_capsule_dep\n",
+        encoding="utf-8",
+    )
+
+    plugins.reset_capsule_plugin_cache()
+    try:
+        with pytest.warns(RuntimeWarning, match="missing_dependency='definitely_missing_capsule_dep'"):
+            loaded = plugins.load_capsule_plugins(kinds=("models",), capsule_root=capsule_root)
+        assert loaded == []
+    finally:
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_capsule_plugin_internal_import_error_raises_with_context(tmp_path) -> None:
+    capsule_root = tmp_path / "capsule_internal_bug"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_internal_bug\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    plugin_path = capsule_root / "models" / "broken.py"
+    plugin_path.write_text(
+        "from lelabo.models.registry import missing_symbol\n",
+        encoding="utf-8",
+    )
+
+    plugins.reset_capsule_plugin_cache()
+    try:
+        with pytest.raises(RuntimeError, match="kind='models'.*capsule_internal_bug"):
+            plugins.load_capsule_plugins(kinds=("models",), capsule_root=capsule_root)
+    finally:
         plugins.reset_capsule_plugin_cache()

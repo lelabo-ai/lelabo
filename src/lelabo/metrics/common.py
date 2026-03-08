@@ -20,9 +20,14 @@ def metric_params(ctx: MetricContext, *names: str) -> dict[str, Any]:
 
 
 def metric_average(params: dict[str, Any], default: str = "macro") -> str:
+    if "average" not in params:
+        return str(default)
     average = str(params.get("average", default)).strip().lower()
     if average not in {"macro", "micro", "weighted", "binary"}:
-        return str(default)
+        raise ValueError(
+            f"Invalid metric param 'average'={params.get('average')!r}. "
+            "Expected one of: macro, micro, weighted, binary."
+        )
     return average
 
 

@@ -135,3 +135,32 @@ def test_broken_installed_capsule_raises_runtime_error(tmp_path) -> None:
     finally:
         models_registry.MODEL_REGISTRY._items = original_items
         plugins.reset_capsule_plugin_cache()
+
+
+def test_installed_capsule_missing_external_dependency_warns_and_skips(tmp_path) -> None:
+    capsule_root = tmp_path / "capsule_missing_dep"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
+    (capsule_root / "models" / "missing_dep.py").write_text(
+        "import definitely_missing_installed_capsule_dep\n",
+        encoding="utf-8",
+    )
+
+    caps_dir = tmp_path / "caps_store"
+    capsule_registry.add_capsule_entry(
+        capsule_id="caps_missing_dep_id",
+        capsule_path=capsule_root,
+        manifest={"kind": "config_only", "created_at": "2026-02-22T00:00:00Z", "source": {"path": str(capsule_root)}},
+        alias="caps_missing_dep_alias",
+        capsules_dir=caps_dir,
+    )
+
+    original_items = dict(models_registry.MODEL_REGISTRY._items)
+    plugins.reset_capsule_plugin_cache()
+    try:
+        with pytest.warns(RuntimeWarning, match="missing_dependency='definitely_missing_installed_capsule_dep'"):
+            names = models_registry.get_model_names(capsules_dir=caps_dir)
+        assert "mlp" in names
+    finally:
+        models_registry.MODEL_REGISTRY._items = original_items
+        plugins.reset_capsule_plugin_cache()

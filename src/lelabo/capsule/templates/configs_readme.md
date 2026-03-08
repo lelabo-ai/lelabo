@@ -104,7 +104,7 @@ enabled = true
 [callbacks.params]
 monitor = "val.f1_macro"
 mode = "auto"
-patience = 10
+patience = 5
 min_delta = 0.0
 warmup = 5
 restore_best = true

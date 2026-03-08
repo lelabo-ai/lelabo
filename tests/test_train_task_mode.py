@@ -115,6 +115,26 @@ def test_runtime_display_config_is_exposed(tmp_path: Path) -> None:
     assert args.display == "none"
 
 
+def test_runtime_display_config_invalid_is_rejected(tmp_path: Path) -> None:
+    cfg = tmp_path / "train.toml"
+    cfg.write_text(
+        "\n".join(
+            [
+                'task = "supervised"',
+                "",
+                "[dataset]",
+                'name = "iris"',
+                "",
+                "[runtime]",
+                'display = "quiet"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="runtime.display must be one of: none, compact, rich"):
+        train_api.parse_train_args(["supervised", "--config", str(cfg)])
+
+
 def test_runtime_verbose_is_rejected(tmp_path: Path) -> None:
     cfg = tmp_path / "train.toml"
     cfg.write_text(
@@ -163,6 +183,18 @@ def test_supervised_set_override_wins(tmp_path: Path) -> None:
         ]
     )
     assert args.hidden == 1024
+
+
+def test_supervised_set_override_accepts_bareword_strings() -> None:
+    args = train_api.parse_train_args(["supervised", "--dataset", "iris", "--set", "model.name=mlp"])
+    assert args.model == "mlp"
+
+
+def test_supervised_set_override_rejects_malformed_structured_value() -> None:
+    with pytest.raises(ValueError, match="Invalid --set value"):
+        train_api.parse_train_args(
+            ["supervised", "--dataset", "iris", "--set", "model.params.hidden=[1,2"]
+        )
 
 
 def test_supervised_auto_discovers_project_train_toml(tmp_path: Path, monkeypatch) -> None:

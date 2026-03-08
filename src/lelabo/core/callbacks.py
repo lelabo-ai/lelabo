@@ -1,7 +1,6 @@
-# lab/core/callbacks.py
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional
 import math
 import torch
@@ -33,11 +32,11 @@ class Callback:
 @dataclass
 class EarlyStoppingConfig:
     monitor: str = "val.acc"          # e.g., "val.acc" or "val.loss"
-    mode: str = "max"                 # "max" for acc, "min" for loss
-    patience: int = 10
+    mode: str = "auto"                # "auto" | "max" | "min"
+    patience: int = 5
     min_delta: float = 0.0
     min_delta_mode: str = "abs"       # "abs" | "rel"
-    warmup_epochs: int = 0
+    warmup_epochs: int = 5
     check_every_n_epochs: int = 1
     restore_best: bool = True
     restore_optimizer: bool = False
@@ -48,12 +47,25 @@ class EarlyStoppingConfig:
 
 class EarlyStopping(Callback):
     def __init__(self, cfg: EarlyStoppingConfig):
-        self.cfg = cfg
-        self.best: float = -math.inf if cfg.mode == "max" else math.inf
+        normalized_mode = self._normalize_mode(cfg.mode, cfg.monitor)
+        self.cfg = replace(cfg, mode=normalized_mode)
+        self.best: float = -math.inf if self.cfg.mode == "max" else math.inf
         self.best_epoch: int = 0
         self.bad_epochs: int = 0
         self.best_state: Optional[Dict[str, Any]] = None
         self._has_best: bool = False
+
+    @staticmethod
+    def _normalize_mode(raw_mode: Any, monitor: str) -> str:
+        mode = str(raw_mode if raw_mode is not None else "auto").strip().lower()
+        if mode == "auto":
+            key = str(monitor).strip().lower()
+            if any(token in key for token in ("acc", "f1", "precision", "recall", "r2", "auc")):
+                return "max"
+            return "min"
+        if mode not in {"max", "min"}:
+            raise ValueError(f"Unsupported earlystopping mode '{raw_mode}'. Expected: auto|min|max.")
+        return mode
 
     def _is_improvement(self, value: float) -> bool:
         if not self._has_best:

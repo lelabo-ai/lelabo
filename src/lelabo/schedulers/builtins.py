@@ -32,19 +32,31 @@ def _parse_float_list(val: Any) -> list[float]:
     return [float(val)]
 
 
-def _resolve_epoch_or_batch_horizon(ctx: SchedulerContext, *, fallback: int = 10) -> int:
+def _resolve_epoch_or_batch_horizon(ctx: SchedulerContext, *, scheduler_name: str, explicit_param: str) -> int:
     interval = str(ctx.interval).strip().lower()
     if interval in {"batch", "step"}:
         if ctx.total_steps is not None:
             return int(ctx.total_steps)
-    if ctx.epochs is not None:
-        try:
-            epochs = int(ctx.epochs)
-            if epochs > 0:
-                return epochs
-        except Exception:
-            pass
-    return int(fallback)
+        raise ValueError(
+            f"{scheduler_name} requires '{explicit_param}' or a resolvable batch horizon "
+            "(epochs + steps_per_epoch)."
+        )
+    if ctx.epochs is None:
+        raise ValueError(
+            f"{scheduler_name} requires '{explicit_param}' or a positive epochs value "
+            "to resolve its horizon."
+        )
+    try:
+        epochs = int(ctx.epochs)
+    except Exception as exc:
+        raise ValueError(
+            f"{scheduler_name} received invalid epochs={ctx.epochs!r} while resolving '{explicit_param}'."
+        ) from exc
+    if epochs <= 0:
+        raise ValueError(
+            f"{scheduler_name} requires epochs > 0 when '{explicit_param}' is not provided."
+        )
+    return epochs
 
 
 @register_scheduler("steplr")
@@ -109,7 +121,11 @@ def build_cosine_annealing_lr(ctx: SchedulerContext):
     kwargs = ctx.scheduler_params()
     t_max = kwargs.pop("T_max", None)
     if t_max is None:
-        t_max = _resolve_epoch_or_batch_horizon(ctx, fallback=10)
+        t_max = _resolve_epoch_or_batch_horizon(
+            ctx,
+            scheduler_name="CosineAnnealingLR",
+            explicit_param="T_max",
+        )
     return torch.optim.lr_scheduler.CosineAnnealingLR(ctx.optimizer, T_max=int(t_max), **kwargs)
 
 
@@ -168,7 +184,11 @@ def build_linear_lr(ctx: SchedulerContext):
     kwargs = ctx.scheduler_params()
     total_iters = kwargs.pop("total_iters", None)
     if total_iters is None:
-        total_iters = _resolve_epoch_or_batch_horizon(ctx, fallback=10)
+        total_iters = _resolve_epoch_or_batch_horizon(
+            ctx,
+            scheduler_name="LinearLR",
+            explicit_param="total_iters",
+        )
     return torch.optim.lr_scheduler.LinearLR(ctx.optimizer, total_iters=int(total_iters), **kwargs)
 
 

@@ -42,6 +42,29 @@ def test_build_early_stopping_from_registry_context() -> None:
     assert callback.cfg.restore_learner_state is True
 
 
+def test_early_stopping_builder_defaults_match_core_defaults() -> None:
+    ctx = callbacks_api.CallbackContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="iris",
+        params={},
+    )
+    callback = callbacks_api.build_callback("earlystopping", ctx)
+    expected = core_callbacks.EarlyStopping(core_callbacks.EarlyStoppingConfig())
+    assert callback.cfg == expected.cfg
+
+
+def test_early_stopping_core_resolves_auto_mode() -> None:
+    loss_callback = core_callbacks.EarlyStopping(
+        core_callbacks.EarlyStoppingConfig(mode="auto", monitor="val.loss")
+    )
+    acc_callback = core_callbacks.EarlyStopping(
+        core_callbacks.EarlyStoppingConfig(mode="auto", monitor="val.acc")
+    )
+    assert loss_callback.cfg.mode == "min"
+    assert acc_callback.cfg.mode == "max"
+
+
 def test_parse_train_args_exposes_callbacks_list() -> None:
     args = train_api.parse_train_args(["supervised", "--dataset", "iris"])
     assert isinstance(args.callbacks, list)
