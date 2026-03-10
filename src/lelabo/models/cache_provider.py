@@ -8,7 +8,7 @@ import warnings
 import torch
 import torch.nn as nn
 
-from ..activations import CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES
+from ..core.activations import CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES
 from .blocks import BlockSpec, normalize_standard_cache
 from .cache_wrapper import ModelCacheWrapper
 

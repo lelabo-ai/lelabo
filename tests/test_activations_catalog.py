@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from lelabo.activations import (
+from lelabo.core.activations import (
     CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES,
     LOCAL_RULE_SUPPORTED_ACTIVATIONS,
     local_rule_activation_derivative_from_preact,

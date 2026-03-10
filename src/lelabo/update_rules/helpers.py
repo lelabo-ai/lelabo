@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from ..activations import (
+from ..core.activations import (
     LOCAL_RULE_SUPPORTED_ACTIVATIONS,
     local_rule_activation_derivative_from_preact,
     local_rule_activation_from_preact,
