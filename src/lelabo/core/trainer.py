@@ -35,7 +35,6 @@ class Trainer:
         task,
         learner,
         device: str = "cpu",
-        input_noise_training: float = 0.0,
         display_mode: str = "compact",
         callbacks: Optional[list[Callback]] = None,
         logger: Optional[RunLogger] = None,
@@ -44,7 +43,6 @@ class Trainer:
     ):
         self.model = model.to(device)
         self.task = task
-        self.input_noise_training = float(input_noise_training)
         self.learner = learner
         self.device = device
         self.logger = logger or RunLogger(run_dir=None)
@@ -264,13 +262,6 @@ class Trainer:
 
                     bs = int(max(1, infer_batch_size(batch)))
                     state.train_samples_seen += bs
-
-                    if self.input_noise_training > 0.0 and isinstance(batch, (tuple, list)) and len(batch) == 2:
-                        x, y = batch
-                        if torch.is_tensor(x) and x.is_floating_point():
-                            x = x.to(self.device)
-                            x = x + torch.randn_like(x) * self.input_noise_training
-                            batch = (x, y)
 
                     stats = self.learner.train_step(self.model, self.task, batch, self.device, state)
                     if not isinstance(stats, dict):

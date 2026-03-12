@@ -213,7 +213,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         task=task,
         learner=learner,
         device=args.device,
-        input_noise_training=args.input_noise_training,
         display_mode=str(getattr(args, "display", "compact")),
         callbacks=callbacks,
         logger=logger,

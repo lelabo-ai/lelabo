@@ -47,7 +47,6 @@ class SupervisedTrainSpec:
     epochs: int = 50
     batch: int = 64
     val_frac: float = 0.1
-    input_noise_training: float = 0.0
     input_noise_dataset: float = 0.0
     noise_on_test: bool = False
 

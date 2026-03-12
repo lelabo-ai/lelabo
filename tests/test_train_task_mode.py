@@ -160,6 +160,40 @@ def test_runtime_verbose_is_rejected(tmp_path: Path) -> None:
         train_api.parse_train_args(["supervised", "--config", str(cfg)])
 
 
+@pytest.mark.parametrize(
+    ("config_lines", "expected_error"),
+    [
+        (
+            [
+                'task = "supervised"',
+                "input_noise_training = 0.1",
+                "",
+                "[dataset]",
+                'name = "iris"',
+            ],
+            "Removed supervised config key",
+        ),
+        (
+            [
+                'task = "supervised"',
+                "",
+                "[dataset]",
+                'name = "iris"',
+                "",
+                "[train]",
+                "input_noise_training = 0.1",
+            ],
+            "train.input_noise_training has been removed",
+        ),
+    ],
+)
+def test_input_noise_training_is_rejected(tmp_path: Path, config_lines: list[str], expected_error: str) -> None:
+    cfg = tmp_path / "train.toml"
+    cfg.write_text("\n".join(config_lines), encoding="utf-8")
+    with pytest.raises(ValueError, match=expected_error):
+        train_api.parse_train_args(["supervised", "--config", str(cfg)])
+
+
 def test_supervised_set_override_wins(tmp_path: Path) -> None:
     cfg = tmp_path / "train.toml"
     cfg.write_text(

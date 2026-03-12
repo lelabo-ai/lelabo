@@ -278,7 +278,6 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
                 ("epochs", ["train", "epochs"]),
                 ("batch", ["train", "batch"]),
                 ("val_frac", ["train", "val_frac"]),
-                ("input_noise_training", ["train", "input_noise_training"]),
                 ("input_noise_dataset", ["train", "input_noise_dataset"]),
                 ("noise_on_test", ["train", "noise_on_test"]),
                 ("robustness", ["robustness", "mode"]),
@@ -351,6 +350,24 @@ def _validate_supervised(cfg: SupervisedConfig) -> None:
         raise ValueError("runtime.display must be one of: none, compact, rich.")
 
 
+def _reject_removed_supervised_keys(merged: Mapping[str, Any]) -> None:
+    removed_top_level = sorted(key for key in ("input_noise_training",) if key in merged)
+    if removed_top_level:
+        raise ValueError(
+            "Removed supervised config key(s): "
+            f"{removed_top_level}. Use dataset-level noise controls only: "
+            "train.input_noise_dataset and train.noise_on_test."
+        )
+
+    train_raw = merged.get("train", {})
+    if isinstance(train_raw, Mapping) and "input_noise_training" in train_raw:
+        raise ValueError(
+            "train.input_noise_training has been removed. "
+            "Use dataset-level noise controls only: "
+            "train.input_noise_dataset and train.noise_on_test."
+        )
+
+
 def _validate_rl(cfg: RLConfig) -> None:
     if str(cfg.config_version).strip() != TRAIN_CONFIG_SCHEMA_VERSION:
         raise ValueError(
@@ -387,6 +404,7 @@ def resolve_supervised_config(
 
     merged = _normalize_keys(merged)
     _apply_aliases(merged, mode="supervised")
+    _reject_removed_supervised_keys(merged)
     _reject_legacy_callback_config(merged)
     config_version = resolve_config_version(merged.get("config_version", TRAIN_CONFIG_SCHEMA_VERSION))
     lelabo_version = resolve_lelabo_version(merged.get("lelabo_version", "auto"))
@@ -420,7 +438,6 @@ def resolve_supervised_config(
         epochs=int(train_raw.get("epochs", 50)),
         batch=int(train_raw.get("batch", 64)),
         val_frac=float(train_raw.get("val_frac", 0.1)),
-        input_noise_training=float(train_raw.get("input_noise_training", 0.0)),
         input_noise_dataset=float(train_raw.get("input_noise_dataset", 0.0)),
         noise_on_test=bool(train_raw.get("noise_on_test", False)),
     )
@@ -565,7 +582,6 @@ def to_supervised_namespace(
         "lr_scheduler": cfg.scheduler.name,
         "lr_scheduler_interval": cfg.scheduler.interval,
         "lr_scheduler_monitor": cfg.scheduler.monitor,
-        "input_noise_training": float(cfg.train.input_noise_training),
         "input_noise_dataset": float(cfg.train.input_noise_dataset),
         "noise_on_test": int(bool(cfg.train.noise_on_test)),
         "val_frac": float(cfg.train.val_frac),

@@ -49,7 +49,6 @@ run_dir = "runs/supervised_demo"
 epochs = 50
 batch = 64
 val_frac = 0.1
-input_noise_training = 0.0
 input_noise_dataset = 0.0
 noise_on_test = false
 
