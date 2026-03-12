@@ -10,9 +10,23 @@ from .train_types import EpochRecord, FitResult, SplitSummary
 
 try:
     from rich.console import Console
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        TextColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+    )
     from rich.table import Table
 except ImportError:
     Console = None
+    BarColumn = None
+    MofNCompleteColumn = None
+    Progress = None
+    TextColumn = None
+    TimeElapsedColumn = None
+    TimeRemainingColumn = None
     Table = None
 
 try:
@@ -90,6 +104,7 @@ class _BaseTextReporter(Reporter):
         self._console = Console() if (Console is not None and Table is not None) else None
         self._metric_keys: list[str] = []
         self._progress_active = False
+        self._progress_console: Any | None = None
         self._global_bar: Any | None = None
         self._epoch_bar: Any | None = None
         self._epochs_total: int = 0
@@ -99,16 +114,19 @@ class _BaseTextReporter(Reporter):
 
     def _emit_text(self, line: str) -> None:
         text = str(line)
-        if self._progress_active and self._is_progress_enabled():
+        if self._global_bar is not None and self._is_progress_enabled():
             tqdm.write(text)
             return
         print(text)
 
     def _emit_rich(self, renderable: Any) -> None:
+        if self._progress_console is not None:
+            self._progress_console.print(renderable)
+            return
         if self._console is None:
             self._emit_text(str(renderable))
             return
-        if self._progress_active and self._is_progress_enabled():
+        if self._global_bar is not None and self._is_progress_enabled():
             with tqdm.external_write_mode():
                 self._console.print(renderable)
             return
@@ -129,6 +147,13 @@ class _BaseTextReporter(Reporter):
             leave=True,
             position=0,
             dynamic_ncols=True,
+            mininterval=0.08,
+            smoothing=0.08,
+            colour="cyan",
+            bar_format=(
+                "{desc:<8} {percentage:>3.0f}%|{bar}| "
+                "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+            ),
         )
         self._progress_active = True
 
@@ -145,10 +170,17 @@ class _BaseTextReporter(Reporter):
             self._epoch_bar.close()
         self._epoch_bar = tqdm(
             total=train_batches,
-            desc=f"E{int(epoch):03d}/{int(epochs):03d}",
+            desc=f"Epoch {int(epoch)}/{int(epochs)}",
             leave=False,
             position=1,
             dynamic_ncols=True,
+            mininterval=0.08,
+            smoothing=0.08,
+            colour="green",
+            bar_format=(
+                "{desc:<12} {percentage:>3.0f}%|{bar}| "
+                "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+            ),
         )
         self._progress_active = True
 
@@ -163,6 +195,7 @@ class _BaseTextReporter(Reporter):
             self._global_bar.close()
             self._global_bar = None
         self._progress_active = False
+        self._progress_console = None
 
     @staticmethod
     def _fmt_scalar(key: str, value: Any) -> str:
@@ -228,6 +261,24 @@ class _BaseTextReporter(Reporter):
             postfix["lr"] = self._fmt_scalar("lr", lr)
         return postfix
 
+    def _batch_postfix_str(
+        self,
+        *,
+        train_summary: SplitSummary,
+        lr: float | None,
+    ) -> str:
+        pieces: list[str] = []
+        postfix = self._batch_postfix(train_summary=train_summary, lr=lr)
+        for key in ("loss", "metric"):
+            if key in postfix:
+                pieces.append(f"{key}={postfix[key]}")
+        for key in self._metric_keys:
+            if key in postfix and key not in {"loss", "metric"}:
+                pieces.append(f"{key}={postfix[key]}")
+        if "lr" in postfix:
+            pieces.append(f"lr={postfix['lr']}")
+        return "  ".join(pieces)
+
 
 class CompactReporter(_BaseTextReporter):
     def on_run_start(
@@ -287,10 +338,13 @@ class CompactReporter(_BaseTextReporter):
         _ = (batch_idx, train_batches, global_batches_total, state)
         if self._epoch_bar is not None:
             self._epoch_bar.update(1)
-            self._epoch_bar.set_postfix(self._batch_postfix(train_summary=train_summary, lr=lr))
+            self._epoch_bar.set_postfix_str(
+                self._batch_postfix_str(train_summary=train_summary, lr=lr),
+                refresh=False,
+            )
         if self._global_bar is not None:
             self._global_bar.update(1)
-            self._global_bar.set_postfix(epoch=f"{int(epoch)}/{int(epochs)}")
+            self._global_bar.set_postfix_str(f"epoch={int(epoch)}/{int(epochs)}", refresh=False)
 
     def on_epoch_end(self, epoch_record: EpochRecord, state: Any | None = None) -> None:
         _ = state
@@ -356,6 +410,69 @@ class RichReporter(_BaseTextReporter):
         super().__init__()
         if self._console is None or Table is None:
             raise RuntimeError("RichReporter requires the 'rich' package.")
+        if Progress is None:
+            raise RuntimeError("RichReporter requires rich.progress.")
+        self._progress: Any | None = None
+        self._global_task_id: Any | None = None
+        self._epoch_task_id: Any | None = None
+
+    def _ensure_rich_progress(
+        self,
+        *,
+        global_batches_total: int | None,
+        global_batches_completed: int,
+    ) -> None:
+        if self._progress is None:
+            self._progress = Progress(
+                TextColumn("[bold]{task.description:<12}[/bold]"),
+                TextColumn("{task.percentage:>3.0f}%", justify="right"),
+                BarColumn(bar_width=None, complete_style="cyan", finished_style="bright_cyan"),
+                MofNCompleteColumn(),
+                TimeElapsedColumn(),
+                TextColumn("•", style="dim"),
+                TimeRemainingColumn(),
+                TextColumn("{task.fields[meta]}", style="dim"),
+                console=self._console,
+                transient=False,
+                expand=True,
+                refresh_per_second=10,
+            )
+            self._progress.start()
+            self._progress_console = self._progress.console
+            self._progress_active = True
+        if self._global_task_id is None:
+            self._global_task_id = self._progress.add_task(
+                "[cyan]Global[/cyan]",
+                total=global_batches_total,
+                completed=int(max(0, global_batches_completed)),
+                meta="",
+            )
+
+    def _stop_rich_progress(self) -> None:
+        if self._progress is not None:
+            self._progress.stop()
+        self._progress = None
+        self._global_task_id = None
+        self._epoch_task_id = None
+        self._progress_console = None
+        self._progress_active = False
+
+    def _rich_batch_meta(
+        self,
+        *,
+        train_summary: SplitSummary,
+        lr: float | None,
+    ) -> str:
+        pieces: list[str] = [f"loss {self._fmt_scalar('loss', train_summary.loss)}"]
+        metric_value = self._progress_metric_value(train_summary)
+        if metric_value is not None:
+            pieces.append(f"metric {self._fmt_scalar('metric', metric_value)}")
+        for key in self._metric_keys:
+            if key in train_summary.scalars:
+                pieces.append(f"{key} {self._fmt_scalar(key, train_summary.scalars[key])}")
+        if isinstance(lr, (int, float)):
+            pieces.append(f"lr {self._fmt_scalar('lr', lr)}")
+        return "  ".join(pieces)
 
     def on_run_start(
         self,
@@ -388,14 +505,26 @@ class RichReporter(_BaseTextReporter):
     ) -> None:
         _ = state
         self._epochs_total = int(epochs)
-        self._ensure_global_progress(
+        self._ensure_rich_progress(
             global_batches_total=global_batches_total,
             global_batches_completed=global_batches_completed,
         )
-        self._open_epoch_progress(
-            epoch=epoch,
-            epochs=epochs,
-            train_batches=train_batches,
+        if self._progress is None:
+            return
+        if self._global_task_id is not None:
+            self._progress.update(
+                self._global_task_id,
+                total=global_batches_total,
+                completed=int(max(0, global_batches_completed)),
+                meta=f"epoch {int(epoch)}/{int(epochs)}",
+            )
+        if self._epoch_task_id is not None:
+            self._progress.remove_task(self._epoch_task_id)
+        self._epoch_task_id = self._progress.add_task(
+            f"[green]Epoch {int(epoch)}/{int(epochs)}[/green]",
+            total=train_batches,
+            completed=0,
+            meta="",
         )
 
     def on_batch_end(
@@ -412,20 +541,34 @@ class RichReporter(_BaseTextReporter):
         state: Any | None = None,
     ) -> None:
         _ = (batch_idx, train_batches, global_batches_total, state)
-        if self._epoch_bar is not None:
-            self._epoch_bar.update(1)
-            self._epoch_bar.set_postfix(self._batch_postfix(train_summary=train_summary, lr=lr))
-        if self._global_bar is not None:
-            self._global_bar.update(1)
-            self._global_bar.set_postfix(epoch=f"{int(epoch)}/{int(epochs)}")
+        if self._progress is None:
+            return
+        if self._epoch_task_id is not None:
+            self._progress.update(
+                self._epoch_task_id,
+                completed=int(batch_idx),
+                meta=self._rich_batch_meta(train_summary=train_summary, lr=lr),
+            )
+        if self._global_task_id is not None:
+            self._progress.update(
+                self._global_task_id,
+                total=global_batches_total,
+                completed=int(max(0, global_batches_completed)),
+                meta=f"epoch {int(epoch)}/{int(epochs)}",
+            )
 
     def on_epoch_end(self, epoch_record: EpochRecord, state: Any | None = None) -> None:
         _ = state
-        self._close_epoch_progress()
+        if self._progress is not None and self._epoch_task_id is not None:
+            self._progress.update(
+                self._epoch_task_id,
+                completed=int(epoch_record.train.num_batches),
+                meta=self._rich_batch_meta(train_summary=epoch_record.train, lr=epoch_record.lr),
+            )
         title = f"Epoch {int(epoch_record.epoch)} summary"
         if self._epochs_total > 0:
             title = f"Epoch {int(epoch_record.epoch)}/{int(self._epochs_total)} summary"
-        table = Table(title=title, show_lines=False)
+        table = Table(title=title, show_lines=False, header_style="bold cyan")
         table.add_column("split", justify="left")
         table.add_column("loss", justify="right")
         table.add_column("metric", justify="right")
@@ -486,7 +629,7 @@ class RichReporter(_BaseTextReporter):
 
     def on_run_end(self, fit_result: FitResult, state: Any | None = None) -> None:
         _ = state
-        self._close_all_progress()
+        self._stop_rich_progress()
         final_epoch = fit_result.final_epoch
         best_str = (
             f"best_{fit_result.best.monitor_name}="
@@ -512,7 +655,10 @@ def make_reporter(display_mode: Any) -> tuple[str, Reporter]:
         return mode, NullReporter()
     if mode == "compact":
         return mode, CompactReporter()
-    if Console is None or Table is None:
+    if any(
+        item is None
+        for item in (Console, Table, Progress, BarColumn, MofNCompleteColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn)
+    ):
         warnings.warn(
             "display='rich' was requested but package 'rich' is not installed. "
             "Falling back to display='compact'. Install it with: pip install rich",
