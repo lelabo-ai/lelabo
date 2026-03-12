@@ -69,26 +69,36 @@ def test_trainer_fit_final_metrics_track_last_completed_epoch(monkeypatch: pytes
     )
     loader = _dummy_loader()
 
-    def _eval(_loader, split=None):
-        _ = (_loader, split)
-        return dict(val_stats_by_epoch[int(trainer.state.epoch)])
+    def _eval(_loader, *, split=None, emit_report=False, invoke_callbacks=False):
+        _ = (_loader, emit_report, invoke_callbacks)
+        values = dict(val_stats_by_epoch[int(trainer.state.epoch)])
+        metric = float(values.pop("metric"))
+        loss = float(values.pop("loss"))
+        return trainer_api.SplitSummary(
+            split=split,
+            loss=loss,
+            metric=metric,
+            scalars={str(k): float(v) for k, v in values.items()},
+            num_samples=4,
+            num_batches=2,
+            duration_sec=0.01,
+        )
 
-    monkeypatch.setattr(trainer, "evaluate", _eval)
+    monkeypatch.setattr(trainer, "_evaluate", _eval)
     result = trainer.fit(loader, epochs=3, show_progress=False, val_loader=loader)
 
-    assert result["best_train_loss"] == pytest.approx(1.0, rel=1e-6)
-    assert result["best_train_metric"] == pytest.approx(0.6, rel=1e-6)
-    assert result["final_train_loss"] == pytest.approx(2.0, rel=1e-6)
-    assert result["final_train_metric"] == pytest.approx(0.4, rel=1e-6)
-    assert result["best_val_loss"] == pytest.approx(0.3, rel=1e-6)
-    assert result["best_val_metric"] == pytest.approx(0.9, rel=1e-6)
-    assert result["final_val_loss"] == pytest.approx(0.8, rel=1e-6)
-    assert result["final_val_metric"] == pytest.approx(0.3, rel=1e-6)
-    assert result["best_epoch_by_val"] == 2
-    assert result["restored_best_model"] is False
-    assert result["restored_best_epoch"] is None
-    assert "run_avg_train_loss" not in result
-    assert "run_avg_train_metric" not in result
+    assert result.best.train_loss == pytest.approx(1.0, rel=1e-6)
+    assert result.best.train_metric == pytest.approx(0.6, rel=1e-6)
+    assert result.final_epoch.train.loss == pytest.approx(2.0, rel=1e-6)
+    assert result.final_epoch.train.metric == pytest.approx(0.4, rel=1e-6)
+    assert result.best.val_loss == pytest.approx(0.3, rel=1e-6)
+    assert result.best.val_metric == pytest.approx(0.9, rel=1e-6)
+    assert result.final_epoch.val is not None
+    assert result.final_epoch.val.loss == pytest.approx(0.8, rel=1e-6)
+    assert result.final_epoch.val.metric == pytest.approx(0.3, rel=1e-6)
+    assert result.best.epoch_by_val == 2
+    assert result.restoration.restored_best_model is False
+    assert result.restoration.restored_best_epoch is None
 
 
 def test_trainer_fit_reports_restore_best_without_overwriting_final_epoch_metrics(
@@ -124,18 +134,30 @@ def test_trainer_fit_reports_restore_best_without_overwriting_final_epoch_metric
     )
     loader = _dummy_loader()
 
-    def _eval(_loader, split=None):
-        _ = (_loader, split)
-        return dict(val_stats_by_epoch[int(trainer.state.epoch)])
+    def _eval(_loader, *, split=None, emit_report=False, invoke_callbacks=False):
+        _ = (_loader, emit_report, invoke_callbacks)
+        values = dict(val_stats_by_epoch[int(trainer.state.epoch)])
+        metric = float(values.pop("metric"))
+        loss = float(values.pop("loss"))
+        return trainer_api.SplitSummary(
+            split=split,
+            loss=loss,
+            metric=metric,
+            scalars={str(k): float(v) for k, v in values.items()},
+            num_samples=4,
+            num_batches=2,
+            duration_sec=0.01,
+        )
 
-    monkeypatch.setattr(trainer, "evaluate", _eval)
+    monkeypatch.setattr(trainer, "_evaluate", _eval)
     result = trainer.fit(loader, epochs=5, show_progress=False, val_loader=loader)
 
-    assert result["final_train_loss"] == pytest.approx(4.0, rel=1e-6)
-    assert result["final_train_metric"] == pytest.approx(0.2, rel=1e-6)
-    assert result["final_val_loss"] == pytest.approx(0.9, rel=1e-6)
-    assert result["final_val_metric"] == pytest.approx(0.1, rel=1e-6)
-    assert result["best_epoch_by_val"] == 1
-    assert result["restored_best_model"] is True
-    assert result["restored_best_epoch"] == 1
+    assert result.final_epoch.train.loss == pytest.approx(4.0, rel=1e-6)
+    assert result.final_epoch.train.metric == pytest.approx(0.2, rel=1e-6)
+    assert result.final_epoch.val is not None
+    assert result.final_epoch.val.loss == pytest.approx(0.9, rel=1e-6)
+    assert result.final_epoch.val.metric == pytest.approx(0.1, rel=1e-6)
+    assert result.best.epoch_by_val == 1
+    assert result.restoration.restored_best_model is True
+    assert result.restoration.restored_best_epoch == 1
     assert float(model.weight.item()) == pytest.approx(1.0, rel=1e-6)

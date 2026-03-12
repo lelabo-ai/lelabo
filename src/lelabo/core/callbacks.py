@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 import math
 import torch
 
+from .train_types import EpochRecord, FitResult, MonitorStatus, RestorationStatus, SplitSummary
+
 
 class Callback:
     def on_train_start(self, trainer: Any, state: Any | None = None) -> None:
@@ -16,16 +18,16 @@ class Callback:
     def on_batch_start(self, trainer: Any, state: Any | None = None) -> None:
         pass
 
-    def on_batch_end(self, trainer: Any, state: Any | None = None, logs: Dict[str, float] | None = None) -> None:
+    def on_batch_end(self, trainer: Any, state: Any | None = None, logs: Dict[str, Any] | None = None) -> None:
         pass
 
-    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float], state: Any | None = None) -> None:
+    def on_epoch_end(self, trainer: Any, epoch_record: EpochRecord, state: Any | None = None) -> None:
         pass
 
-    def on_eval_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
+    def on_eval_end(self, trainer: Any, split_summary: SplitSummary, state: Any | None = None) -> None:
         pass
 
-    def on_train_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
+    def on_train_end(self, trainer: Any, fit_result: FitResult, state: Any | None = None) -> None:
         pass
 
 
@@ -54,6 +56,7 @@ class EarlyStopping(Callback):
         self.bad_epochs: int = 0
         self.best_state: Optional[Dict[str, Any]] = None
         self._has_best: bool = False
+        self._improved_this_epoch: bool = False
 
     @staticmethod
     def _normalize_mode(raw_mode: Any, monitor: str) -> str:
@@ -163,12 +166,34 @@ class EarlyStopping(Callback):
                 if key in train_state_payload:
                     setattr(state, key, int(train_state_payload[key]))
 
-    def on_epoch_end(self, trainer: Any, epoch: int, logs: Dict[str, float], state: Any | None = None) -> None:
-        if self.cfg.check_every_n_epochs > 1 and (int(epoch) % int(self.cfg.check_every_n_epochs)) != 0:
+    def _logs_from_epoch_record(self, epoch_record: EpochRecord) -> dict[str, float]:
+        return epoch_record.to_log_values()
+
+    def status(self) -> MonitorStatus:
+        return MonitorStatus(
+            name=str(self.cfg.monitor),
+            mode=str(self.cfg.mode),
+            best_value=(None if not self._has_best else float(self.best)),
+            best_epoch=(None if not self._has_best else int(self.best_epoch)),
+            improved_this_epoch=bool(self._improved_this_epoch),
+            wait_epochs=int(self.bad_epochs),
+            patience=int(self.cfg.patience),
+        )
+
+    def restoration_status(self) -> RestorationStatus:
+        restored = bool(self.cfg.restore_best and self.best_state is not None)
+        epoch = int(self.best_epoch) if restored and self.best_epoch > 0 else None
+        return RestorationStatus(restored_best_model=restored, restored_best_epoch=epoch)
+
+    def on_epoch_end(self, trainer: Any, epoch_record: EpochRecord, state: Any | None = None) -> None:
+        epoch = int(epoch_record.epoch)
+        self._improved_this_epoch = False
+        if self.cfg.check_every_n_epochs > 1 and (epoch % int(self.cfg.check_every_n_epochs)) != 0:
             return
         if epoch <= self.cfg.warmup_epochs:
             return
 
+        logs = self._logs_from_epoch_record(epoch_record)
         if self.cfg.monitor not in logs:
             return
 
@@ -178,17 +203,26 @@ class EarlyStopping(Callback):
             self._has_best = True
             self.best_epoch = epoch
             self.bad_epochs = 0
+            self._improved_this_epoch = True
             if self.cfg.restore_best:
                 self.best_state = self._capture_state(trainer, self.cfg)
         else:
             self.bad_epochs += 1
             if self.bad_epochs >= self.cfg.patience:
-                trainer.stop_training = True
-                trainer.stop_reason = (
+                reason = (
                     f"EarlyStopping: no improvement in '{self.cfg.monitor}' "
                     f"for {self.cfg.patience} epochs (best={self.best:.6f} at epoch {self.best_epoch})."
                 )
+                request_stop = getattr(trainer, "request_stop", None)
+                if callable(request_stop):
+                    request_stop(reason)
+                else:
+                    trainer.stop_training = True
+                    trainer.stop_reason = reason
+                if state is not None and hasattr(state, "request_stop"):
+                    state.request_stop(reason)
 
-    def on_train_end(self, trainer: Any, logs: Dict[str, float], state: Any | None = None) -> None:
+    def on_train_end(self, trainer: Any, fit_result: FitResult, state: Any | None = None) -> None:
+        _ = (fit_result, state)
         if self.cfg.restore_best and self.best_state is not None:
             self._restore_state(trainer, self.best_state)

@@ -229,7 +229,7 @@ def test_early_stopping_integration_stops_iris_training_early(tmp_path, monkeypa
             train_epochs += 1
 
     assert train_epochs == 2
-    assert 1 <= int(summary["train"]["best_epoch_by_val"]) <= 2
+    assert 1 <= int(summary["train"]["best"]["epoch_by_val"]) <= 2
 
 
 def test_trainer_detects_early_stopping_subclass_by_type() -> None:
@@ -281,27 +281,9 @@ def test_trainer_detects_early_stopping_subclass_by_type() -> None:
         callbacks=[callback],
     )
 
-    class _DummyConsole:
-        @staticmethod
-        def print(*_args, **_kwargs):
-            return None
-
-    trainer._console = _DummyConsole()
-    trainer._is_silent = lambda: False
-    trainer._is_rich = lambda: True
-    trainer._print_run_header = lambda **_kwargs: None
-    trainer._emit_rich = lambda *_args, **_kwargs: None
-
-    captured_monitor_names: list[str] = []
-
-    def _capture_epoch(**kwargs):
-        captured_monitor_names.append(str(kwargs.get("best_monitor_name", "")))
-
-    trainer._print_epoch_rich = _capture_epoch
-
     x = torch.randn(12, 4)
     y = torch.randint(0, 3, (12,))
     loader = DataLoader(TensorDataset(x, y), batch_size=6, shuffle=False)
-    trainer.fit(loader, epochs=1, show_progress=False, val_loader=None)
-    assert captured_monitor_names
-    assert captured_monitor_names[-1] == "train.loss"
+    result = trainer.fit(loader, epochs=1, show_progress=False, val_loader=None)
+    assert result.final_epoch.monitor is not None
+    assert result.final_epoch.monitor.name == "train.loss"

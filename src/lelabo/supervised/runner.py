@@ -206,7 +206,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         ctx=metric_ctx,
         task_kind="regression" if bool(is_regression) else "classification",
     )
-    metric_probes = [build_metric(name, metric_ctx) for name in requested_metrics]
+    metrics = [build_metric(name, metric_ctx) for name in requested_metrics]
 
     trainer = Trainer(
         model=model,
@@ -220,27 +220,28 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         schedulers=schedulers,
         scheduler_interval=getattr(args, "lr_scheduler_interval", "epoch"),
         scheduler_monitor=getattr(args, "lr_scheduler_monitor", "val.loss"),
-        metric_probes=metric_probes,
+        metrics=metrics,
     )
 
     summary: Dict[str, Any] = {"args": vars(args)}
 
     # train (pass val_loader!)
-    summary["train"] = trainer.fit(
+    train_result = trainer.fit(
         train_loader,
         epochs=args.epochs,
         show_progress=True,
         val_loader=val_loader
     )
+    summary["train"] = train_result.to_dict()
 
     # eval
     eval_block: Dict[str, Any] = {}
     if args.dataset == "glue":
         for split_name, vloader in val_loaders.items():
             res = trainer.evaluate(vloader, split=split_name)
-            eval_block[split_name] = res
+            eval_block[split_name] = res.to_dict()
     else:
-        eval_block["test"] = trainer.evaluate(test_loader, split="test")
+        eval_block["test"] = trainer.evaluate(test_loader, split="test").to_dict()
     summary["eval"] = eval_block
 
     # robustness

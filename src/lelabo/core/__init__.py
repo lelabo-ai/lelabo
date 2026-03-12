@@ -5,15 +5,18 @@ from __future__ import annotations
 import importlib
 
 __all__ = [
+    "accumulators",
     "activations",
     "batch",
     "callbacks",
     "display",
     "logger",
     "registry",
+    "reporters",
     "seed",
     "steps",
     "state",
+    "train_types",
     "trainer",
 ]
 

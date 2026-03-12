@@ -91,10 +91,10 @@ def test_builtin_regression_metrics_compute_from_payload(
     expected_key: str,
     expected_value: float,
 ) -> None:
-    probe = metrics_api.build_metric(metric_name, _ctx())
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(
-        None,
+    metric = metrics_api.build_metric(metric_name, _ctx())
+    metric.reset("train", None)
+    metric.update(
+        "train",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([1.0, 2.0, 3.0]),
             metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([1.0, 4.0, 1.0]),
@@ -103,7 +103,7 @@ def test_builtin_regression_metrics_compute_from_payload(
         batch_size=3,
         state=None,
     )
-    out = probe.on_epoch_end(None, 1, None)
+    out = metric.compute("train", None)
     assert expected_key in out
     assert out[expected_key] == pytest.approx(expected_value, rel=1e-6)
 
@@ -145,10 +145,10 @@ def test_register_streaming_classification_metric_smoke() -> None:
     assert getattr(builder, "__metric_kind__", None) == "classification"
     assert getattr(builder, "__metric_params__", None) == ("bonus",)
 
-    probe = builder(_ctx(extra={"metric_params": {name: {"bonus": 0.25}}}))
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(
-        None,
+    metric = builder(_ctx(extra={"metric_params": {name: {"bonus": 0.25}}}))
+    metric.reset("train", None)
+    metric.update(
+        "train",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1, 1, 0]),
             metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([0, 1, 0, 0]),
@@ -157,11 +157,10 @@ def test_register_streaming_classification_metric_smoke() -> None:
         batch_size=4,
         state=None,
     )
-    out = probe.on_epoch_end(None, 1, None)
+    out = metric.compute("train", None)
     assert output_key in out
     assert out[output_key] == pytest.approx(1.0, rel=1e-6)
-    assert hasattr(probe, "_train_state")
-    assert not isinstance(probe._train_state, list)
+    assert hasattr(metric, "_state_by_split")
 
 
 def test_register_streaming_regression_metric_smoke() -> None:
@@ -195,10 +194,10 @@ def test_register_streaming_regression_metric_smoke() -> None:
     builder = metrics_registry.METRIC_REGISTRY.get(name)
     assert getattr(builder, "__metric_kind__", None) == "regression"
 
-    probe = builder(_ctx(extra={"metric_params": {name: {"shift": 0.5}}}))
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(
-        None,
+    metric = builder(_ctx(extra={"metric_params": {name: {"shift": 0.5}}}))
+    metric.reset("train", None)
+    metric.update(
+        "train",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([1.0, 2.0]),
             metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([1.0, 5.0]),
@@ -207,11 +206,10 @@ def test_register_streaming_regression_metric_smoke() -> None:
         batch_size=2,
         state=None,
     )
-    out = probe.on_epoch_end(None, 1, None)
+    out = metric.compute("train", None)
     assert output_key in out
     assert out[output_key] == pytest.approx(2.0, rel=1e-6)
-    assert hasattr(probe, "_train_state")
-    assert not isinstance(probe._train_state, list)
+    assert hasattr(metric, "_state_by_split")
 
 
 def test_register_streaming_scalar_metric_smoke() -> None:
@@ -236,15 +234,14 @@ def test_register_streaming_scalar_metric_smoke() -> None:
     builder = metrics_registry.METRIC_REGISTRY.get(name)
     assert getattr(builder, "__metric_kind__", None) == "scalar"
 
-    probe = builder(_ctx(extra={"metric_params": {name: {"scale": 2.0}}}))
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(None, stats={"my_loss": 1.0}, batch_size=2, state=None)
-    probe.on_batch_end(None, stats={"my_loss": 3.0}, batch_size=1, state=None)
-    out = probe.on_epoch_end(None, 1, None)
+    metric = builder(_ctx(extra={"metric_params": {name: {"scale": 2.0}}}))
+    metric.reset("train", None)
+    metric.update("train", stats={"my_loss": 1.0}, batch_size=2, state=None)
+    metric.update("train", stats={"my_loss": 3.0}, batch_size=1, state=None)
+    out = metric.compute("train", None)
     assert output_key in out
     assert out[output_key] == pytest.approx((5.0 / 3.0) * 2.0, rel=1e-6)
-    assert hasattr(probe, "_train_state")
-    assert not isinstance(probe._train_state, list)
+    assert hasattr(metric, "_state_by_split")
 
 
 def test_streaming_metrics_keep_split_states_separate() -> None:
@@ -258,10 +255,10 @@ def test_streaming_metrics_keep_split_states_separate() -> None:
                 return None
             return float(confusion_matrix.diag().sum().item() / total)
 
-    probe = _Accuracy()
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(
-        None,
+    metric = _Accuracy()
+    metric.reset("train", None)
+    metric.update(
+        "train",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1]),
             metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([0, 1]),
@@ -270,11 +267,10 @@ def test_streaming_metrics_keep_split_states_separate() -> None:
         batch_size=2,
         state=None,
     )
-    train_out = probe.on_epoch_end(None, 1, None)
+    train_out = metric.compute("train", None)
 
-    probe.on_eval_start(None, "val", None)
-    probe.on_eval_batch_end(
-        None,
+    metric.reset("val", None)
+    metric.update(
         "val",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1]),
@@ -284,11 +280,11 @@ def test_streaming_metrics_keep_split_states_separate() -> None:
         batch_size=2,
         state=None,
     )
-    eval_out = probe.on_eval_end(None, "val", None)
+    eval_out = metric.compute("val", None)
 
     assert train_out["stream_acc"] == pytest.approx(1.0, rel=1e-6)
     assert eval_out["stream_acc"] == pytest.approx(0.5, rel=1e-6)
-    assert probe.on_train_end(None, None)["stream_acc"] == pytest.approx(1.0, rel=1e-6)
+    assert metric.finalize(None)["stream_acc"] == pytest.approx(1.0, rel=1e-6)
 
 
 def test_register_metric_rejects_invalid_kind() -> None:

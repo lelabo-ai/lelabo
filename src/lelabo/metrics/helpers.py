@@ -6,7 +6,7 @@ from typing import Any
 
 import torch
 
-from .base import TrainingMetric
+from .base import TrainerMetric
 from .payload import extract_metric_payload
 
 
@@ -78,12 +78,16 @@ class _ClassificationState:
         self.cm += bincount
 
 
-class _StreamingMetricBase(TrainingMetric, ABC):
+class _StreamingMetricBase(TrainerMetric, ABC):
     def __init__(self, *, output_key: str):
         self.output_key = str(output_key)
-        self._train_state = self.make_state()
-        self._eval_state = self.make_state()
-        self._last_train: float | None = None
+        self._state_by_split: dict[str, Any] = {}
+        self._last_by_split: dict[str, dict[str, float]] = {}
+
+    @staticmethod
+    def _normalize_split(split: str | None) -> str:
+        token = str(split or "").strip().lower()
+        return token or "eval"
 
     @abstractmethod
     def make_state(self) -> Any:
@@ -103,53 +107,38 @@ class _StreamingMetricBase(TrainingMetric, ABC):
     def compute_from_state(self, state: Any) -> float | None:
         raise NotImplementedError
 
-    def on_epoch_start(self, trainer, epoch: int, state: Any | None = None) -> None:
-        self._train_state = self.make_state()
+    def reset(self, split: str, state: Any | None = None) -> None:
+        _ = state
+        self._state_by_split[self._normalize_split(split)] = self.make_state()
 
-    def on_batch_end(
+    def update(
         self,
-        trainer,
+        split: str,
         stats: dict[str, Any],
         batch_size: int,
         state: Any | None = None,
     ) -> None:
-        self.update_state(self._train_state, stats=stats, batch_size=batch_size)
+        _ = state
+        split_key = self._normalize_split(split)
+        if split_key not in self._state_by_split:
+            self._state_by_split[split_key] = self.make_state()
+        self.update_state(self._state_by_split[split_key], stats=stats, batch_size=batch_size)
 
-    def on_epoch_end(self, trainer, epoch: int, state: Any | None = None) -> dict[str, float]:
-        value = self.compute_from_state(self._train_state)
+    def compute(self, split: str, state: Any | None = None) -> dict[str, float]:
+        _ = state
+        split_key = self._normalize_split(split)
+        if split_key not in self._state_by_split:
+            return {}
+        value = self.compute_from_state(self._state_by_split[split_key])
         if value is None:
             return {}
-        self._last_train = float(value)
-        return {self.output_key: float(self._last_train)}
+        out = {self.output_key: float(value)}
+        self._last_by_split[split_key] = dict(out)
+        return out
 
-    def on_train_end(self, trainer, state: Any | None = None) -> dict[str, float]:
-        if self._last_train is None:
-            return {}
-        return {self.output_key: float(self._last_train)}
-
-    def on_eval_start(self, trainer, split: str | None, state: Any | None = None) -> None:
-        self._eval_state = self.make_state()
-
-    def on_eval_batch_end(
-        self,
-        trainer,
-        split: str | None,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        self.update_state(self._eval_state, stats=stats, batch_size=batch_size)
-
-    def on_eval_end(
-        self,
-        trainer,
-        split: str | None,
-        state: Any | None = None,
-    ) -> dict[str, float]:
-        value = self.compute_from_state(self._eval_state)
-        if value is None:
-            return {}
-        return {self.output_key: float(value)}
+    def finalize(self, state: Any | None = None) -> dict[str, float]:
+        _ = state
+        return dict(self._last_by_split.get("train", {}))
 
 
 class ClassificationStreamingMetric(_StreamingMetricBase, ABC):
@@ -277,3 +266,261 @@ class ClassificationMetricBase(ClassificationStreamingMetric):
 
 class RegressionMetricBase(RegressionStreamingMetric):
     """Backward-compatible alias for the streaming regression base."""
+
+
+def _safe_float(value: Any) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    out = float(value)
+    if not torch.isfinite(torch.tensor(out)):
+        return None
+    return out
+
+
+@dataclass
+class _BuiltinMetricState:
+    scalar: _ScalarState
+    cls: _ClassificationState
+    reg: _RegressionState
+
+
+def _new_builtin_state() -> _BuiltinMetricState:
+    return _BuiltinMetricState(
+        scalar=_ScalarState(),
+        cls=_ClassificationState(),
+        reg=_RegressionState(),
+    )
+
+
+class BuiltinStreamingMetric(_StreamingMetricBase):
+    def __init__(
+        self,
+        *,
+        metric: str,
+        output_key: str,
+        average: str = "macro",
+        positive_label: int = 1,
+    ):
+        super().__init__(output_key=output_key)
+        self.metric = str(metric).strip().lower()
+        self.average = str(average).strip().lower()
+        self.positive_label = int(positive_label)
+
+    def make_state(self) -> _BuiltinMetricState:
+        return _new_builtin_state()
+
+    def update_state(
+        self,
+        state: _BuiltinMetricState,
+        *,
+        stats: dict[str, Any],
+        batch_size: int,
+    ) -> None:
+        payload = extract_metric_payload(stats)
+        if payload is not None:
+            if self.metric in {"accuracy", "precision", "recall", "f1"} and payload.kind == "classification":
+                state.cls.update(payload.y_true, payload.y_pred)
+                return
+            if self.metric in {"mse", "mae", "rmse", "r2"} and payload.kind == "regression":
+                state.reg.update(payload.y_true, payload.y_pred)
+                return
+
+        fallback = self._fallback_value(stats)
+        if fallback is None:
+            return
+        state.scalar.update(fallback, float(max(1, int(batch_size))))
+
+    def _fallback_value(self, stats: dict[str, Any]) -> float | None:
+        keys: list[str]
+        if self.metric == "accuracy":
+            keys = [self.output_key, "acc", "accuracy"]
+        elif self.metric == "precision":
+            keys = [self.output_key, "precision"]
+        elif self.metric == "recall":
+            keys = [self.output_key, "recall"]
+        elif self.metric == "f1":
+            keys = [self.output_key, "f1"]
+        elif self.metric in {"mse", "mae", "rmse", "r2"}:
+            keys = [self.output_key, self.metric]
+        else:
+            return None
+        for key in keys:
+            value = _safe_float(stats.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def compute_from_state(self, state: _BuiltinMetricState) -> float | None:
+        if self.metric == "accuracy":
+            return _coalesce(_classification_accuracy(state.cls.cm), _scalar_value(state.scalar))
+        if self.metric == "precision":
+            return _coalesce(
+                _classification_precision(state.cls.cm, average=self.average, positive_label=self.positive_label),
+                _scalar_value(state.scalar),
+            )
+        if self.metric == "recall":
+            return _coalesce(
+                _classification_recall(state.cls.cm, average=self.average, positive_label=self.positive_label),
+                _scalar_value(state.scalar),
+            )
+        if self.metric == "f1":
+            return _coalesce(
+                _classification_f1(state.cls.cm, average=self.average, positive_label=self.positive_label),
+                _scalar_value(state.scalar),
+            )
+        if self.metric == "mse":
+            return _coalesce(_regression_mse(state.reg), _scalar_value(state.scalar))
+        if self.metric == "mae":
+            return _coalesce(_regression_mae(state.reg), _scalar_value(state.scalar))
+        if self.metric == "rmse":
+            return _coalesce(_regression_rmse(state.reg), _scalar_value(state.scalar))
+        if self.metric == "r2":
+            return _coalesce(_regression_r2(state.reg), _scalar_value(state.scalar))
+        return None
+
+
+def _scalar_value(state: _ScalarState) -> float | None:
+    if state.weight_sum <= 0.0:
+        return None
+    return float(state.value_sum / state.weight_sum)
+
+
+def _classification_total(cm: torch.Tensor) -> float:
+    if cm.numel() == 0:
+        return 0.0
+    return float(cm.sum().item())
+
+
+def _classification_accuracy(cm: torch.Tensor) -> float | None:
+    total = _classification_total(cm)
+    if total <= 0.0:
+        return None
+    return float(cm.diag().sum().item() / total)
+
+
+def _classification_stats(cm: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    tp = cm.diag()
+    fp = cm.sum(dim=0) - tp
+    fn = cm.sum(dim=1) - tp
+    support = cm.sum(dim=1)
+    return tp, fp, fn, support
+
+
+def _average_by_mode(values: torch.Tensor, *, support: torch.Tensor, average: str) -> float | None:
+    if values.numel() == 0:
+        return None
+    valid = support > 0
+    if not bool(valid.any()):
+        return 0.0
+    if average == "weighted":
+        weights = support[valid]
+        denom = float(weights.sum().item())
+        if denom <= 0.0:
+            return 0.0
+        return float((values[valid] * weights).sum().item() / denom)
+    return float(values[valid].mean().item())
+
+
+def _classification_precision(cm: torch.Tensor, *, average: str, positive_label: int) -> float | None:
+    tp, fp, _, support = _classification_stats(cm)
+    if tp.numel() == 0:
+        return None
+    if average == "micro":
+        den = float((tp + fp).sum().item())
+        if den <= 0.0:
+            return 0.0
+        return float(tp.sum().item() / den)
+    if average == "binary":
+        idx = int(max(0, min(int(positive_label), int(tp.numel() - 1))))
+        den = float((tp[idx] + fp[idx]).item())
+        if den <= 0.0:
+            return 0.0
+        return float(tp[idx].item() / den)
+    per_class = torch.where((tp + fp) > 0.0, tp / (tp + fp), torch.zeros_like(tp))
+    return _average_by_mode(per_class, support=support, average=average)
+
+
+def _classification_recall(cm: torch.Tensor, *, average: str, positive_label: int) -> float | None:
+    tp, _, fn, support = _classification_stats(cm)
+    if tp.numel() == 0:
+        return None
+    if average == "micro":
+        den = float((tp + fn).sum().item())
+        if den <= 0.0:
+            return 0.0
+        return float(tp.sum().item() / den)
+    if average == "binary":
+        idx = int(max(0, min(int(positive_label), int(tp.numel() - 1))))
+        den = float((tp[idx] + fn[idx]).item())
+        if den <= 0.0:
+            return 0.0
+        return float(tp[idx].item() / den)
+    per_class = torch.where((tp + fn) > 0.0, tp / (tp + fn), torch.zeros_like(tp))
+    return _average_by_mode(per_class, support=support, average=average)
+
+
+def _classification_f1(cm: torch.Tensor, *, average: str, positive_label: int) -> float | None:
+    tp, fp, fn, support = _classification_stats(cm)
+    if tp.numel() == 0:
+        return None
+    if average == "micro":
+        den_p = float((tp + fp).sum().item())
+        den_r = float((tp + fn).sum().item())
+        if den_p <= 0.0 or den_r <= 0.0:
+            return 0.0
+        precision = float(tp.sum().item() / den_p)
+        recall = float(tp.sum().item() / den_r)
+        den = precision + recall
+        if den <= 0.0:
+            return 0.0
+        return float((2.0 * precision * recall) / den)
+    if average == "binary":
+        idx = int(max(0, min(int(positive_label), int(tp.numel() - 1))))
+        p_den = float((tp[idx] + fp[idx]).item())
+        r_den = float((tp[idx] + fn[idx]).item())
+        precision = 0.0 if p_den <= 0.0 else float(tp[idx].item() / p_den)
+        recall = 0.0 if r_den <= 0.0 else float(tp[idx].item() / r_den)
+        den = precision + recall
+        if den <= 0.0:
+            return 0.0
+        return float((2.0 * precision * recall) / den)
+    precision = torch.where((tp + fp) > 0.0, tp / (tp + fp), torch.zeros_like(tp))
+    recall = torch.where((tp + fn) > 0.0, tp / (tp + fn), torch.zeros_like(tp))
+    den = precision + recall
+    f1 = torch.where(den > 0.0, (2.0 * precision * recall) / den, torch.zeros_like(den))
+    return _average_by_mode(f1, support=support, average=average)
+
+
+def _regression_mse(state: _RegressionState) -> float | None:
+    if state.count <= 0.0:
+        return None
+    return float(state.sse / state.count)
+
+
+def _regression_mae(state: _RegressionState) -> float | None:
+    if state.count <= 0.0:
+        return None
+    return float(state.sae / state.count)
+
+
+def _regression_rmse(state: _RegressionState) -> float | None:
+    mse = _regression_mse(state)
+    if mse is None:
+        return None
+    return float(torch.sqrt(torch.tensor(mse)).item())
+
+
+def _regression_r2(state: _RegressionState) -> float | None:
+    if state.count <= 0.0:
+        return None
+    mean_y = state.sum_y / state.count
+    sst = state.sum_y2 - state.count * mean_y * mean_y
+    if sst <= 0.0:
+        return 0.0
+    return float(1.0 - (state.sse / sst))
+
+
+def _coalesce(primary: float | None, secondary: float | None) -> float | None:
+    if primary is not None:
+        return primary
+    return secondary

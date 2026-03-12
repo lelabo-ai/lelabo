@@ -1,5 +1,6 @@
-from .base import TrainingMetric
+from .base import TrainerMetric
 from .helpers import (
+    BuiltinStreamingMetric,
     ClassificationStreamingMetric,
     ClassificationMetricBase,
     RegressionStreamingMetric,
@@ -21,7 +22,8 @@ from .registry import (
 from . import builtins as _builtins  # noqa: F401
 
 __all__ = [
-    "TrainingMetric",
+    "TrainerMetric",
+    "BuiltinStreamingMetric",
     "ScalarMeanMetric",
     "ScalarStreamingMetric",
     "ClassificationStreamingMetric",

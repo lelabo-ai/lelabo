@@ -14,6 +14,7 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 metrics_api = importlib.import_module("lelabo.metrics")
 metrics_payload = importlib.import_module("lelabo.metrics.payload")
+reporters_api = importlib.import_module("lelabo.core.reporters")
 trainer_api = importlib.import_module("lelabo.core.trainer")
 task_api = importlib.import_module("lelabo.supervised.tasks")
 backprop_api = importlib.import_module("lelabo.update_rules.builtins.backprop")
@@ -25,7 +26,7 @@ def test_builtin_metric_names_are_registered() -> None:
         assert required in names
 
 
-def test_builtin_f1_macro_probe_computes_from_payload() -> None:
+def test_builtin_f1_macro_metric_computes_from_payload() -> None:
     ctx = metrics_api.MetricContext(
         args=Namespace(),
         mode="supervised",
@@ -33,10 +34,10 @@ def test_builtin_f1_macro_probe_computes_from_payload() -> None:
         algo="bp",
         extra={"metric_params": {"f1": {"average": "macro"}}},
     )
-    probe = metrics_api.build_metric("f1", ctx)
-    probe.on_epoch_start(None, 1, None)
-    probe.on_batch_end(
-        None,
+    metric = metrics_api.build_metric("f1", ctx)
+    metric.reset("train", None)
+    metric.update(
+        "train",
         stats={
             metrics_payload.METRIC_Y_TRUE_KEY: torch.tensor([0, 1, 1, 0]),
             metrics_payload.METRIC_Y_PRED_KEY: torch.tensor([0, 1, 0, 0]),
@@ -45,7 +46,7 @@ def test_builtin_f1_macro_probe_computes_from_payload() -> None:
         batch_size=4,
         state=None,
     )
-    out = probe.on_epoch_end(None, 1, None)
+    out = metric.compute("train", None)
     assert "f1_macro" in out
     assert out["f1_macro"] == pytest.approx((0.8 + (2.0 / 3.0)) / 2.0, rel=1e-6)
 
@@ -70,7 +71,7 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
         algo="bp",
         extra={"metric_params": {"f1": {"average": "macro"}}},
     )
-    probe = metrics_api.build_metric("f1", ctx)
+    metric = metrics_api.build_metric("f1", ctx)
 
     trainer = trainer_api.Trainer(
         model=model,
@@ -78,15 +79,14 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
         learner=learner,
         device="cpu",
         display_mode="none",
-        metric_probes=[probe],
+        metrics=[metric],
     )
 
     train_out = trainer.fit(train_loader, epochs=1, show_progress=False, val_loader=val_loader)
-    assert "final_custom_metrics" in train_out
-    assert "f1_macro" in train_out["final_custom_metrics"]
+    assert "f1_macro" in train_out.final_epoch.train.scalars
 
     eval_out = trainer.evaluate(val_loader, split="val")
-    assert "f1_macro" in eval_out
+    assert "f1_macro" in eval_out.scalars
 
 
 def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,8 +101,8 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
     learner = backprop_api.Backprop(optimizer=optimizer)
 
-    monkeypatch.setattr(trainer_api, "Console", None, raising=True)
-    monkeypatch.setattr(trainer_api, "Table", None, raising=True)
+    monkeypatch.setattr(reporters_api, "Console", None, raising=True)
+    monkeypatch.setattr(reporters_api, "Table", None, raising=True)
 
     with pytest.warns(UserWarning, match="display='rich'.*pip install rich"):
         trainer = trainer_api.Trainer(
@@ -111,7 +111,7 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
             learner=learner,
             device="cpu",
             display_mode="rich",
-            metric_probes=[],
+            metrics=[],
         )
     assert trainer.display_mode == "compact"
 
@@ -129,7 +129,7 @@ def test_trainer_rejects_invalid_display_mode() -> None:
             learner=learner,
             device="cpu",
             display_mode="quiet",
-            metric_probes=[],
+            metrics=[],
         )
 
 

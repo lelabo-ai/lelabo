@@ -1,56 +1,38 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 
-class TrainingMetric:
-    """Optional training-time metric hook."""
+class TrainerMetric:
+    """Optional training/evaluation metric aggregated by the Trainer."""
 
     name: str = "metric"
 
-    def on_train_start(self, trainer, state: Any | None = None) -> None:
-        pass
-
-    def on_epoch_start(self, trainer, epoch: int, state: Any | None = None) -> None:
-        pass
-
-    def on_batch_end(
+    def reset(
         self,
-        trainer,
-        stats: dict[str, Any],
+        split: str,
+        state: Any | None = None,
+    ) -> None:
+        _ = (split, state)
+
+    def update(
+        self,
+        split: str,
+        stats: Mapping[str, Any],
         batch_size: int,
         state: Any | None = None,
     ) -> None:
-        pass
+        _ = (split, stats, batch_size, state)
 
-    def on_epoch_end(self, trainer, epoch: int, state: Any | None = None) -> dict[str, float]:
-        return {}
-
-    def on_eval_start(
+    def compute(
         self,
-        trainer,
-        split: str | None,
-        state: Any | None = None,
-    ) -> None:
-        pass
-
-    def on_eval_batch_end(
-        self,
-        trainer,
-        split: str | None,
-        stats: dict[str, Any],
-        batch_size: int,
-        state: Any | None = None,
-    ) -> None:
-        pass
-
-    def on_eval_end(
-        self,
-        trainer,
-        split: str | None,
+        split: str,
         state: Any | None = None,
     ) -> dict[str, float]:
+        _ = (split, state)
         return {}
 
-    def on_train_end(self, trainer, state: Any | None = None) -> dict[str, float]:
+    def finalize(self, state: Any | None = None) -> dict[str, float]:
+        _ = state
         return {}

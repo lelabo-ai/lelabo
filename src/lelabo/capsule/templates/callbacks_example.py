@@ -15,8 +15,11 @@ from lelabo.core.callbacks import Callback
 # def build_my_callback_minimal(ctx: CallbackContext):
 #     # Minimal object can implement only the hooks it needs.
 #     class _Minimal:
-#         def on_epoch_end(self, trainer, epoch: int, logs: dict[str, float], state: Any | None = None) -> None:
-#             print(f"[my_callback_minimal] epoch={epoch} train.loss={logs.get('train.loss')}")
+#         def on_epoch_end(self, trainer, epoch_record, state: Any | None = None) -> None:
+#             print(
+#                 f"[my_callback_minimal] epoch={epoch_record.epoch} "
+#                 f"train.loss={epoch_record.train.loss:.6f}"
+#             )
 #
 #     return _Minimal()
 #
@@ -33,14 +36,18 @@ from lelabo.core.callbacks import Callback
 #     def on_train_start(self, trainer, state: Any | None = None) -> None:
 #         self.best = float("inf")
 #
-#     def on_epoch_end(self, trainer, epoch: int, logs: dict[str, float], state: Any | None = None) -> None:
-#         if (int(epoch) % self.every_n_epochs) != 0:
+#     def on_epoch_end(self, trainer, epoch_record, state: Any | None = None) -> None:
+#         if (int(epoch_record.epoch) % self.every_n_epochs) != 0:
 #             return
+#         logs = epoch_record.to_log_values()
 #         if self.key in logs and isinstance(logs[self.key], (int, float)):
 #             value = float(logs[self.key])
 #             if value < self.best:
 #                 self.best = value
-#             print(f"[detailed_callback] epoch={epoch} {self.key}={value:.6f} best={self.best:.6f}")
+#             print(
+#                 f"[detailed_callback] epoch={epoch_record.epoch} "
+#                 f"{self.key}={value:.6f} best={self.best:.6f}"
+#             )
 #
 #
 # @register_callback("my_callback_detailed")
