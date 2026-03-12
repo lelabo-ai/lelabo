@@ -39,20 +39,25 @@ Useful helper:
 from lelabo.models.registry import build_model
 ```
 
-## Tasks
+## Supervised runtime
 
-Supervised tasks live in `src/lelabo/core/task.py`.
+The supervised stack is built around:
 
-Common entrypoints:
+- a regular PyTorch `nn.Module`
+- a callable loss from `lelabo.losses`
+- an update rule from `lelabo.update_rules`
+- optional streaming metrics from `lelabo.metrics`
+- the supervised `Trainer`
 
-- `ClassificationTask`
-- `GLUETask`
+From Python, the runtime entrypoint worth knowing is:
 
-These objects define:
+```python
+from lelabo.core.trainer import Trainer
+```
 
-- `loss(...)`
-- `metrics(...)`
-- `output_deltas(...)` when needed by local rules
+The CLI composes this stack for you through `lelabo train supervised`.
+
+The important design point is that supervised training no longer exposes a separate `task` object in the public API. Losses, metrics, and local-rule teaching signals are handled through their dedicated components.
 
 ## Cache provider
 

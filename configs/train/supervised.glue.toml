@@ -3,15 +3,12 @@ lelabo_version = "auto"
 task = "supervised"
 
 [dataset]
-name = "iris"
+name = "glue"
 [dataset.params]
 
 [model]
-name = "mlp"
+name = "bert"
 [model.params]
-hidden = 128
-layers = 2
-activation = "relu"
 
 [initializer]
 name = "torch_default"
@@ -28,8 +25,14 @@ name = "bp"
 [optimizer]
 name = "adamw"
 [optimizer.params]
-lr = 0.001
-weight_decay = 0.0
+lr = 2e-5
+weight_decay = 0.01
+
+[scheduler]
+name = "none"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
 
 [runtime]
 device = "auto"
@@ -38,8 +41,8 @@ determinism = "relaxed"
 display = "compact"
 
 [train]
-epochs = 20
-batch = 32
+epochs = 3
+batch = 16
 val_frac = 0.1
 input_noise_dataset = 0.0
 noise_on_test = false
@@ -48,12 +51,29 @@ noise_on_test = false
 name = "earlystopping"
 enabled = true
 [callbacks.params]
-monitor = "val.acc"
+monitor = "train.loss"
 mode = "auto"
-patience = 5
+patience = 2
 min_delta = 0.0
-warmup = 3
+warmup = 0
 restore_best = true
+
+[robustness]
+mode = "none"
+trials = 30
+max_samples = 0
+[robustness.params]
+
+[hf]
+glue_task = "sst2"
+model = "bert-base-uncased"
+trust_remote_code = false
+max_length = 128
 
 [[metrics]]
 name = "acc"
+
+[[metrics]]
+name = "f1"
+[metrics.params]
+average = "macro"

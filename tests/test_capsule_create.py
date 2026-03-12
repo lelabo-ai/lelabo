@@ -57,6 +57,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "configs" / "README.md").exists()
     assert (out / "configs" / "train.supervised.quickstart.toml").exists()
     assert (out / "configs" / "train.supervised.detailed.toml").exists()
+    assert (out / "configs" / "train.supervised.capsule_optimizer.toml").exists()
     assert (out / "configs" / "train.rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
@@ -91,6 +92,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_initializer" in readme_text
     assert "register_loss" in readme_text
     assert "register_callback" in readme_text
+    assert "capsule_sgd" in readme_text
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick
@@ -98,6 +100,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert 'config_version = "auto"' not in cfg_quick
     assert "layered config resolution" in configs_readme.lower()
     assert "train.supervised.quickstart.toml" in configs_readme
+    assert "train.supervised.capsule_optimizer.toml" in configs_readme
     assert "initializers/example.py" in configs_readme
     assert "losses/example.py" in configs_readme
     row = registry.get_capsule("demo_capsule", capsules_dir)

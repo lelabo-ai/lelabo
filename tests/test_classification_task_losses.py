@@ -40,3 +40,14 @@ def test_bce_teaching_signal_matches_analytic_delta() -> None:
     exp_delta = (probs - targets) / (probs * (1.0 - probs))
     exp_delta = exp_delta / float(probs.numel())
     assert torch.allclose(got_delta, exp_delta)
+
+
+def test_mse_accepts_single_output_regression_logits() -> None:
+    pred = torch.tensor([[1.25], [2.75], [0.5]], dtype=torch.float32)
+    target = torch.tensor([1.0, 3.0, 0.0], dtype=torch.float32)
+
+    loss_fn = loss_api.make_loss("mse")
+    got_loss = loss_fn(pred, target)
+    exp_loss = torch.nn.MSELoss()(pred.view(-1), target.view(-1))
+
+    assert torch.allclose(got_loss, exp_loss)

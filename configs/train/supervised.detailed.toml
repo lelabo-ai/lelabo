@@ -5,23 +5,20 @@ task = "supervised"
 [dataset]
 name = "cifar10"
 [dataset.params]
-# CIFAR10/CIFAR100:
-# - augment=false (default) => no train-time augmentation
-# - augment=true => RandomCrop(32, padding=4) + RandomHorizontalFlip on train split only
 augment = false
 # num_workers = 2
 # pin_memory = true
 
 [model]
-name = "drtp_addon"
-
+name = "cnn"
 [model.params]
-topology = "CONV_32_5_1_2_FC_1000_FC_10"
-conv_act = "relu"
-hidden_act = "relu"
-output_act = "identity"
-dropout = 0.0
-fc_zero_init = false
+channels = [64, 128, 256]
+kernel_sizes = [3, 3, 3]
+use_bn = true
+pool_every = 1
+activation = "relu"
+output_activation = "identity"
+head_mode = "gap"
 
 [initializer]
 name = "torch_default"
@@ -29,19 +26,19 @@ name = "torch_default"
 # seed = 2
 
 [update_rule]
-name = "drtp"
+name = "bp"
 [update_rule.params]
-#activation = "tanh"
 
 [loss]
 name = "ce"
 [loss.params]
 
 [optimizer]
-name = "adamw"
+name = "sgd+momentum"
 [optimizer.params]
-lr = 2e-5
-weight_decay = 0.01
+lr = 0.05
+weight_decay = 5e-4
+momentum = 0.9
 
 [scheduler]
 name = "none"
@@ -55,12 +52,12 @@ monitor = "val.loss"
 device = "auto"
 seed = 2
 determinism = "relaxed"
-display = "compact"  # one of: none, compact, rich
-# run_dir = "outputs/runs/my_run"
+display = "compact"
+# run_dir = "outputs/runs/cifar10_bp"
 
 [train]
-epochs = 3
-batch = 256
+epochs = 20
+batch = 128
 val_frac = 0.1
 input_noise_dataset = 0.0
 noise_on_test = false
@@ -71,7 +68,7 @@ enabled = true
 [callbacks.params]
 monitor = "val.acc"
 mode = "auto"
-patience = 10
+patience = 8
 min_delta = 0.0
 warmup = 5
 restore_best = true
@@ -86,7 +83,7 @@ max_samples = 0
 [hf]
 glue_task = "sst2"
 model = "bert-base-uncased"
-trust_remote_code = true
+trust_remote_code = false
 max_length = 128
 
 [[metrics]]

@@ -125,6 +125,8 @@ def build_mse(ctx: LossContext):
     def _fn(pred: torch.Tensor, target: Any) -> torch.Tensor:
         if torch.is_tensor(target) and target.dim() == pred.dim():
             t = target.to(device=pred.device, dtype=pred.dtype)
+        elif torch.is_tensor(target) and pred.dim() == 2 and int(pred.size(1)) == 1 and target.dim() == 1:
+            t = target.to(device=pred.device, dtype=pred.dtype).view(-1, 1)
         elif pred.dim() == 2:
             t = _classification_targets(
                 target,

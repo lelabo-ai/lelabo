@@ -5,13 +5,18 @@ import torch
 from lelabo.optimizers import OptimizerContext, register_optimizer
 
 
-# @register_optimizer("my_sgd")
-# def build_my_sgd(ctx: OptimizerContext):
+# Uncomment this block for the official capsule optimizer golden path:
+#   mnist + cnn + bp + capsule_sgd
+# Then run:
+#   lelabo list optimizers
+#   lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+#
+# @register_optimizer("capsule_sgd")
+# def build_capsule_sgd(ctx: OptimizerContext):
 #     # Minimal builder using the normalized context.
 #     return torch.optim.SGD(
 #         ctx.params,
 #         lr=ctx.lr,
-#         momentum=ctx.momentum,
 #         weight_decay=ctx.weight_decay,
 #     )
 #

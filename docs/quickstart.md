@@ -17,7 +17,7 @@ lelabo list update-rules
 ## 2. Run a first supervised experiment
 
 ```bash
-lelabo train supervised --dataset iris --model mlp --algo bp
+lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
 
 This is the simplest baseline:
@@ -26,11 +26,64 @@ This is the simplest baseline:
 - model: `mlp`
 - update rule: `bp`
 
-## 3. Run from a config file
+## 3. Run the official BP vision path
 
 ```bash
 lelabo train supervised --config configs/train/supervised.detailed.toml
 ```
+
+This is the main vision baseline:
+
+- dataset: `cifar10`
+- model: built-in convnet (`cnn`)
+- update rule: `bp`
+
+## 4. Create a capsule and add a custom optimizer
+
+```bash
+lelabo create capsule my_capsule
+cd my_capsule
+```
+
+Open `optimizers/example.py`, enable the `capsule_sgd` starter, then inspect discovery:
+
+```bash
+lelabo list optimizers
+```
+
+Run the capsule optimizer path:
+
+```bash
+lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+```
+
+This path proves that you can inject your own optimizer without forking the built-in package.
+
+## 5. Run the official GLUE / BERT path
+
+```bash
+lelabo train supervised --config configs/train/supervised.glue.toml
+```
+
+This is the main NLP baseline:
+
+- dataset: `glue/sst2`
+- model: `bert`
+- update rule: `bp`
+
+## 6. Run the official local-rule path
+
+```bash
+lelabo train supervised --config configs/train/supervised.local_rule.toml
+```
+
+This is the main non-BP reference path:
+
+- dataset: `mnist`
+- model: `mlp`
+- update rule: `dfa`
+
+## 7. Override nested config values
 
 The supervised CLI also supports auto-detection when no config is passed. It looks for:
 
@@ -38,8 +91,6 @@ The supervised CLI also supports auto-detection when no config is passed. It loo
 - `train.toml`
 - `configs/train.supervised.toml`
 - `configs/train.toml`
-
-## 4. Override nested config values
 
 ```bash
 lelabo train supervised \
@@ -51,7 +102,7 @@ lelabo train supervised \
 Use `--set` when you want a quick ablation without editing the TOML file.
 Structured values must be valid TOML, and strings with spaces or special characters should be quoted.
 
-## 5. Save a run directory
+## 8. Save a run directory
 
 ```bash
 lelabo train supervised \
@@ -62,31 +113,3 @@ lelabo train supervised \
 ```
 
 This writes run metadata and metrics files in the target directory.
-
-## 6. Create a capsule
-
-```bash
-lelabo create capsule --name my_capsule
-```
-
-A capsule is the recommended way to add custom models, datasets, update rules, and metrics without modifying the built-in package directly.
-
-## 7. Example supervised commands
-
-CNN on CIFAR-10:
-
-```bash
-lelabo train supervised --dataset cifar10 --model cnn --algo bp
-```
-
-ResNet on CIFAR-10:
-
-```bash
-lelabo train supervised --dataset cifar10 --model resnet18 --algo bp
-```
-
-GLUE / BERT-style run:
-
-```bash
-lelabo train supervised --dataset glue --model bert --algo bp
-```

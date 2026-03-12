@@ -24,15 +24,23 @@ LeLabo currently provides:
 ## Typical workflow
 
 1. Inspect what is available with `lelabo list`.
-2. Launch a baseline training run from the CLI.
-3. Switch model, optimizer, or update rule through config or CLI overrides.
-4. Add custom components through a capsule when the built-ins are not enough.
+2. Launch a baseline BP run from the CLI.
+3. Create a capsule when you want to inject your own optimizer, model, metric, or rule.
+4. Move to CIFAR-10, GLUE, or local-rule configs once the baseline path is clear.
 
 ## Example
 
 ```bash
 lelabo train supervised --dataset iris --model mlp --algo bp
 ```
+
+Official supervised onboarding paths:
+
+- BP tabular: `iris + mlp + bp`
+- Capsule path: custom `capsule_sgd` on `mnist + cnn + bp`
+- BP vision: `cifar10 + cnn + bp`
+- BP NLP: `glue/sst2 + bert + bp`
+- Local-rule path: `mnist + mlp + dfa`
 
 ## Documentation
 

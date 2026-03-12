@@ -7,18 +7,22 @@ name = "mnist"
 [dataset.params]
 
 [model]
-name = "mlp"
+name = "cnn"
 [model.params]
-hidden = 2048
-layers = 4
+channels = [32, 64, 128]
+kernel_sizes = [3, 3, 3]
+use_bn = true
+pool_every = 1
 activation = "relu"
+output_activation = "identity"
+head_mode = "gap"
 
 [initializer]
-name = "none"
+name = "torch_default"
 [initializer.params]
 
 [loss]
-name = "cross_entropy"
+name = "ce"
 [loss.params]
 
 [update_rule]
@@ -26,10 +30,10 @@ name = "bp"
 [update_rule.params]
 
 [optimizer]
-name = "adamw"
+name = "sgd+momentum"
 [optimizer.params]
-lr = 0.001
-weight_decay = 0.01
+lr = 0.05
+weight_decay = 5e-4
 momentum = 0.9
 
 [scheduler]
@@ -46,7 +50,7 @@ display = "compact"  # one of: none, compact, rich
 run_dir = "runs/supervised_demo"
 
 [train]
-epochs = 50
+epochs = 20
 batch = 64
 val_frac = 0.1
 input_noise_dataset = 0.0
@@ -58,7 +62,7 @@ enabled = true
 [callbacks.params]
 monitor = "val.acc"
 mode = "auto"
-patience = 5
+patience = 8
 min_delta = 0.0
 warmup = 5
 restore_best = true
@@ -83,12 +87,7 @@ trust_remote_code = false
 max_length = 128
 
 [[metrics]]
-name = "accuracy"
-
-[[metrics]]
-name = "f1"
-[metrics.params]
-average = "macro"
+name = "acc"
 
 # Optional custom metric plugin:
 # [[metrics]]

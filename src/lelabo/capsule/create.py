@@ -45,6 +45,7 @@ _EXAMPLE_TEMPLATE_MAP = {
     "configs/README.md": "configs_readme.md",
     "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
     "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
+    "configs/train.supervised.capsule_optimizer.toml": "configs_train_supervised_capsule_optimizer.toml",
     "configs/train.rl.detailed.toml": "configs_train_rl_detailed.toml",
     "runs/example.py": "runs_example.py",
 }
@@ -81,6 +82,11 @@ def _readme_template(name: str) -> str:
         "- `runs/`: local run artifacts\n"
         "\n"
         "Each folder contains starter templates you can adapt.\n"
+        "\n"
+        "## Suggested first capsule path\n\n"
+        "1. Enable `capsule_sgd` in `optimizers/example.py`.\n"
+        "2. Run `lelabo list optimizers` inside this capsule.\n"
+        "3. Launch `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n"
         "\n"
         "## Local Registries\n\n"
         "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"

@@ -1,17 +1,22 @@
+# Enable `capsule_sgd` in `optimizers/example.py` before using this config.
 config_version = "auto"
 lelabo_version = "auto"
 task = "supervised"
 
 [dataset]
-name = "iris"
+name = "mnist"
 [dataset.params]
 
 [model]
-name = "mlp"
+name = "cnn"
 [model.params]
-hidden = 128
-layers = 2
+channels = [32, 64, 128]
+kernel_sizes = [3, 3, 3]
+use_bn = true
+pool_every = 1
 activation = "relu"
+output_activation = "identity"
+head_mode = "gap"
 
 [initializer]
 name = "torch_default"
@@ -26,20 +31,27 @@ name = "bp"
 [update_rule.params]
 
 [optimizer]
-name = "adamw"
+name = "capsule_sgd"
 [optimizer.params]
-lr = 0.001
-weight_decay = 0.0
+lr = 0.05
+weight_decay = 5e-4
+
+[scheduler]
+name = "none"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
 
 [runtime]
 device = "auto"
 seed = 2
 determinism = "relaxed"
 display = "compact"
+run_dir = "runs/capsule_optimizer_demo"
 
 [train]
-epochs = 20
-batch = 32
+epochs = 10
+batch = 64
 val_frac = 0.1
 input_noise_dataset = 0.0
 noise_on_test = false
@@ -52,7 +64,7 @@ monitor = "val.acc"
 mode = "auto"
 patience = 5
 min_delta = 0.0
-warmup = 3
+warmup = 2
 restore_best = true
 
 [[metrics]]

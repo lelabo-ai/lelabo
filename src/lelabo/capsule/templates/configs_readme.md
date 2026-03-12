@@ -2,6 +2,17 @@
 
 This folder is the recommended place for capsule-level experiment configuration.
 
+## Official supervised paths
+
+Use these paths in this order when onboarding a new capsule:
+
+1. `configs/train.supervised.quickstart.toml`
+   `iris + mlp + bp`
+2. `configs/train.supervised.capsule_optimizer.toml`
+   `mnist + cnn + bp + capsule_sgd`
+3. `configs/train.supervised.detailed.toml`
+   `mnist + cnn + bp`
+
 ## Supported workflow
 
 Use layered config resolution:
@@ -25,7 +36,15 @@ lelabo train supervised --config configs/train.supervised.quickstart.toml
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.detailed.toml --dataset iris
+lelabo train supervised --config configs/train.supervised.detailed.toml --set optimizer.params.lr=0.02
+```
+
+```bash
+lelabo list optimizers
+```
+
+```bash
+lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
 ```
 
 ```bash
@@ -83,17 +102,16 @@ For a custom optimizer plugin starter, see:
 
 - `optimizers/example.py`
   This file shows how to register an optimizer with `register_optimizer`.
+  The official capsule golden path is the commented `capsule_sgd` example.
 
 Quick custom optimizer snippet:
 
 ```toml
 [optimizer]
-name = "my_adamw"
+name = "capsule_sgd"
 [optimizer.params]
-lr = 0.001
-weight_decay = 0.01
-betas = [0.9, 0.999]
-eps = 1e-8
+lr = 0.05
+weight_decay = 0.0005
 ```
 
 Quick custom initializer snippet:

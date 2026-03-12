@@ -3,14 +3,14 @@ lelabo_version = "auto"
 task = "supervised"
 
 [dataset]
-name = "iris"
+name = "mnist"
 [dataset.params]
 
 [model]
 name = "mlp"
 [model.params]
-hidden = 128
-layers = 2
+hidden = 1024
+layers = 3
 activation = "relu"
 
 [initializer]
@@ -22,14 +22,20 @@ name = "ce"
 [loss.params]
 
 [update_rule]
-name = "bp"
+name = "dfa"
 [update_rule.params]
 
 [optimizer]
-name = "adamw"
+name = "sgd"
 [optimizer.params]
-lr = 0.001
+lr = 0.01
 weight_decay = 0.0
+
+[scheduler]
+name = "none"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
 
 [runtime]
 device = "auto"
@@ -38,8 +44,8 @@ determinism = "relaxed"
 display = "compact"
 
 [train]
-epochs = 20
-batch = 32
+epochs = 10
+batch = 64
 val_frac = 0.1
 input_noise_dataset = 0.0
 noise_on_test = false
@@ -52,8 +58,20 @@ monitor = "val.acc"
 mode = "auto"
 patience = 5
 min_delta = 0.0
-warmup = 3
+warmup = 2
 restore_best = true
+
+[robustness]
+mode = "none"
+trials = 30
+max_samples = 0
+[robustness.params]
+
+[hf]
+glue_task = "sst2"
+model = "bert-base-uncased"
+trust_remote_code = false
+max_length = 128
 
 [[metrics]]
 name = "acc"

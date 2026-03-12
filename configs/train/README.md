@@ -2,6 +2,21 @@
 
 This folder contains TOML examples for `lelabo train`.
 
+## Official supervised golden paths
+
+These are the supervised paths LeLabo treats as first-class:
+
+1. `configs/train/supervised.quickstart.toml`
+   `iris + mlp + bp`
+2. Capsule path
+   `lelabo create capsule my_capsule`, enable `optimizers/example.py`, then train `mnist + cnn + bp + capsule_sgd`
+3. `configs/train/supervised.detailed.toml`
+   `cifar10 + cnn + bp`
+4. `configs/train/supervised.glue.toml`
+   `glue/sst2 + bert + bp`
+5. `configs/train/supervised.local_rule.toml`
+   `mnist + mlp + dfa`
+
 Each config should declare:
 
 - `config_version`: use `"auto"` (or explicit schema version, currently `1.0`)
@@ -23,7 +38,19 @@ lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
 
 ```bash
-lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris --set scheduler.params.gamma=0.5
+lelabo train supervised --config configs/train/supervised.detailed.toml --set optimizer.params.lr=0.02
+```
+
+```bash
+lelabo train supervised --config configs/train/supervised.glue.toml
+```
+
+```bash
+lelabo train supervised --config configs/train/supervised.glue.toml --set hf.glue_task=stsb --loss mse --metrics mse,mae
+```
+
+```bash
+lelabo train supervised --config configs/train/supervised.local_rule.toml
 ```
 
 Built-in supervised metrics you can request in `[[metrics]]`:
@@ -43,8 +70,8 @@ monitor = "val.f1_macro"
 
 For custom metric plugins inside a capsule, use `metrics/example.py` patterns:
 
-1. Function metric with `register_metric_fn`
-2. Advanced class metric with `ClassificationMetricBase` / `RegressionMetricBase`
+1. Register a streaming metric with `register_metric`
+2. Derive from `ClassificationStreamingMetric`, `RegressionStreamingMetric`, or `ScalarStreamingMetric`
 
 For custom scheduler plugins inside a capsule, use `schedulers/example.py`
 with `register_scheduler`.
@@ -54,6 +81,23 @@ with `register_optimizer`.
 
 For custom callbacks inside a capsule, use `callbacks/example.py`
 with `register_callback`.
+
+For the capsule optimizer golden path:
+
+```bash
+lelabo create capsule my_capsule
+cd my_capsule
+```
+
+Enable the `capsule_sgd` example in `optimizers/example.py`, then run:
+
+```bash
+lelabo list optimizers
+```
+
+```bash
+lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+```
 
 ```bash
 lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1

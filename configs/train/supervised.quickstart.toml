@@ -4,3 +4,68 @@ task = "supervised"
 
 [dataset]
 name = "iris"
+[dataset.params]
+
+[model]
+name = "mlp"
+[model.params]
+hidden = 128
+layers = 2
+activation = "relu"
+
+[initializer]
+name = "torch_default"
+[initializer.params]
+
+[loss]
+name = "ce"
+[loss.params]
+
+[update_rule]
+name = "bp"
+[update_rule.params]
+
+[optimizer]
+name = "adamw"
+[optimizer.params]
+lr = 0.001
+weight_decay = 0.0
+
+[scheduler]
+name = "none"
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
+
+[runtime]
+device = "auto"
+seed = 2
+determinism = "relaxed"
+display = "compact"
+
+[train]
+epochs = 20
+batch = 32
+val_frac = 0.1
+input_noise_dataset = 0.0
+noise_on_test = false
+
+[[callbacks]]
+name = "earlystopping"
+enabled = true
+[callbacks.params]
+monitor = "val.acc"
+mode = "auto"
+patience = 5
+min_delta = 0.0
+warmup = 3
+restore_best = true
+
+[robustness]
+mode = "none"
+trials = 30
+max_samples = 0
+[robustness.params]
+
+[[metrics]]
+name = "acc"
