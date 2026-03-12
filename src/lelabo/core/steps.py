@@ -140,7 +140,25 @@ def compute_loss_and_stats(model, loss_or_objective, batch, device: str, *, hf_o
 
     if isinstance(batch, Mapping):
         b = to_device(batch, device)
-        outputs = model(**b)
+        try:
+            outputs = model(**b)
+        except TypeError as exc:
+            msg = str(exc)
+            signature_mismatch = any(
+                token in msg
+                for token in (
+                    "unexpected keyword argument",
+                    "required positional argument",
+                    "positional arguments but",
+                )
+            )
+            if signature_mismatch:
+                batch_keys = sorted(str(key) for key in b.keys())
+                raise TypeError(
+                    "Mapping/HuggingFace batches require a model callable as model(**batch). "
+                    f"Model '{type(model).__name__}' rejected batch keys {batch_keys}: {exc}"
+                ) from exc
+            raise
 
         if hasattr(outputs, "loss") and outputs.loss is not None:
             loss = outputs.loss

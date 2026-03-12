@@ -155,3 +155,31 @@ def test_metric_build_rejects_invalid_average() -> None:
     )
     with pytest.raises(ValueError, match="Invalid metric param 'average'"):
         metrics_api.build_metric("f1", ctx)
+
+
+def test_trainer_rejects_reserved_finalize_metric_key() -> None:
+    class _FinalizeBadMetric(metrics_api.TrainerMetric):
+        def finalize(self, state=None):
+            _ = state
+            return {"loss": 1.0}
+
+    x = torch.randn(8, 4)
+    y = (x[:, 0] > 0).long()
+    loader = DataLoader(TensorDataset(x, y), batch_size=4, shuffle=False)
+
+    model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+    learner = backprop_api.Backprop(optimizer=optimizer)
+    loss_fn = loss_api.make_loss("ce")
+
+    trainer = trainer_api.Trainer(
+        model=model,
+        learner=learner,
+        loss=loss_fn,
+        device="cpu",
+        display_mode="none",
+        metrics=[_FinalizeBadMetric()],
+    )
+
+    with pytest.raises(ValueError, match="reserved finalize key 'loss'"):
+        trainer.fit(loader, epochs=1)

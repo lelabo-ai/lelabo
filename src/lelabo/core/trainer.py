@@ -180,6 +180,7 @@ class Trainer:
 
     def _finalize_metrics(self) -> dict[str, float]:
         out: dict[str, float] = {}
+        reserved = {"loss", "metric", "lr"}
         for metric in self.metrics:
             values = metric.finalize(self.state)
             if not isinstance(values, Mapping):
@@ -192,9 +193,17 @@ class Trainer:
                     raise ValueError(
                         f"Metric '{type(metric).__name__}' returned an empty key from finalize()."
                     )
+                if token in reserved:
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned reserved finalize key '{token}'."
+                    )
                 if not isinstance(value, (int, float)):
                     raise ValueError(
                         f"Metric '{type(metric).__name__}' returned non-numeric finalize value for key '{token}'."
+                    )
+                if token in out:
+                    raise ValueError(
+                        f"Metric finalize key collision for '{token}'."
                     )
                 out[token] = float(value)
         return out

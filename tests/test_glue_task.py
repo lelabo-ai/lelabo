@@ -5,6 +5,7 @@ import sys
 from argparse import Namespace
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from conftest import REPO_ROOT
@@ -13,6 +14,7 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 loss_api = importlib.import_module("lelabo.losses")
 metrics_api = importlib.import_module("lelabo.metrics")
+steps_api = importlib.import_module("lelabo.core.steps")
 trainer_api = importlib.import_module("lelabo.core.trainer")
 update_rule_base = importlib.import_module("lelabo.update_rules.base")
 
@@ -101,3 +103,19 @@ def test_trainer_evaluate_glue_regression_batch() -> None:
     assert out.loss >= 0.0
     assert "mse" in out.scalars
     assert "mae" in out.scalars
+
+
+def test_mapping_batch_error_is_library_level_for_non_hf_model() -> None:
+    model = torch.nn.Linear(4, 2)
+    loss_fn = loss_api.make_loss("ce")
+    batch = {
+        "input_ids": torch.ones((2, 4), dtype=torch.long),
+        "labels": torch.tensor([0, 1], dtype=torch.long),
+    }
+
+    with pytest.raises(TypeError, match="model\\(\\*\\*batch\\)") as excinfo:
+        steps_api.compute_loss_and_stats(model, loss_fn, batch, device="cpu")
+
+    msg = str(excinfo.value)
+    assert "Linear" in msg
+    assert "input_ids" in msg
