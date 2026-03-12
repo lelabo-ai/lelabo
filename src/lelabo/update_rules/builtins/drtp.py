@@ -15,7 +15,8 @@ from ..helpers import (
     assign_linear_grads_from_activations_,
     resolve_activation_name,
 )
-from ...core.batch import extract_loss_and_stats, to_device
+from ..teaching_signals import best_effort_stats, logits_delta_from_loss
+from ...core.batch import to_device
 from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 
@@ -47,7 +48,8 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
         self._feedback: dict[str, torch.Tensor] = {}
         self._feedback_shapes: dict[str, tuple[int, int]] = {}
 
-    def on_train_start(self, model, task, device, state=None) -> None:
+    def on_train_start(self, model, objective, device, state=None) -> None:
+        _ = (objective, device, state)
         if self.activation_name is None:
             self.activation_name = resolve_activation_name(model)
 
@@ -104,20 +106,10 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
             if key not in self._feedback_shapes:
                 self._feedback_shapes[key] = tuple(int(v) for v in value.shape)
 
-    def _output_delta_logits(self, task, out: Any, y: Any) -> torch.Tensor:
-        if isinstance(y, Mapping):
-            raise NotImplementedError("DRTP does not support RL/mapping labels.")
-        if not hasattr(task, "output_deltas"):
-            raise NotImplementedError("DRTP requires task.output_deltas(out, y).")
-        raw = task.output_deltas(out, y)
-        if not isinstance(raw, Mapping):
-            raise RuntimeError("task.output_deltas must return a dict[str, Tensor].")
-        if "logits" not in raw:
-            raise RuntimeError("DRTP expects task.output_deltas(...) to contain key 'logits'.")
-        d = raw["logits"]
-        if not torch.is_tensor(d):
-            raise RuntimeError("DRTP expects output_deltas['logits'] to be a tensor.")
-        d2 = self._to_2d(d)
+    def _output_delta_logits(self, objective, out: Any, y: Any) -> torch.Tensor:
+        d2 = self._to_2d(
+            logits_delta_from_loss(objective, out, y, rule_name="DRTP")
+        )
         if d2.numel() == 0:
             raise RuntimeError("DRTP output_deltas['logits'] is empty.")
         if self.delta_scale != 1.0:
@@ -162,32 +154,8 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
             t = t * self.target_scale
         return t
 
-    @staticmethod
-    def _best_effort_stats(task, out: Any, y: Any) -> dict[str, float]:
-        stats: dict[str, float] = {}
-        try:
-            loss_res = task.loss(out, y)
-            loss, extra = extract_loss_and_stats(loss_res)
-            if torch.is_tensor(loss):
-                stats["loss"] = float(loss.item())
-            for key, value in extra.items():
-                stats[str(key)] = float(value)
-        except Exception:
-            pass
-
-        if hasattr(task, "metrics"):
-            try:
-                met = task.metrics(out, y)
-                if isinstance(met, Mapping):
-                    for key, value in met.items():
-                        if isinstance(value, (int, float)):
-                            stats[str(key)] = float(value)
-            except Exception:
-                pass
-        return stats
-
     @torch.no_grad()
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
         self.zero_grad()
 
@@ -236,7 +204,7 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
         if not torch.is_tensor(x_out) or x_out.dim() != 2:
             raise RuntimeError(f"DRTP output block '{output_name}' expects a 2D input tensor.")
 
-        delta_logits = self._output_delta_logits(task, out, y)
+        delta_logits = self._output_delta_logits(objective, out, y)
         target_proj = self._targets_for_projection(
             y,
             out_dim=int(output_layer.out_features),
@@ -317,6 +285,6 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
             )
 
         self.step(model.parameters(), require_grads=True, check_finite_grads=True)
-        stats = self._best_effort_stats(task, out, y)
+        stats = best_effort_stats(objective, out, y)
         self._mark_step_done()
         return stats

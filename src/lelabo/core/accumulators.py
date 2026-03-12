@@ -58,3 +58,10 @@ class SplitAccumulator:
             num_batches=int(self.num_batches),
             duration_sec=None if duration_sec is None else float(duration_sec),
         )
+
+    def preview(
+        self,
+        *,
+        extra_scalars: Mapping[str, float] | None = None,
+    ) -> SplitSummary:
+        return self.build(duration_sec=None, extra_scalars=extra_scalars)

@@ -21,6 +21,7 @@ plugins = importlib.import_module("lelabo.capsule.plugins")
 trainer_api = importlib.import_module("lelabo.core.trainer")
 train_api = importlib.import_module("lelabo.cli.commands.train")
 datasets_base = importlib.import_module("lelabo.supervised.datasets.base")
+update_rule_base = importlib.import_module("lelabo.update_rules.base")
 
 
 def test_builtin_callbacks_include_early_stopping() -> None:
@@ -229,32 +230,29 @@ def test_early_stopping_integration_stops_iris_training_early(tmp_path, monkeypa
             train_epochs += 1
 
     assert train_epochs == 2
-    assert 1 <= int(summary["train"]["best"]["epoch_by_val"]) <= 2
+    assert 1 <= int(summary["train"]["best"]["epoch"]) <= 2
 
 
 def test_trainer_detects_early_stopping_subclass_by_type() -> None:
-    class _Task:
-        @staticmethod
-        def loss(out, y):
-            return torch.nn.functional.cross_entropy(out, y)
-
-    class _Learner:
+    class _Learner(update_rule_base.UpdateRule):
         def __init__(self, model):
+            super().__init__()
             self.optimizer = torch.optim.SGD(model.parameters(), lr=1e-1)
 
-        def on_train_start(self, model, task, device, state=None):
-            _ = (model, task, device, state)
+        def on_train_start(self, model, objective, device, state=None):
+            _ = (model, objective, device, state)
 
-        def train_step(self, model, task, batch, device, state=None):
+        def train_step(self, model, objective, batch, device, state=None):
             _ = state
             x, y = batch
             x = x.to(device)
             y = y.to(device)
             out = model(x)
-            loss = task.loss(out, y)
+            loss = objective(out, y)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            self._mark_step_done()
             acc = float((out.argmax(dim=1) == y).float().mean().item())
             return {"loss": float(loss.item()), "metric": acc}
 
@@ -263,7 +261,6 @@ def test_trainer_detects_early_stopping_subclass_by_type() -> None:
 
     model = torch.nn.Linear(4, 3)
     learner = _Learner(model)
-    task = _Task()
     callback = _MyEarlyStopping(
         core_callbacks.EarlyStoppingConfig(
             monitor="train.loss",
@@ -274,8 +271,8 @@ def test_trainer_detects_early_stopping_subclass_by_type() -> None:
     )
     trainer = trainer_api.Trainer(
         model=model,
-        task=task,
         learner=learner,
+        loss=torch.nn.CrossEntropyLoss(),
         device="cpu",
         display_mode="none",
         callbacks=[callback],
@@ -284,6 +281,6 @@ def test_trainer_detects_early_stopping_subclass_by_type() -> None:
     x = torch.randn(12, 4)
     y = torch.randint(0, 3, (12,))
     loader = DataLoader(TensorDataset(x, y), batch_size=6, shuffle=False)
-    result = trainer.fit(loader, epochs=1, show_progress=False, val_loader=None)
+    result = trainer.fit(loader, epochs=1, val_loader=None)
     assert result.final_epoch.monitor is not None
     assert result.final_epoch.monitor.name == "train.loss"

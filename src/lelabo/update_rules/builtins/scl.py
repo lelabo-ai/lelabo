@@ -10,7 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import OptimizerUpdateRule
+from ..teaching_signals import best_effort_stats
 from ...core.batch import extract_loss_and_stats, to_device
+from ...core.steps import resolve_loss_callable
 from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 
@@ -679,7 +681,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         return out
 
     @staticmethod
-    def _best_effort_stats(task, out: Any, y: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
+    def _best_effort_stats(objective, out: Any, y: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
         stats: dict[str, float] = {}
 
         loss = None
@@ -687,21 +689,11 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             loss = out.loss
         else:
             logits = SoftContrastiveLearning._tensor_output(out)
-            loss_res = task.loss(logits, y)
+            loss_res = resolve_loss_callable(objective)(logits, y)
             loss, extra = extract_loss_and_stats(loss_res)
             stats.update({str(k): float(v) for k, v in extra.items()})
 
-        if hasattr(task, "metrics"):
-            for candidate in (out, SoftContrastiveLearning._tensor_output(out)):
-                try:
-                    met = task.metrics(candidate, y)
-                    if isinstance(met, Mapping):
-                        for k, v in met.items():
-                            if isinstance(v, (int, float)):
-                                stats[str(k)] = float(v)
-                    break
-                except Exception:
-                    continue
+        stats.update(best_effort_stats(objective, out, y))
 
         if loss is None:
             raise RuntimeError("SCL could not compute a valid loss tensor.")
@@ -826,7 +818,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
     # main
     # ============================================================
 
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
 
         if isinstance(batch, Mapping):
@@ -884,7 +876,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
                 )
 
             self.zero_grad()
-            loss, stats = self._best_effort_stats(task, out, y)
+            loss, stats = self._best_effort_stats(objective, out, y)
             loss.backward()
             self.step(head_params, require_grads=True, check_finite_grads=True)
 

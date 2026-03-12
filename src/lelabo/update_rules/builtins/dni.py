@@ -13,7 +13,9 @@ from ..helpers import (
     activation_from_preact,
     normalize_activation_name,
 )
+from ..teaching_signals import best_effort_stats, infer_num_classes
 from ...core.batch import extract_loss_and_stats, to_device
+from ...core.steps import resolve_loss_callable
 from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 
@@ -112,17 +114,6 @@ class DNI(OptimizerUpdateRule):
         if not torch.is_tensor(out):
             raise RuntimeError(f"DNI v1 expects tensor output (or mapping with logits), got {type(out)}.")
         return out
-
-    @staticmethod
-    def _infer_num_classes(task: Any, y: torch.Tensor, logits: torch.Tensor) -> int:
-        if hasattr(task, "num_classes"):
-            try:
-                return int(getattr(task, "num_classes"))
-            except Exception:
-                pass
-        if logits.dim() >= 2:
-            return int(logits.size(-1))
-        return int(y.max().item()) + 1
 
     def _condition_tensor(self, y: torch.Tensor, *, num_classes: int, device, dtype) -> torch.Tensor:
         if y.dim() == 2 and int(y.size(1)) == int(num_classes):
@@ -228,7 +219,7 @@ class DNI(OptimizerUpdateRule):
         self,
         key: str,
         *,
-        task: Any,
+        objective: Any,
         y: torch.Tensor,
         chain: list[dict[str, Any]],
         output_tensor: torch.Tensor,
@@ -257,7 +248,7 @@ class DNI(OptimizerUpdateRule):
 
         cond_dim = 0
         if self.condition_on_label:
-            cond_dim = self._infer_num_classes(task, y, output_tensor)
+            cond_dim = infer_num_classes(y, output_tensor)
             self._num_classes = int(cond_dim)
 
         models = nn.ModuleList()
@@ -364,20 +355,7 @@ class DNI(OptimizerUpdateRule):
                 lin.bias.grad = du.mean(dim=0)
         return sg_total_loss
 
-    @staticmethod
-    def _best_effort_metrics(task, output: torch.Tensor, y: torch.Tensor, stats: dict[str, float]) -> None:
-        if not hasattr(task, "metrics"):
-            return
-        try:
-            met = task.metrics(output, y)
-        except Exception:
-            return
-        if isinstance(met, Mapping):
-            for key, value in met.items():
-                if isinstance(value, (int, float)):
-                    stats[str(key)] = float(value)
-
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
         self.activation = normalize_activation_name(self.activation)
         if not isinstance(batch, (tuple, list)) or len(batch) != 2:
@@ -405,7 +383,7 @@ class DNI(OptimizerUpdateRule):
 
         self._maybe_build_sg_models(
             "main",
-            task=task,
+            objective=objective,
             y=y,
             chain=chain,
             output_tensor=output_for_loss,
@@ -414,18 +392,18 @@ class DNI(OptimizerUpdateRule):
         self._ensure_sg_optimizer()
 
         logits_var = output_for_loss.detach().requires_grad_(True)
-        loss_res = task.loss(logits_var, y)
+        loss_res = resolve_loss_callable(objective)(logits_var, y)
         loss, extra = extract_loss_and_stats(loss_res)
         (g_out,) = torch.autograd.grad(loss, (logits_var,))
 
         stats: dict[str, float] = {"loss": float(loss.detach().item())}
         for key, value in extra.items():
             stats[str(key)] = float(value)
-        self._best_effort_metrics(task, output_for_loss.detach(), y, stats)
+        stats.update(best_effort_stats(objective, output_for_loss.detach(), y))
 
         cond = None
         if self.condition_on_label:
-            num_classes = int(self._num_classes or self._infer_num_classes(task, y, output_for_loss))
+            num_classes = int(self._num_classes or infer_num_classes(y, output_for_loss))
             cond = self._condition_tensor(
                 y,
                 num_classes=num_classes,

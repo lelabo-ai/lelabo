@@ -11,10 +11,19 @@ import torch
 from .accumulators import SplitAccumulator
 from .batch import infer_batch_size
 from .callbacks import Callback, EarlyStopping
+from .contracts import (
+    validate_callbacks,
+    validate_learner,
+    validate_logger,
+    validate_loss,
+    validate_metrics,
+    validate_model,
+    validate_schedulers,
+)
 from .logger import RunLogger
-from .reporters import NullReporter, Reporter, make_reporter
+from .reporters import make_reporter
 from .state import TrainState
-from .steps import compute_loss_and_stats
+from .steps import compute_loss_and_stats, loss_display_name
 from .train_types import BestSummary, EpochRecord, FitResult, FitRuntime, MonitorStatus, RestorationStatus, SplitSummary
 from ..metrics.base import TrainerMetric
 from ..schedulers import SchedulerController
@@ -32,20 +41,29 @@ class Trainer:
     def __init__(
         self,
         model,
-        task,
         learner,
+        loss,
         device: str = "cpu",
         display_mode: str = "compact",
         callbacks: Optional[list[Callback]] = None,
         logger: Optional[RunLogger] = None,
-        schedulers: Optional[list[Any]] = None,
+        schedulers: Optional[list[SchedulerController]] = None,
         metrics: Optional[list[TrainerMetric]] = None,
     ):
+        validate_model(model)
+        validate_loss(loss)
+        validate_learner(learner)
+        validate_callbacks(list(callbacks or []))
+        validate_metrics(list(metrics or []))
+        validate_schedulers(list(schedulers or []))
+
         self.model = model.to(device)
-        self.task = task
         self.learner = learner
+        self.loss = loss
+        self.loss_name = loss_display_name(loss)
         self.device = device
         self.logger = logger or RunLogger(run_dir=None)
+        validate_logger(self.logger)
         self.callbacks = callbacks or []
         self.schedulers = schedulers or []
         self.metrics = metrics or []
@@ -74,17 +92,31 @@ class Trainer:
             self.state.request_stop(self.stop_reason)
 
     def _resolve_display_metric_keys(self) -> list[str]:
+        reserved = {"loss", "metric", "lr"}
         keys: list[str] = []
         seen: set[str] = set()
         for metric in self.metrics:
-            key = getattr(metric, "output_key", None)
-            if not isinstance(key, str):
-                continue
-            token = str(key).strip()
-            if not token or token in seen:
-                continue
-            seen.add(token)
-            keys.append(token)
+            display_keys = metric.display_keys()
+            if not isinstance(display_keys, (tuple, list)):
+                raise TypeError(
+                    f"Metric '{type(metric).__name__}' display_keys() must return a tuple/list[str]."
+                )
+            for key in display_keys:
+                token = str(key).strip()
+                if not token:
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned an empty display key."
+                    )
+                if token in reserved:
+                    raise ValueError(
+                        f"Metric display key '{token}' collides with a reserved trainer scalar."
+                    )
+                if token in seen:
+                    raise ValueError(
+                        f"Duplicate metric display key '{token}' requested in Trainer.metrics."
+                    )
+                seen.add(token)
+                keys.append(token)
         return keys
 
     def _current_lr(self) -> float | None:
@@ -102,20 +134,10 @@ class Trainer:
             return
         interval = str(interval).lower()
         for sched in self.schedulers:
-            if not isinstance(sched, SchedulerController):
-                raise TypeError(
-                    "Trainer.schedulers expects SchedulerController instances. "
-                    "Build schedulers via lelabo.schedulers.make_scheduler(...)."
-                )
             if interval == "batch":
                 sched.step_batch(logs=logs)
             elif interval == "epoch":
                 sched.step_epoch(logs=logs)
-
-    def _select_fit_reporter(self, *, show_progress: bool) -> Reporter:
-        if not show_progress:
-            return NullReporter()
-        return self._reporter
 
     def _reset_metrics(self, split: str) -> None:
         for metric in self.metrics:
@@ -128,13 +150,32 @@ class Trainer:
 
     def _compute_metrics(self, split: str) -> dict[str, float]:
         out: dict[str, float] = {}
+        reserved = {"loss", "metric", "lr"}
         for metric in self.metrics:
             values = metric.compute(split, self.state)
             if not isinstance(values, Mapping):
-                continue
+                raise TypeError(
+                    f"Metric '{type(metric).__name__}' compute() must return a mapping[str, float]."
+                )
             for key, value in values.items():
-                if isinstance(value, (int, float)):
-                    out[str(key)] = float(value)
+                token = str(key).strip()
+                if not token:
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned an empty key from compute()."
+                    )
+                if token in reserved:
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned reserved key '{token}'."
+                    )
+                if not isinstance(value, (int, float)):
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned non-numeric value for key '{token}'."
+                    )
+                if token in out:
+                    raise ValueError(
+                        f"Metric output key collision for '{token}' during split '{split}'."
+                    )
+                out[token] = float(value)
         return out
 
     def _finalize_metrics(self) -> dict[str, float]:
@@ -142,10 +183,20 @@ class Trainer:
         for metric in self.metrics:
             values = metric.finalize(self.state)
             if not isinstance(values, Mapping):
-                continue
+                raise TypeError(
+                    f"Metric '{type(metric).__name__}' finalize() must return a mapping[str, float]."
+                )
             for key, value in values.items():
-                if isinstance(value, (int, float)):
-                    out[str(key)] = float(value)
+                token = str(key).strip()
+                if not token:
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned an empty key from finalize()."
+                    )
+                if not isinstance(value, (int, float)):
+                    raise ValueError(
+                        f"Metric '{type(metric).__name__}' returned non-numeric finalize value for key '{token}'."
+                    )
+                out[token] = float(value)
         return out
 
     @staticmethod
@@ -180,54 +231,113 @@ class Trainer:
         return replace(record, monitor=status)
 
     @staticmethod
-    def _build_best_summary(history: list[EpochRecord]) -> BestSummary:
+    def _monitor_mode_from_name(name: str) -> str:
+        token = str(name).strip().lower()
+        if any(item in token for item in ("acc", "f1", "precision", "recall", "r2", "auc")):
+            return "max"
+        return "min"
+
+    def _best_record_for_monitor(
+        self,
+        history: list[EpochRecord],
+        *,
+        monitor_name: str,
+        monitor_mode: str,
+    ) -> tuple[EpochRecord, float] | None:
+        matches: list[tuple[EpochRecord, float]] = []
+        for record in history:
+            value = record.to_log_values().get(monitor_name)
+            if isinstance(value, (int, float)):
+                matches.append((record, float(value)))
+        if not matches:
+            return None
+        if str(monitor_mode).strip().lower() == "max":
+            return max(matches, key=lambda item: item[1])
+        return min(matches, key=lambda item: item[1])
+
+    def _build_best_summary(self, history: list[EpochRecord], early_stopping_cb: EarlyStopping | None) -> BestSummary:
         if not history:
             raise RuntimeError("Cannot build best summary from an empty history.")
 
-        train_losses = [float(item.train.loss) for item in history]
-        train_metrics = [float(item.train.metric) for item in history if item.train.metric is not None]
-        val_losses = [float(item.val.loss) for item in history if item.val is not None]
-        val_metric_items = [
-            (int(item.epoch), float(item.val.metric))
-            for item in history
-            if item.val is not None and item.val.metric is not None
-        ]
+        candidates: list[tuple[str, str, str]] = []
+        if early_stopping_cb is not None:
+            status = early_stopping_cb.status()
+            candidates.append(("earlystopping", str(status.name), str(status.mode)))
+        for scheduler in self.schedulers:
+            monitor_name = str(getattr(scheduler, "monitor", "")).strip()
+            if not monitor_name:
+                continue
+            raw_mode = getattr(getattr(scheduler, "scheduler", None), "mode", None)
+            if str(raw_mode).strip().lower() in {"min", "max"}:
+                mode = str(raw_mode).strip().lower()
+            else:
+                mode = self._monitor_mode_from_name(monitor_name)
+            candidates.append(("scheduler", monitor_name, mode))
+            break
+        if any(record.val is not None for record in history):
+            candidates.append(("default", "val.loss", "min"))
+        candidates.append(("default", "train.loss", "min"))
 
-        best_val_epoch = None
-        best_val_metric = None
-        if val_metric_items:
-            best_val_epoch, best_val_metric = max(val_metric_items, key=lambda item: item[1])
+        for source, monitor_name, monitor_mode in candidates:
+            best_match = self._best_record_for_monitor(
+                history,
+                monitor_name=monitor_name,
+                monitor_mode=monitor_mode,
+            )
+            if best_match is None:
+                continue
+            best_record, best_value = best_match
+            return BestSummary(
+                source=source,
+                monitor_name=monitor_name,
+                monitor_mode=monitor_mode,
+                best_value=float(best_value),
+                epoch=int(best_record.epoch),
+                train=best_record.train,
+                val=best_record.val,
+            )
 
-        return BestSummary(
-            train_loss=min(train_losses),
-            train_metric=(max(train_metrics) if train_metrics else None),
-            val_loss=(min(val_losses) if val_losses else None),
-            val_metric=best_val_metric,
-            epoch_by_val=best_val_epoch,
-        )
+        raise RuntimeError("Trainer could not resolve a valid monitor from fit history.")
 
     @staticmethod
     def _restoration_status(early_stopping_cb: EarlyStopping | None) -> RestorationStatus:
         if early_stopping_cb is None:
-            return RestorationStatus(restored_best_model=False, restored_best_epoch=None)
+            return RestorationStatus(
+                enabled=False,
+                best_epoch=None,
+                best_checkpoint_available=False,
+                restored_on_train_end=False,
+            )
         return early_stopping_cb.restoration_status()
 
-    def fit(self, train_loader, epochs: int = 10, show_progress: bool = True, val_loader=None) -> FitResult:
+    def fit(self, train_loader, epochs: int = 10, val_loader=None) -> FitResult:
         self._in_fit = True
         self.stop_training = False
         self.stop_reason = None
         state = TrainState(phase="fit", split="train")
         self.state = state
+        try:
+            train_batches_per_epoch = int(len(train_loader))  # type: ignore[arg-type]
+            if train_batches_per_epoch <= 0:
+                train_batches_per_epoch = None
+        except Exception:
+            train_batches_per_epoch = None
+        total_train_batches = (
+            int(epochs) * int(train_batches_per_epoch)
+            if train_batches_per_epoch is not None
+            else None
+        )
+        global_batches_completed = 0
 
         for cb in self.callbacks:
             self._call_callback_hook(cb, "on_train_start", self, state)
 
-        self.learner.on_train_start(self.model, self.task, self.device, state)
+        self.learner.on_train_start(self.model, self.loss, self.device, state)
 
-        fit_reporter = self._select_fit_reporter(show_progress=show_progress)
+        fit_reporter = self._reporter
         fit_reporter.on_run_start(
             model_name=self.model.__class__.__name__,
-            task_name=self.task.__class__.__name__,
+            loss_name=self.loss_name,
             rule_name=self.learner.__class__.__name__,
             device=str(self.device),
             epochs=int(epochs),
@@ -247,6 +357,14 @@ class Trainer:
                 state.batch_idx = 0
                 state.last_eval = None
                 self.model.train()
+                fit_reporter.on_epoch_start(
+                    epoch=int(ep),
+                    epochs=int(epochs),
+                    train_batches=train_batches_per_epoch,
+                    global_batches_completed=global_batches_completed,
+                    global_batches_total=total_train_batches,
+                    state=state,
+                )
 
                 train_acc = SplitAccumulator(split="train")
                 self._reset_metrics("train")
@@ -263,7 +381,7 @@ class Trainer:
                     bs = int(max(1, infer_batch_size(batch)))
                     state.train_samples_seen += bs
 
-                    stats = self.learner.train_step(self.model, self.task, batch, self.device, state)
+                    stats = self.learner.train_step(self.model, self.loss, batch, self.device, state)
                     if not isinstance(stats, dict):
                         stats = {}
 
@@ -274,6 +392,20 @@ class Trainer:
                     self._step_schedulers(interval="batch", logs=stats)
 
                     state.current_lr = self._current_lr()
+                    global_batches_completed += 1
+                    fit_reporter.on_batch_end(
+                        epoch=int(ep),
+                        epochs=int(epochs),
+                        batch_idx=int(batch_idx),
+                        train_batches=train_batches_per_epoch,
+                        global_batches_completed=global_batches_completed,
+                        global_batches_total=total_train_batches,
+                        train_summary=train_acc.preview(
+                            extra_scalars=self._compute_metrics("train"),
+                        ),
+                        lr=state.current_lr,
+                        state=state,
+                    )
                     for cb in self.callbacks:
                         self._call_callback_hook(cb, "on_batch_end", self, state, logs=stats)
                     state.bump_step(1)
@@ -287,10 +419,8 @@ class Trainer:
 
                 val_summary: SplitSummary | None = None
                 if val_loader is not None:
-                    val_summary = self._evaluate(val_loader, split="val", emit_report=False, invoke_callbacks=False)
+                    val_summary = self._evaluate(val_loader, split="val", emit_report=False, invoke_callbacks=True)
                     state.last_eval = val_summary
-                    for cb in self.callbacks:
-                        self._call_callback_hook(cb, "on_eval_end", self, val_summary, state)
 
                 epoch_logs: Dict[str, Any] = train_summary.to_prefixed_scalars()
                 if val_summary is not None:
@@ -326,8 +456,7 @@ class Trainer:
             raise RuntimeError("Trainer.fit() completed without producing epoch records.")
 
         total_time = float(time.perf_counter() - train_start)
-        best = self._build_best_summary(history)
-        restoration = self._restoration_status(early_stopping_cb)
+        best = self._build_best_summary(history, early_stopping_cb)
         runtime = FitRuntime(
             epochs_completed=len(history),
             total_train_time_sec=total_time,
@@ -339,12 +468,21 @@ class Trainer:
             final_epoch=history[-1],
             best=best,
             runtime=runtime,
-            restoration=restoration,
+            restoration=self._restoration_status(early_stopping_cb),
             run_metrics=self._finalize_metrics(),
         )
 
         for cb in self.callbacks:
             self._call_callback_hook(cb, "on_train_end", self, fit_result, state)
+
+        fit_result = FitResult(
+            history=history,
+            final_epoch=history[-1],
+            best=best,
+            runtime=runtime,
+            restoration=self._restoration_status(early_stopping_cb),
+            run_metrics=self._finalize_metrics(),
+        )
 
         fit_reporter.on_run_end(fit_result, state)
         state.phase = "idle"
@@ -377,7 +515,7 @@ class Trainer:
             state.batch_idx = int(batch_idx)
             bs = int(max(1, infer_batch_size(batch)))
             state.eval_samples_seen += bs
-            loss, stats = compute_loss_and_stats(self.model, self.task, batch, self.device)
+            loss, stats = compute_loss_and_stats(self.model, self.loss, batch, self.device)
             if not isinstance(stats, Mapping):
                 stats = {}
             stats_dict = dict(stats)
@@ -400,7 +538,7 @@ class Trainer:
 
     @torch.no_grad()
     def evaluate(self, loader, split: Optional[str] = None) -> SplitSummary:
-        summary = self._evaluate(loader, split=split, emit_report=True, invoke_callbacks=False)
+        summary = self._evaluate(loader, split=split, emit_report=True, invoke_callbacks=True)
         if self.state is not None:
             self.state.phase = "idle" if not self._in_fit else "fit"
             if not self._in_fit:

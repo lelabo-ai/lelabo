@@ -58,6 +58,7 @@ def build_loss(name: str, ctx: LossContext) -> Callable[[Any, Any], Any]:
     out = builder(ctx)
     if not callable(out):
         raise TypeError(f"Loss builder '{name}' must return a callable, got {type(out).__name__}.")
+    setattr(out, "__lelabo_loss_name__", str(name))
     return out
 
 

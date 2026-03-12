@@ -8,7 +8,6 @@ from ..core.logger import RunLogger
 from ..core.seed import derive_seed
 from ..core.trainer import Trainer
 from .robustness import test_with_noise
-from .tasks import ClassificationTask, GLUETask
 from ..optimizers import make_optimizer, make_scheduler
 from ..losses import make_loss
 from ..initializers import make_initializer
@@ -38,6 +37,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     num_classes = None
     num_labels = None
     is_regression = False
+    task_kind = "classification"
 
     val_loader = None
     requested_metrics = parse_metric_names(getattr(args, "metrics", ""))
@@ -75,11 +75,12 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     Xte = bundle.x_test
     yte = bundle.y_test
 
-    # model + task
+    # model + supervised objective
     if args.dataset == "glue":
         val_loaders = bundle.meta.get("val_loaders", {})
         num_labels = bundle.meta.get("num_labels", num_classes)
         is_regression = bundle.meta.get("is_regression", False)
+        task_kind = "regression" if bool(is_regression) else "classification"
 
         if args.model in {"hf", "bert"}:
             ctx = ModelContext(
@@ -100,8 +101,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
                     "Install optional deps with: pip install '.[nlp]'"
                 ) from exc
             model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
-
-        task = GLUETask(task_name=args.glue_task, is_regression=is_regression, num_labels=num_labels)
     else:
         in_channels = int(bundle.input_shape[0]) if bundle.input_shape is not None else None
         ctx = ModelContext(
@@ -112,22 +111,23 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             input_shape=bundle.input_shape,
         )
         model = build_model(args.model, ctx, args)
-        loss_name = str(getattr(args, "loss", "cross_entropy")).strip().lower()
-        loss_params = dict(getattr(args, "loss_params", {}) or {})
-        loss_fn = make_loss(
-            loss_name,
-            args=args,
-            mode="supervised",
-            dataset=args.dataset,
-            task="classification",
-            num_classes=num_classes,
-            params=loss_params,
-        )
-        task = ClassificationTask(
-            num_classes=num_classes,
-            loss_name=loss_name,
-            loss_fn=loss_fn,
-        )
+        task_kind = "classification"
+
+    loss_name = str(getattr(args, "loss", "ce")).strip().lower()
+    if not loss_name:
+        loss_name = "ce"
+    if bool(is_regression) and loss_name in {"ce", "cross_entropy"}:
+        loss_name = "mse"
+    loss_params = dict(getattr(args, "loss_params", {}) or {})
+    loss_fn = make_loss(
+        loss_name,
+        args=args,
+        mode="supervised",
+        dataset=args.dataset,
+        task=task_kind,
+        num_classes=(num_labels if args.dataset == "glue" else num_classes),
+        params=loss_params,
+    )
 
     initializer_name = str(getattr(args, "initializer", "none")).strip().lower()
     initializer_params = dict(getattr(args, "initializer_params", {}) or {})
@@ -187,7 +187,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     ctx = UpdateRuleContext(
         args=args,
         model=model,
-        task=task,
+        task=None,
         optimizer=optimizer,
         mode="supervised",
         dataset=args.dataset,
@@ -210,8 +210,8 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
 
     trainer = Trainer(
         model=model,
-        task=task,
         learner=learner,
+        loss=loss_fn,
         device=args.device,
         display_mode=str(getattr(args, "display", "compact")),
         callbacks=callbacks,
@@ -226,7 +226,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
     train_result = trainer.fit(
         train_loader,
         epochs=args.epochs,
-        show_progress=True,
         val_loader=val_loader
     )
     summary["train"] = train_result.to_dict()

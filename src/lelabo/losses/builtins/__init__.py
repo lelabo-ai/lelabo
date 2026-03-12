@@ -64,6 +64,7 @@ def _wrap_module_loss(module: nn.Module, fn: Callable[[torch.Tensor, Any], torch
     return _loss
 
 
+@register_loss("cross_entropy")
 @register_loss("ce")
 def build_cross_entropy(ctx: LossContext):
     params = ctx.loss_params()
@@ -75,6 +76,7 @@ def build_cross_entropy(ctx: LossContext):
     return _wrap_module_loss(mod, _fn)
 
 
+@register_loss("bce_with_logits")
 @register_loss("bce_logits")
 def build_bce_with_logits(ctx: LossContext):
     params = ctx.loss_params()
@@ -94,6 +96,7 @@ def build_bce_with_logits(ctx: LossContext):
     return _wrap_module_loss(mod, _fn)
 
 
+@register_loss("binary_cross_entropy")
 @register_loss("bce")
 def build_bce(ctx: LossContext):
     params = ctx.loss_params()
@@ -113,6 +116,7 @@ def build_bce(ctx: LossContext):
     return _wrap_module_loss(mod, _fn)
 
 
+@register_loss("mse_loss")
 @register_loss("mse")
 def build_mse(ctx: LossContext):
     params = ctx.loss_params()

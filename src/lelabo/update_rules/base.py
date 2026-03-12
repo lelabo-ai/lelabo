@@ -13,15 +13,16 @@ class UpdateRule(ABC):
     def __init__(self) -> None:
         self.global_step = 0
 
-    def on_train_start(self, model, task, device, state=None) -> None:
+    def on_train_start(self, model, objective, device, state=None) -> None:
         pass
 
     @abstractmethod
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         raise NotImplementedError
 
     @torch.no_grad()
-    def on_eval_start(self, model, task, device, state=None) -> None:
+    def on_eval_start(self, model, objective, device, state=None) -> None:
+        _ = objective
         model.eval()
 
     def state_dict(self) -> Dict[str, Any]:

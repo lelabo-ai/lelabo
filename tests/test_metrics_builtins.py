@@ -16,7 +16,7 @@ metrics_api = importlib.import_module("lelabo.metrics")
 metrics_payload = importlib.import_module("lelabo.metrics.payload")
 reporters_api = importlib.import_module("lelabo.core.reporters")
 trainer_api = importlib.import_module("lelabo.core.trainer")
-task_api = importlib.import_module("lelabo.supervised.tasks")
+loss_api = importlib.import_module("lelabo.losses")
 backprop_api = importlib.import_module("lelabo.update_rules.builtins.backprop")
 
 
@@ -60,9 +60,9 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
     val_loader = DataLoader(ds, batch_size=8, shuffle=False)
 
     model = torch.nn.Sequential(torch.nn.Linear(4, 2))
-    task = task_api.ClassificationTask(num_classes=2)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
     learner = backprop_api.Backprop(optimizer=optimizer)
+    loss_fn = loss_api.make_loss("ce")
 
     ctx = metrics_api.MetricContext(
         args=Namespace(),
@@ -75,14 +75,14 @@ def test_trainer_reports_builtin_eval_metrics() -> None:
 
     trainer = trainer_api.Trainer(
         model=model,
-        task=task,
         learner=learner,
+        loss=loss_fn,
         device="cpu",
         display_mode="none",
         metrics=[metric],
     )
 
-    train_out = trainer.fit(train_loader, epochs=1, show_progress=False, val_loader=val_loader)
+    train_out = trainer.fit(train_loader, epochs=1, val_loader=val_loader)
     assert "f1_macro" in train_out.final_epoch.train.scalars
 
     eval_out = trainer.evaluate(val_loader, split="val")
@@ -97,9 +97,9 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
     train_loader = DataLoader(ds, batch_size=4, shuffle=False)
 
     model = torch.nn.Sequential(torch.nn.Linear(4, 2))
-    task = task_api.ClassificationTask(num_classes=2)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
     learner = backprop_api.Backprop(optimizer=optimizer)
+    loss_fn = loss_api.make_loss("ce")
 
     monkeypatch.setattr(reporters_api, "Console", None, raising=True)
     monkeypatch.setattr(reporters_api, "Table", None, raising=True)
@@ -107,8 +107,8 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
     with pytest.warns(UserWarning, match="display='rich'.*pip install rich"):
         trainer = trainer_api.Trainer(
             model=model,
-            task=task,
             learner=learner,
+            loss=loss_fn,
             device="cpu",
             display_mode="rich",
             metrics=[],
@@ -118,15 +118,15 @@ def test_trainer_warns_when_rich_requested_but_unavailable(monkeypatch: pytest.M
 
 def test_trainer_rejects_invalid_display_mode() -> None:
     model = torch.nn.Sequential(torch.nn.Linear(4, 2))
-    task = task_api.ClassificationTask(num_classes=2)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
     learner = backprop_api.Backprop(optimizer=optimizer)
+    loss_fn = loss_api.make_loss("ce")
 
     with pytest.raises(ValueError, match="display_mode must be one of: none, compact, rich"):
         trainer_api.Trainer(
             model=model,
-            task=task,
             learner=learner,
+            loss=loss_fn,
             device="cpu",
             display_mode="quiet",
             metrics=[],

@@ -9,8 +9,8 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-task_api = importlib.import_module("lelabo.supervised.tasks")
 loss_api = importlib.import_module("lelabo.losses")
+signal_api = importlib.import_module("lelabo.update_rules.teaching_signals")
 
 
 def _one_hot(labels: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -19,7 +19,7 @@ def _one_hot(labels: torch.Tensor, num_classes: int) -> torch.Tensor:
     return out
 
 
-def test_classification_task_uses_configured_bce_loss() -> None:
+def test_bce_teaching_signal_matches_analytic_delta() -> None:
     logits = torch.tensor(
         [
             [0.5, -1.0, 2.0],
@@ -32,17 +32,11 @@ def test_classification_task_uses_configured_bce_loss() -> None:
     targets = _one_hot(labels, num_classes=3).to(dtype=probs.dtype)
 
     loss_fn = loss_api.make_loss("bce")
-    task = task_api.ClassificationTask(
-        num_classes=3,
-        loss_name="bce",
-        loss_fn=loss_fn,
-    )
-
-    got_loss = task.loss(probs, labels)
+    got_loss = loss_fn(probs, labels)
     exp_loss = torch.nn.BCELoss()(probs, targets)
     assert torch.allclose(got_loss, exp_loss)
 
-    got_delta = task.output_deltas(probs, labels)["logits"]
+    got_delta = signal_api.logits_delta_from_loss(loss_fn, probs, labels, rule_name="FA")
     exp_delta = (probs - targets) / (probs * (1.0 - probs))
     exp_delta = exp_delta / float(probs.numel())
     assert torch.allclose(got_delta, exp_delta)

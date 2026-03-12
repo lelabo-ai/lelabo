@@ -95,13 +95,17 @@ class EpochRecord:
 
 @dataclass(frozen=True)
 class RestorationStatus:
-    restored_best_model: bool
-    restored_best_epoch: int | None
+    enabled: bool
+    best_epoch: int | None
+    best_checkpoint_available: bool
+    restored_on_train_end: bool
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "restored_best_model": bool(self.restored_best_model),
-            "restored_best_epoch": None if self.restored_best_epoch is None else int(self.restored_best_epoch),
+            "enabled": bool(self.enabled),
+            "best_epoch": None if self.best_epoch is None else int(self.best_epoch),
+            "best_checkpoint_available": bool(self.best_checkpoint_available),
+            "restored_on_train_end": bool(self.restored_on_train_end),
         }
 
 
@@ -123,23 +127,23 @@ class FitRuntime:
 
 @dataclass(frozen=True)
 class BestSummary:
-    train_loss: float
-    train_metric: float | None
-    val_loss: float | None
-    val_metric: float | None
-    epoch_by_val: int | None
+    source: str
+    monitor_name: str
+    monitor_mode: str
+    best_value: float
+    epoch: int
+    train: SplitSummary
+    val: SplitSummary | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "train": {
-                "loss": float(self.train_loss),
-                "metric": None if self.train_metric is None else float(self.train_metric),
-            },
-            "val": None if self.val_loss is None and self.val_metric is None else {
-                "loss": None if self.val_loss is None else float(self.val_loss),
-                "metric": None if self.val_metric is None else float(self.val_metric),
-            },
-            "epoch_by_val": None if self.epoch_by_val is None else int(self.epoch_by_val),
+            "source": str(self.source),
+            "monitor_name": str(self.monitor_name),
+            "monitor_mode": str(self.monitor_mode),
+            "best_value": float(self.best_value),
+            "epoch": int(self.epoch),
+            "train": self.train.to_dict(),
+            "val": None if self.val is None else self.val.to_dict(),
         }
 
 

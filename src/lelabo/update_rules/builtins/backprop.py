@@ -9,11 +9,11 @@ from ...core.steps import compute_loss_and_stats
 class Backpropagation(OptimizerUpdateRule):
     """Standard backpropagation with autograd."""
 
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
         self.zero_grad()
 
-        loss, stats = compute_loss_and_stats(model, task, batch, device)
+        loss, stats = compute_loss_and_stats(model, objective, batch, device)
         loss.backward()
         self.step(model.parameters(), require_grads=True, check_finite_grads=True)
 

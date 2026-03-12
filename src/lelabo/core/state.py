@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+
+from .train_types import EpochRecord, SplitSummary
 
 
 @dataclass
@@ -17,9 +18,9 @@ class TrainState:
     eval_samples_seen: int = 0
     stop_requested: bool = False
     stop_reason: str | None = None
-    last_train: Any | None = None
-    last_eval: Any | None = None
-    last_epoch: Any | None = None
+    last_train: SplitSummary | None = None
+    last_eval: SplitSummary | None = None
+    last_epoch: EpochRecord | None = None
 
     def set_step(self, value: int) -> None:
         v = int(value)

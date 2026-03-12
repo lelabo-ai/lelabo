@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from argparse import Namespace
 from types import SimpleNamespace
 
 import torch
@@ -10,7 +11,16 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-task_mod = importlib.import_module("lelabo.supervised.tasks")
+loss_api = importlib.import_module("lelabo.losses")
+metrics_api = importlib.import_module("lelabo.metrics")
+trainer_api = importlib.import_module("lelabo.core.trainer")
+update_rule_base = importlib.import_module("lelabo.update_rules.base")
+
+
+class _EvalOnlyLearner(update_rule_base.UpdateRule):
+    def train_step(self, model, objective, batch, device, state=None):
+        _ = (model, objective, batch, device, state)
+        raise RuntimeError("This test only exercises Trainer.evaluate().")
 
 
 class _DummyGlueClassifier(torch.nn.Module):
@@ -33,9 +43,15 @@ class _DummyGlueRegressor(torch.nn.Module):
         return SimpleNamespace(logits=logits, loss=loss)
 
 
-def test_glue_task_evaluate_classification() -> None:
-    task = task_mod.GLUETask(task_name="sst2", is_regression=False, num_labels=2)
+def test_trainer_evaluate_glue_classification_batch() -> None:
     model = _DummyGlueClassifier(num_labels=2)
+    trainer = trainer_api.Trainer(
+        model=model,
+        learner=_EvalOnlyLearner(),
+        loss=loss_api.make_loss("ce"),
+        device="cpu",
+        display_mode="none",
+    )
 
     loader = [
         {
@@ -45,15 +61,33 @@ def test_glue_task_evaluate_classification() -> None:
         }
     ]
 
-    out = task.evaluate(model, loader, device="cpu")
-    assert "loss" in out
-    assert "acc" in out
-    assert out["acc"] >= 0.99
+    out = trainer.evaluate(loader, split="val")
+    assert out.loss >= 0.0
+    assert out.metric is not None
+    assert out.metric >= 0.99
+    assert out.scalars["acc"] >= 0.99
 
 
-def test_glue_task_evaluate_regression() -> None:
-    task = task_mod.GLUETask(task_name="stsb", is_regression=True, num_labels=1)
+def test_trainer_evaluate_glue_regression_batch() -> None:
     model = _DummyGlueRegressor()
+    metric_ctx = metrics_api.MetricContext(
+        args=Namespace(),
+        mode="supervised",
+        dataset="glue",
+        algo="bp",
+        extra={"metric_params": {}},
+    )
+    trainer = trainer_api.Trainer(
+        model=model,
+        learner=_EvalOnlyLearner(),
+        loss=loss_api.make_loss("mse"),
+        device="cpu",
+        display_mode="none",
+        metrics=[
+            metrics_api.build_metric("mse", metric_ctx),
+            metrics_api.build_metric("mae", metric_ctx),
+        ],
+    )
 
     loader = [
         {
@@ -63,7 +97,7 @@ def test_glue_task_evaluate_regression() -> None:
         }
     ]
 
-    out = task.evaluate(model, loader, device="cpu")
-    assert "loss" in out
-    assert "mse" in out
-    assert "metric" in out
+    out = trainer.evaluate(loader, split="val")
+    assert out.loss >= 0.0
+    assert "mse" in out.scalars
+    assert "mae" in out.scalars

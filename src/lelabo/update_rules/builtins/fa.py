@@ -16,7 +16,8 @@ from ..helpers import (
     assign_linear_grads_from_activations_,
     resolve_activation_name,
 )
-from ...core.batch import extract_loss_and_stats, to_device
+from ..teaching_signals import best_effort_stats, logits_delta_from_loss
+from ...core.batch import to_device
 from ...models.cache_provider import CacheSpec, forward_with_standard_cache
 
 
@@ -48,7 +49,8 @@ class FeedbackAlignment(OptimizerUpdateRule):
         self._feedback: dict[str, torch.Tensor] = {}
         self._feedback_shapes: dict[str, tuple[int, ...]] = {}
 
-    def on_train_start(self, model, task, device, state=None) -> None:
+    def on_train_start(self, model, objective, device, state=None) -> None:
+        _ = (objective, device, state)
         if self.activation_name is None:
             self.activation_name = resolve_activation_name(model)
 
@@ -112,20 +114,10 @@ class FeedbackAlignment(OptimizerUpdateRule):
             if key not in self._feedback_shapes:
                 self._feedback_shapes[key] = tuple(int(v) for v in value.shape)
 
-    def _output_delta_logits(self, task, out: Any, y: Any) -> torch.Tensor:
-        if isinstance(y, Mapping):
-            raise NotImplementedError("FA v1 does not support RL/mapping labels.")
-        if not hasattr(task, "output_deltas"):
-            raise NotImplementedError("FA requires task.output_deltas(out, y).")
-        raw = task.output_deltas(out, y)
-        if not isinstance(raw, Mapping):
-            raise RuntimeError("task.output_deltas must return a dict[str, Tensor].")
-        if "logits" not in raw:
-            raise RuntimeError("FA v1 expects task.output_deltas(...) to contain key 'logits'.")
-        d = raw["logits"]
-        if not torch.is_tensor(d):
-            raise RuntimeError("FA expects output_deltas['logits'] to be a tensor.")
-        d2 = self._to_2d(d)
+    def _output_delta_logits(self, objective, out: Any, y: Any) -> torch.Tensor:
+        d2 = self._to_2d(
+            logits_delta_from_loss(objective, out, y, rule_name="FA")
+        )
         if d2.numel() == 0:
             raise RuntimeError("FA output_deltas['logits'] is empty.")
         if self.delta_scale != 1.0:
@@ -177,32 +169,8 @@ class FeedbackAlignment(OptimizerUpdateRule):
         delta4 = delta_in.view(batch_size, channels, side, side)
         return self._align_spatial(delta4, height=height, width=width)
 
-    @staticmethod
-    def _best_effort_stats(task, out: Any, y: Any) -> dict[str, float]:
-        stats: dict[str, float] = {}
-        try:
-            loss_res = task.loss(out, y)
-            loss, extra = extract_loss_and_stats(loss_res)
-            if torch.is_tensor(loss):
-                stats["loss"] = float(loss.item())
-            for key, value in extra.items():
-                stats[str(key)] = float(value)
-        except Exception:
-            pass
-
-        if hasattr(task, "metrics"):
-            try:
-                met = task.metrics(out, y)
-                if isinstance(met, Mapping):
-                    for key, value in met.items():
-                        if isinstance(value, (int, float)):
-                            stats[str(key)] = float(value)
-            except Exception:
-                pass
-        return stats
-
     @torch.no_grad()
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
         self.zero_grad()
 
@@ -259,7 +227,7 @@ class FeedbackAlignment(OptimizerUpdateRule):
             raise RuntimeError(f"FA output block '{output_name}' expects tensor cache entries.")
 
         delta_next: torch.Tensor
-        delta_logits = self._output_delta_logits(task, out, y)
+        delta_logits = self._output_delta_logits(objective, out, y)
         if int(delta_logits.size(0)) != int(u_out.size(0)):
             raise RuntimeError(
                 f"FA output batch mismatch on '{output_name}': "
@@ -402,6 +370,6 @@ class FeedbackAlignment(OptimizerUpdateRule):
             delta_next = delta_current
 
         self.step(model.parameters(), require_grads=True, check_finite_grads=True)
-        stats = self._best_effort_stats(task, out, y)
+        stats = best_effort_stats(objective, out, y)
         self._mark_step_done()
         return stats

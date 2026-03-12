@@ -15,22 +15,64 @@ except ImportError:
     Console = None
     Table = None
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    tqdm = None
+
 
 class Reporter(ABC):
     def on_run_start(
         self,
         *,
         model_name: str,
-        task_name: str,
+        loss_name: str,
         rule_name: str,
         device: str,
         epochs: int,
         metric_keys: Sequence[str],
     ) -> None:
-        _ = (model_name, task_name, rule_name, device, epochs, metric_keys)
+        _ = (model_name, loss_name, rule_name, device, epochs, metric_keys)
 
     def on_epoch_end(self, epoch_record: EpochRecord, state: Any | None = None) -> None:
         _ = (epoch_record, state)
+
+    def on_epoch_start(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = (epoch, epochs, train_batches, global_batches_completed, global_batches_total, state)
+
+    def on_batch_end(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        batch_idx: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        train_summary: SplitSummary,
+        lr: float | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = (
+            epoch,
+            epochs,
+            batch_idx,
+            train_batches,
+            global_batches_completed,
+            global_batches_total,
+            train_summary,
+            lr,
+            state,
+        )
 
     def on_eval_end(self, split_summary: SplitSummary, state: Any | None = None) -> None:
         _ = (split_summary, state)
@@ -47,6 +89,80 @@ class _BaseTextReporter(Reporter):
     def __init__(self) -> None:
         self._console = Console() if (Console is not None and Table is not None) else None
         self._metric_keys: list[str] = []
+        self._progress_active = False
+        self._global_bar: Any | None = None
+        self._epoch_bar: Any | None = None
+        self._epochs_total: int = 0
+
+    def _is_progress_enabled(self) -> bool:
+        return tqdm is not None
+
+    def _emit_text(self, line: str) -> None:
+        text = str(line)
+        if self._progress_active and self._is_progress_enabled():
+            tqdm.write(text)
+            return
+        print(text)
+
+    def _emit_rich(self, renderable: Any) -> None:
+        if self._console is None:
+            self._emit_text(str(renderable))
+            return
+        if self._progress_active and self._is_progress_enabled():
+            with tqdm.external_write_mode():
+                self._console.print(renderable)
+            return
+        self._console.print(renderable)
+
+    def _ensure_global_progress(
+        self,
+        *,
+        global_batches_total: int | None,
+        global_batches_completed: int,
+    ) -> None:
+        if not self._is_progress_enabled() or self._global_bar is not None:
+            return
+        self._global_bar = tqdm(
+            total=global_batches_total,
+            initial=int(max(0, global_batches_completed)),
+            desc="Global",
+            leave=True,
+            position=0,
+            dynamic_ncols=True,
+        )
+        self._progress_active = True
+
+    def _open_epoch_progress(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        train_batches: int | None,
+    ) -> None:
+        if not self._is_progress_enabled():
+            return
+        if self._epoch_bar is not None:
+            self._epoch_bar.close()
+        self._epoch_bar = tqdm(
+            total=train_batches,
+            desc=f"E{int(epoch):03d}/{int(epochs):03d}",
+            leave=False,
+            position=1,
+            dynamic_ncols=True,
+        )
+        self._progress_active = True
+
+    def _close_epoch_progress(self) -> None:
+        if self._epoch_bar is not None:
+            self._epoch_bar.close()
+            self._epoch_bar = None
+
+    def _close_all_progress(self) -> None:
+        self._close_epoch_progress()
+        if self._global_bar is not None:
+            self._global_bar.close()
+            self._global_bar = None
+        self._progress_active = False
 
     @staticmethod
     def _fmt_scalar(key: str, value: Any) -> str:
@@ -86,29 +202,103 @@ class _BaseTextReporter(Reporter):
             return "-"
         return f"{n:_}"
 
+    def _progress_metric_value(self, train_summary: SplitSummary) -> float | None:
+        if isinstance(train_summary.metric, (int, float)):
+            return float(train_summary.metric)
+        if isinstance(train_summary.scalars.get("acc"), (int, float)):
+            return float(train_summary.scalars["acc"])
+        return None
+
+    def _batch_postfix(
+        self,
+        *,
+        train_summary: SplitSummary,
+        lr: float | None,
+    ) -> dict[str, str]:
+        postfix: dict[str, str] = {
+            "loss": self._fmt_scalar("loss", train_summary.loss),
+        }
+        metric_value = self._progress_metric_value(train_summary)
+        if metric_value is not None:
+            postfix["metric"] = self._fmt_scalar("metric", metric_value)
+        for key in self._metric_keys:
+            if key in train_summary.scalars:
+                postfix[str(key)] = self._fmt_scalar(key, train_summary.scalars[key])
+        if isinstance(lr, (int, float)):
+            postfix["lr"] = self._fmt_scalar("lr", lr)
+        return postfix
+
 
 class CompactReporter(_BaseTextReporter):
     def on_run_start(
         self,
         *,
         model_name: str,
-        task_name: str,
+        loss_name: str,
         rule_name: str,
         device: str,
         epochs: int,
         metric_keys: Sequence[str],
     ) -> None:
         self._metric_keys = list(metric_keys)
+        self._epochs_total = int(epochs)
         metrics = ["loss", *metric_keys] if metric_keys else ["loss", "metric"]
-        print(
-            f"run | model={model_name} | task={task_name} | rule={rule_name} | "
+        self._emit_text(
+            f"run | model={model_name} | loss={loss_name} | rule={rule_name} | "
             f"device={device} | epochs={int(epochs)}"
         )
-        print("metrics | " + ", ".join(metrics))
+        self._emit_text("metrics | " + ", ".join(metrics))
+
+    def on_epoch_start(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = state
+        self._epochs_total = int(epochs)
+        self._ensure_global_progress(
+            global_batches_total=global_batches_total,
+            global_batches_completed=global_batches_completed,
+        )
+        self._open_epoch_progress(
+            epoch=epoch,
+            epochs=epochs,
+            train_batches=train_batches,
+        )
+
+    def on_batch_end(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        batch_idx: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        train_summary: SplitSummary,
+        lr: float | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = (batch_idx, train_batches, global_batches_total, state)
+        if self._epoch_bar is not None:
+            self._epoch_bar.update(1)
+            self._epoch_bar.set_postfix(self._batch_postfix(train_summary=train_summary, lr=lr))
+        if self._global_bar is not None:
+            self._global_bar.update(1)
+            self._global_bar.set_postfix(epoch=f"{int(epoch)}/{int(epochs)}")
 
     def on_epoch_end(self, epoch_record: EpochRecord, state: Any | None = None) -> None:
         _ = state
-        parts: list[str] = [f"E{int(epoch_record.epoch):03d}"]
+        self._close_epoch_progress()
+        epoch_token = f"E{int(epoch_record.epoch):03d}"
+        if self._epochs_total > 0:
+            epoch_token = f"{epoch_token}/{int(self._epochs_total):03d}"
+        parts: list[str] = [epoch_token]
         train_fields = [f"loss={self._fmt_scalar('loss', epoch_record.train.loss)}"]
         if epoch_record.train.metric is not None:
             train_fields.append(f"metric={self._fmt_scalar('metric', epoch_record.train.metric)}")
@@ -131,7 +321,7 @@ class CompactReporter(_BaseTextReporter):
         if epoch_record.lr is not None:
             parts.append(f"lr={self._fmt_scalar('lr', epoch_record.lr)}")
         parts.append(f"t={self._human_time(epoch_record.duration_sec)}")
-        print(" | ".join(parts))
+        self._emit_text(" | ".join(parts))
 
     def on_eval_end(self, split_summary: SplitSummary, state: Any | None = None) -> None:
         _ = state
@@ -139,21 +329,26 @@ class CompactReporter(_BaseTextReporter):
         fields = [f"loss={self._fmt_scalar('loss', split_summary.loss)}"]
         if split_summary.metric is not None:
             fields.append(f"metric={self._fmt_scalar('metric', split_summary.metric)}")
-        print(f"{split_name} | " + " ".join(fields))
+        self._emit_text(f"{split_name} | " + " ".join(fields))
 
     def on_run_end(self, fit_result: FitResult, state: Any | None = None) -> None:
         _ = state
+        self._close_all_progress()
         final_epoch = fit_result.final_epoch
-        best_val_str = "best_val=-"
-        if fit_result.best.epoch_by_val is not None and fit_result.best.val_metric is not None:
-            best_val_str = f"best_val={self._fmt_scalar('val.metric', fit_result.best.val_metric)}@{fit_result.best.epoch_by_val}"
-        print(
+        best_str = (
+            f"best_{fit_result.best.monitor_name}="
+            f"{self._fmt_scalar(fit_result.best.monitor_name, fit_result.best.best_value)}"
+            f"@{fit_result.best.epoch}"
+        )
+        self._emit_text(
             f"done | train_loss={self._fmt_scalar('loss', final_epoch.train.loss)} | "
             f"train_metric={self._fmt_scalar('metric', final_epoch.train.metric)} | "
-            f"{best_val_str} | total={self._human_time(fit_result.runtime.total_train_time_sec)}"
+            f"{best_str} | total={self._human_time(fit_result.runtime.total_train_time_sec)}"
         )
         if fit_result.runtime.stop_reason:
-            print(f"stop | {fit_result.runtime.stop_reason}")
+            self._emit_text(f"stop | {fit_result.runtime.stop_reason}")
+        if fit_result.restoration.restored_on_train_end:
+            self._emit_text(f"restore | best_epoch={fit_result.restoration.best_epoch}")
 
 
 class RichReporter(_BaseTextReporter):
@@ -166,23 +361,71 @@ class RichReporter(_BaseTextReporter):
         self,
         *,
         model_name: str,
-        task_name: str,
+        loss_name: str,
         rule_name: str,
         device: str,
         epochs: int,
         metric_keys: Sequence[str],
     ) -> None:
         self._metric_keys = list(metric_keys)
+        self._epochs_total = int(epochs)
         metrics = ["loss", *metric_keys] if metric_keys else ["loss", "metric"]
-        self._console.print(
-            f"[bold cyan]run | model={model_name} | task={task_name} | rule={rule_name} | "
+        self._emit_rich(
+            f"[bold cyan]run | model={model_name} | loss={loss_name} | rule={rule_name} | "
             f"device={device} | epochs={int(epochs)}[/]"
         )
-        self._console.print(f"[cyan]metrics | {', '.join(metrics)}[/]")
+        self._emit_rich(f"[cyan]metrics | {', '.join(metrics)}[/]")
+
+    def on_epoch_start(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = state
+        self._epochs_total = int(epochs)
+        self._ensure_global_progress(
+            global_batches_total=global_batches_total,
+            global_batches_completed=global_batches_completed,
+        )
+        self._open_epoch_progress(
+            epoch=epoch,
+            epochs=epochs,
+            train_batches=train_batches,
+        )
+
+    def on_batch_end(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        batch_idx: int,
+        train_batches: int | None,
+        global_batches_completed: int,
+        global_batches_total: int | None,
+        train_summary: SplitSummary,
+        lr: float | None,
+        state: Any | None = None,
+    ) -> None:
+        _ = (batch_idx, train_batches, global_batches_total, state)
+        if self._epoch_bar is not None:
+            self._epoch_bar.update(1)
+            self._epoch_bar.set_postfix(self._batch_postfix(train_summary=train_summary, lr=lr))
+        if self._global_bar is not None:
+            self._global_bar.update(1)
+            self._global_bar.set_postfix(epoch=f"{int(epoch)}/{int(epochs)}")
 
     def on_epoch_end(self, epoch_record: EpochRecord, state: Any | None = None) -> None:
         _ = state
-        table = Table(title=f"Epoch {int(epoch_record.epoch)} summary", show_lines=False)
+        self._close_epoch_progress()
+        title = f"Epoch {int(epoch_record.epoch)} summary"
+        if self._epochs_total > 0:
+            title = f"Epoch {int(epoch_record.epoch)}/{int(self._epochs_total)} summary"
+        table = Table(title=title, show_lines=False)
         table.add_column("split", justify="left")
         table.add_column("loss", justify="right")
         table.add_column("metric", justify="right")
@@ -222,7 +465,7 @@ class RichReporter(_BaseTextReporter):
                 ]
             )
             table.add_row(*val_row)
-        self._console.print(table)
+        self._emit_rich(table)
         if epoch_record.monitor is not None:
             best_value = self._fmt_scalar(epoch_record.monitor.name, epoch_record.monitor.best_value)
             line = (
@@ -231,29 +474,36 @@ class RichReporter(_BaseTextReporter):
             )
             if epoch_record.monitor.improved_this_epoch:
                 line += " ↑"
-            self._console.print(line)
+            self._emit_rich(line)
 
     def on_eval_end(self, split_summary: SplitSummary, state: Any | None = None) -> None:
         _ = state
         split_name = str(split_summary.split or "eval")
-        self._console.print(
+        self._emit_rich(
             f"[cyan]{split_name} | loss={self._fmt_scalar('loss', split_summary.loss)} "
             f"metric={self._fmt_scalar('metric', split_summary.metric)}[/]"
         )
 
     def on_run_end(self, fit_result: FitResult, state: Any | None = None) -> None:
         _ = state
+        self._close_all_progress()
         final_epoch = fit_result.final_epoch
-        best_val_str = "best_val=-"
-        if fit_result.best.epoch_by_val is not None and fit_result.best.val_metric is not None:
-            best_val_str = f"best_val={self._fmt_scalar('val.metric', fit_result.best.val_metric)}@{fit_result.best.epoch_by_val}"
-        self._console.print(
+        best_str = (
+            f"best_{fit_result.best.monitor_name}="
+            f"{self._fmt_scalar(fit_result.best.monitor_name, fit_result.best.best_value)}"
+            f"@{fit_result.best.epoch}"
+        )
+        self._emit_rich(
             f"[bold green]done | train_loss={self._fmt_scalar('loss', final_epoch.train.loss)} | "
             f"train_metric={self._fmt_scalar('metric', final_epoch.train.metric)} | "
-            f"{best_val_str} | total={self._human_time(fit_result.runtime.total_train_time_sec)}[/]"
+            f"{best_str} | total={self._human_time(fit_result.runtime.total_train_time_sec)}[/]"
         )
         if fit_result.runtime.stop_reason:
-            self._console.print(f"[yellow]stop | {fit_result.runtime.stop_reason}[/]")
+            self._emit_rich(f"[yellow]stop | {fit_result.runtime.stop_reason}[/]")
+        if fit_result.restoration.restored_on_train_end:
+            self._emit_rich(
+                f"[yellow]restore | best_epoch={fit_result.restoration.best_epoch}[/]"
+            )
 
 
 def make_reporter(display_mode: Any) -> tuple[str, Reporter]:

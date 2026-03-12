@@ -297,7 +297,8 @@ class SoftHebb(OptimizerUpdateRule):
                     module.conv.eval()
         return head_params
 
-    def _unsup_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def _unsup_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
+        _ = objective
         model.train()
         self._configure_unsup_phase(model)
 
@@ -345,7 +346,7 @@ class SoftHebb(OptimizerUpdateRule):
 
         return {"loss": 0.0}
 
-    def _sup_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def _sup_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
 
         # Inspect blocks using cache provider so head detection follows v2 conventions.
@@ -390,7 +391,7 @@ class SoftHebb(OptimizerUpdateRule):
             return {"loss": 0.0}
 
         self.zero_grad()
-        loss, stats = compute_loss_and_stats(model, task, batch, device)
+        loss, stats = compute_loss_and_stats(model, objective, batch, device)
         loss.backward()
         self.step(head_params, require_grads=True, check_finite_grads=True)
 
@@ -398,10 +399,10 @@ class SoftHebb(OptimizerUpdateRule):
         out["loss"] = float(loss.item())
         return out
 
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         if self._in_unsup_phase(state):
-            out = self._unsup_step(model, task, batch, device, state=state)
+            out = self._unsup_step(model, objective, batch, device, state=state)
         else:
-            out = self._sup_step(model, task, batch, device, state=state)
+            out = self._sup_step(model, objective, batch, device, state=state)
         self._mark_step_done()
         return out

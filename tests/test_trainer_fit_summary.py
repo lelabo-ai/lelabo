@@ -13,6 +13,7 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 core_callbacks = importlib.import_module("lelabo.core.callbacks")
 trainer_api = importlib.import_module("lelabo.core.trainer")
+update_rule_base = importlib.import_module("lelabo.update_rules.base")
 
 
 class _ScalarModel(torch.nn.Module):
@@ -24,21 +25,23 @@ class _ScalarModel(torch.nn.Module):
         return x * self.weight
 
 
-class _EpochAwareLearner:
+class _EpochAwareLearner(update_rule_base.UpdateRule):
     def __init__(self, train_stats_by_epoch: dict[int, dict[str, float]]) -> None:
+        super().__init__()
         self.train_stats_by_epoch = {
             int(epoch): {str(k): float(v) for k, v in stats.items()}
             for epoch, stats in train_stats_by_epoch.items()
         }
 
-    def on_train_start(self, model, task, device, state=None) -> None:
-        _ = (model, task, device, state)
+    def on_train_start(self, model, objective, device, state=None) -> None:
+        _ = (model, objective, device, state)
 
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, float]:
-        _ = (task, batch, device)
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, float]:
+        _ = (objective, batch, device)
         epoch = int(getattr(state, "epoch", 0))
         with torch.no_grad():
             model.weight.fill_(float(epoch))
+        self._mark_step_done()
         return dict(self.train_stats_by_epoch[epoch])
 
 
@@ -62,8 +65,8 @@ def test_trainer_fit_final_metrics_track_last_completed_epoch(monkeypatch: pytes
 
     trainer = trainer_api.Trainer(
         model=_ScalarModel(),
-        task=object(),
         learner=_EpochAwareLearner(train_stats_by_epoch),
+        loss=lambda pred, target: pred.sum() * 0.0,
         device="cpu",
         display_mode="none",
     )
@@ -85,20 +88,27 @@ def test_trainer_fit_final_metrics_track_last_completed_epoch(monkeypatch: pytes
         )
 
     monkeypatch.setattr(trainer, "_evaluate", _eval)
-    result = trainer.fit(loader, epochs=3, show_progress=False, val_loader=loader)
+    result = trainer.fit(loader, epochs=3, val_loader=loader)
 
-    assert result.best.train_loss == pytest.approx(1.0, rel=1e-6)
-    assert result.best.train_metric == pytest.approx(0.6, rel=1e-6)
+    assert result.best.source == "default"
+    assert result.best.monitor_name == "val.loss"
+    assert result.best.monitor_mode == "min"
+    assert result.best.best_value == pytest.approx(0.3, rel=1e-6)
+    assert result.best.epoch == 2
+    assert result.best.train.loss == pytest.approx(4.0, rel=1e-6)
+    assert result.best.train.metric == pytest.approx(0.6, rel=1e-6)
     assert result.final_epoch.train.loss == pytest.approx(2.0, rel=1e-6)
     assert result.final_epoch.train.metric == pytest.approx(0.4, rel=1e-6)
-    assert result.best.val_loss == pytest.approx(0.3, rel=1e-6)
-    assert result.best.val_metric == pytest.approx(0.9, rel=1e-6)
+    assert result.best.val is not None
+    assert result.best.val.loss == pytest.approx(0.3, rel=1e-6)
+    assert result.best.val.metric == pytest.approx(0.9, rel=1e-6)
     assert result.final_epoch.val is not None
     assert result.final_epoch.val.loss == pytest.approx(0.8, rel=1e-6)
     assert result.final_epoch.val.metric == pytest.approx(0.3, rel=1e-6)
-    assert result.best.epoch_by_val == 2
-    assert result.restoration.restored_best_model is False
-    assert result.restoration.restored_best_epoch is None
+    assert result.restoration.enabled is False
+    assert result.restoration.best_epoch is None
+    assert result.restoration.best_checkpoint_available is False
+    assert result.restoration.restored_on_train_end is False
 
 
 def test_trainer_fit_reports_restore_best_without_overwriting_final_epoch_metrics(
@@ -116,8 +126,8 @@ def test_trainer_fit_reports_restore_best_without_overwriting_final_epoch_metric
     model = _ScalarModel()
     trainer = trainer_api.Trainer(
         model=model,
-        task=object(),
         learner=_EpochAwareLearner(train_stats_by_epoch),
+        loss=lambda pred, target: pred.sum() * 0.0,
         device="cpu",
         display_mode="none",
         callbacks=[
@@ -150,14 +160,20 @@ def test_trainer_fit_reports_restore_best_without_overwriting_final_epoch_metric
         )
 
     monkeypatch.setattr(trainer, "_evaluate", _eval)
-    result = trainer.fit(loader, epochs=5, show_progress=False, val_loader=loader)
+    result = trainer.fit(loader, epochs=5, val_loader=loader)
 
     assert result.final_epoch.train.loss == pytest.approx(4.0, rel=1e-6)
     assert result.final_epoch.train.metric == pytest.approx(0.2, rel=1e-6)
     assert result.final_epoch.val is not None
     assert result.final_epoch.val.loss == pytest.approx(0.9, rel=1e-6)
     assert result.final_epoch.val.metric == pytest.approx(0.1, rel=1e-6)
-    assert result.best.epoch_by_val == 1
-    assert result.restoration.restored_best_model is True
-    assert result.restoration.restored_best_epoch == 1
+    assert result.best.source == "earlystopping"
+    assert result.best.monitor_name == "val.metric"
+    assert result.best.monitor_mode == "max"
+    assert result.best.best_value == pytest.approx(0.9, rel=1e-6)
+    assert result.best.epoch == 1
+    assert result.restoration.enabled is True
+    assert result.restoration.best_epoch == 1
+    assert result.restoration.best_checkpoint_available is True
+    assert result.restoration.restored_on_train_end is True
     assert float(model.weight.item()) == pytest.approx(1.0, rel=1e-6)

@@ -9,6 +9,9 @@ class TrainerMetric:
 
     name: str = "metric"
 
+    def display_keys(self) -> tuple[str, ...]:
+        return ()
+
     def reset(
         self,
         split: str,

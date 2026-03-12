@@ -64,9 +64,10 @@ class LocalHeadRule(OptimizerUpdateRule):
         )
 
     @torch.no_grad()
-    def train_step(self, model, task, batch, device, state=None) -> dict[str, Any]:
+    def train_step(self, model, objective, batch, device, state=None) -> dict[str, Any]:
         model.train()
         self.zero_grad()
+        _ = objective
 
         x, y = batch
         x = x.to(device)

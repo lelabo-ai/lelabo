@@ -84,6 +84,9 @@ class _StreamingMetricBase(TrainerMetric, ABC):
         self._state_by_split: dict[str, Any] = {}
         self._last_by_split: dict[str, dict[str, float]] = {}
 
+    def display_keys(self) -> tuple[str, ...]:
+        return (self.output_key,)
+
     @staticmethod
     def _normalize_split(split: str | None) -> str:
         token = str(split or "").strip().lower()

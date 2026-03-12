@@ -57,6 +57,17 @@ class EarlyStopping(Callback):
         self.best_state: Optional[Dict[str, Any]] = None
         self._has_best: bool = False
         self._improved_this_epoch: bool = False
+        self._restored_on_train_end: bool = False
+
+    def on_train_start(self, trainer: Any, state: Any | None = None) -> None:
+        _ = (trainer, state)
+        self.best = -math.inf if self.cfg.mode == "max" else math.inf
+        self.best_epoch = 0
+        self.bad_epochs = 0
+        self.best_state = None
+        self._has_best = False
+        self._improved_this_epoch = False
+        self._restored_on_train_end = False
 
     @staticmethod
     def _normalize_mode(raw_mode: Any, monitor: str) -> str:
@@ -181,9 +192,13 @@ class EarlyStopping(Callback):
         )
 
     def restoration_status(self) -> RestorationStatus:
-        restored = bool(self.cfg.restore_best and self.best_state is not None)
-        epoch = int(self.best_epoch) if restored and self.best_epoch > 0 else None
-        return RestorationStatus(restored_best_model=restored, restored_best_epoch=epoch)
+        best_epoch = int(self.best_epoch) if self._has_best and self.best_epoch > 0 else None
+        return RestorationStatus(
+            enabled=bool(self.cfg.restore_best),
+            best_epoch=best_epoch,
+            best_checkpoint_available=bool(self.best_state is not None),
+            restored_on_train_end=bool(self._restored_on_train_end),
+        )
 
     def on_epoch_end(self, trainer: Any, epoch_record: EpochRecord, state: Any | None = None) -> None:
         epoch = int(epoch_record.epoch)
@@ -226,3 +241,4 @@ class EarlyStopping(Callback):
         _ = (fit_result, state)
         if self.cfg.restore_best and self.best_state is not None:
             self._restore_state(trainer, self.best_state)
+            self._restored_on_train_end = True
