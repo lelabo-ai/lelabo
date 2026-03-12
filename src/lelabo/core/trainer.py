@@ -40,10 +40,7 @@ class Trainer:
         callbacks: Optional[list[Callback]] = None,
         logger: Optional[RunLogger] = None,
         schedulers: Optional[list[Any]] = None,
-        scheduler_interval: str = "epoch",
-        scheduler_monitor: str = "val.loss",
         metrics: Optional[list[TrainerMetric]] = None,
-        reporter: Reporter | None = None,
     ):
         self.model = model.to(device)
         self.task = task
@@ -53,20 +50,13 @@ class Trainer:
         self.logger = logger or RunLogger(run_dir=None)
         self.callbacks = callbacks or []
         self.schedulers = schedulers or []
-        self.scheduler_interval = str(scheduler_interval).lower()
-        self.scheduler_monitor = str(scheduler_monitor)
         self.metrics = metrics or []
         self.stop_training = False
         self.stop_reason: str | None = None
         self.state: TrainState | None = None
         self._in_fit = False
 
-        if reporter is None:
-            self.display_mode, self.reporter = make_reporter(display_mode)
-        else:
-            mode = str(display_mode).strip().lower()
-            self.display_mode = mode if mode else "custom"
-            self.reporter = reporter
+        self.display_mode, self._reporter = make_reporter(display_mode)
         self._display_metric_keys = self._resolve_display_metric_keys()
 
     @staticmethod
@@ -127,7 +117,7 @@ class Trainer:
     def _select_fit_reporter(self, *, show_progress: bool) -> Reporter:
         if not show_progress:
             return NullReporter()
-        return self.reporter
+        return self._reporter
 
     def _reset_metrics(self, split: str) -> None:
         for metric in self.metrics:
@@ -414,7 +404,7 @@ class Trainer:
             for cb in self.callbacks:
                 self._call_callback_hook(cb, "on_eval_end", self, summary, state)
         if emit_report and not self._in_fit:
-            self.reporter.on_eval_end(summary, state)
+            self._reporter.on_eval_end(summary, state)
         return summary
 
     @torch.no_grad()

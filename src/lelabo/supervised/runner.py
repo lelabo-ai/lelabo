@@ -218,8 +218,6 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         callbacks=callbacks,
         logger=logger,
         schedulers=schedulers,
-        scheduler_interval=getattr(args, "lr_scheduler_interval", "epoch"),
-        scheduler_monitor=getattr(args, "lr_scheduler_monitor", "val.loss"),
         metrics=metrics,
     )
 
