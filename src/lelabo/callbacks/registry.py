@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from ..core.registry import Registry
-from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ..capsule.plugins.snapshot import build_capsule_registry_snapshot
 
 
 CALLBACK_REGISTRY = Registry("callbacks", package="lelabo.callbacks")

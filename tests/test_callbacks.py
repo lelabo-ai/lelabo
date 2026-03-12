@@ -17,9 +17,9 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 callbacks_api = importlib.import_module("lelabo.callbacks")
 callbacks_registry = importlib.import_module("lelabo.callbacks.registry")
 core_callbacks = importlib.import_module("lelabo.core.callbacks")
-plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+plugins = importlib.import_module("lelabo.capsule.plugins")
 trainer_api = importlib.import_module("lelabo.core.trainer")
-train_api = importlib.import_module("lelabo.api.train")
+train_api = importlib.import_module("lelabo.cli.commands.train")
 datasets_base = importlib.import_module("lelabo.supervised.datasets.base")
 
 

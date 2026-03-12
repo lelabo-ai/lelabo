@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional
 
 import torch
 
-from .callbacks import Callback, EarlyStopping
-from .utils.display import normalize_display_mode
-from .utils.logger import RunLogger
 from .batch import infer_batch_size
+from .callbacks import Callback, EarlyStopping
+from .display import normalize_display_mode
+from .logger import RunLogger
 from .steps import compute_loss_and_stats
 from .state import TrainState
 from ..metrics.payload import is_metric_payload_key

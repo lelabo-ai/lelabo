@@ -61,8 +61,9 @@ def _load_lab_modules(monkeypatch: pytest.MonkeyPatch):
     conv_mod = importlib.import_module("lelabo.models.builtins.convnet")
     deephebb_mod = importlib.import_module("lelabo.models.builtins.deep_softhebb")
     ac_mod = importlib.import_module("lelabo.models.builtins.actor_critic")
-    task_mod = importlib.import_module("lelabo.core.task")
-    return registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, task_mod
+    supervised_tasks = importlib.import_module("lelabo.supervised.tasks")
+    rl_algorithms = importlib.import_module("lelabo.rl.algorithms")
+    return registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, supervised_tasks, rl_algorithms
 
 
 def _snapshot_params(model) -> dict[str, Any]:
@@ -166,11 +167,19 @@ def _resolve_supervised_model_names(requested: str) -> list[str]:
     return names
 
 
-def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, task_mod, torch, batch_size: int):
+def _build_supervised_case(
+    model_name: str,
+    mlp_mod,
+    conv_mod,
+    deephebb_mod,
+    supervised_tasks,
+    torch,
+    batch_size: int,
+):
     model_name = str(model_name).lower()
     if model_name == "mlp":
         model = mlp_mod.MLPClassifier(in_dim=8, hidden_dim=16, num_layers=2, num_classes=3, activation="relu")
-        task = task_mod.ClassificationTask(num_classes=3)
+        task = supervised_tasks.ClassificationTask(num_classes=3)
         dataset = "mnist"
         model_flag = "mlp"
 
@@ -190,7 +199,7 @@ def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, tas
             use_bn=False,
             pool_every=1,
         )
-        task = task_mod.ClassificationTask(num_classes=10)
+        task = supervised_tasks.ClassificationTask(num_classes=10)
         dataset = "mnist"
         model_flag = "cnn"
 
@@ -277,7 +286,7 @@ def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, tas
                 return logits
 
         model = _TinyTransformerClassifier()
-        task = task_mod.ClassificationTask(num_classes=3)
+        task = supervised_tasks.ClassificationTask(num_classes=3)
         dataset = "toy_transformer"
         model_flag = "transformer"
 
@@ -290,7 +299,7 @@ def _build_supervised_case(model_name: str, mlp_mod, conv_mod, deephebb_mod, tas
 
     if model_name == "deephebb":
         model = deephebb_mod.DeepSoftHebbClassifier(in_channels=3, num_classes=10)
-        task = task_mod.ClassificationTask(num_classes=10)
+        task = supervised_tasks.ClassificationTask(num_classes=10)
         dataset = "cifar10"
         model_flag = "deephebb"
 
@@ -362,7 +371,7 @@ def _run_supervised_once(
     mlp_mod,
     conv_mod,
     deephebb_mod,
-    task_mod,
+    supervised_tasks,
     torch,
     *,
     model_name: str,
@@ -378,7 +387,7 @@ def _run_supervised_once(
             mlp_mod,
             conv_mod,
             deephebb_mod,
-            task_mod,
+            supervised_tasks,
             torch,
             batch_size,
         )
@@ -453,7 +462,7 @@ def _run_rl_once(
     algo: str,
     registry,
     ac_mod,
-    task_mod,
+    rl_algorithms,
     torch,
     *,
     epochs: int,
@@ -461,7 +470,7 @@ def _run_rl_once(
     batch_size: int,
 ) -> str:
     model = ac_mod.ActorCriticDiscrete(obs_dim=4, n_actions=2, hidden_dim=16, num_layers=1)
-    task = task_mod.PPOTask(task_mod.PPOConfig())
+    task = rl_algorithms.PPOTask(rl_algorithms.PPOConfig())
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
     ctx = registry.UpdateRuleContext(
         args=_Args(),
@@ -542,7 +551,7 @@ def test_update_rules_research_audit_warn_only(monkeypatch: pytest.MonkeyPatch) 
         pytest.skip("Set LELABO_RULE_AUDIT=1 to run local warn-only update-rule audits.")
 
     torch = pytest.importorskip("torch")
-    registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, task_mod = _load_lab_modules(monkeypatch)
+    registry, mlp_mod, conv_mod, deephebb_mod, ac_mod, supervised_tasks, rl_algorithms = _load_lab_modules(monkeypatch)
 
     available = set(registry.get_update_rule_names())
     raw = os.getenv("LELABO_RULE_AUDIT_ALGOS", ",".join(sorted(available)))
@@ -578,7 +587,7 @@ def test_update_rules_research_audit_warn_only(monkeypatch: pytest.MonkeyPatch) 
                         mlp_mod,
                         conv_mod,
                         deephebb_mod,
-                        task_mod,
+                        supervised_tasks,
                         torch,
                         model_name=model_name,
                         scenario_name=model_name,
@@ -591,7 +600,7 @@ def test_update_rules_research_audit_warn_only(monkeypatch: pytest.MonkeyPatch) 
                     algo,
                     registry,
                     ac_mod,
-                    task_mod,
+                    rl_algorithms,
                     torch,
                     epochs=epochs,
                     steps_per_epoch=steps_per_epoch,

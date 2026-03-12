@@ -7,10 +7,48 @@ import copy
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from .contract import list_contract_keys, resolve_dataclass_overrides
-from ...core.replay_buffer import ReplayBuffer
-from ...core.task import DQNTask
+from ..replay_buffer import ReplayBuffer
+
+
+class DQNTask:
+    """
+    q_values: Tensor [B, A]
+    y: dict with:
+      - "action": LongTensor [B]
+      - "target": FloatTensor [B]
+    """
+
+    def loss(self, q_values: torch.Tensor, y: Dict[str, Any]) -> torch.Tensor:
+        action = y["action"].long()
+        target = y["target"].float()
+        q_sa = q_values.gather(1, action.view(-1, 1)).squeeze(1)
+        return F.smooth_l1_loss(q_sa, target)
+
+    def metrics(self, q_values: torch.Tensor, y: Dict[str, Any]) -> Dict[str, float]:
+        with torch.no_grad():
+            action = y["action"].long()
+            target = y["target"].float()
+            q_sa = q_values.gather(1, action.view(-1, 1)).squeeze(1)
+            td = (q_sa - target).abs().mean().item()
+        return {"td_abs": float(td)}
+
+    @torch.no_grad()
+    def output_deltas(self, q_values: torch.Tensor, y: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        action = y["action"].long()
+        target = y["target"].float()
+
+        q_sa = q_values.gather(1, action.view(-1, 1)).squeeze(1)
+        error = q_sa - target
+        abs_error = error.abs()
+        grad_sa = torch.where(abs_error < 1.0, error, error.sign())
+        grad_sa = grad_sa / float(q_values.size(0))
+
+        delta = torch.zeros_like(q_values)
+        delta.scatter_(1, action.view(-1, 1), grad_sa.view(-1, 1))
+        return {"q_values": delta}
 
 
 @dataclass

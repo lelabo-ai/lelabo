@@ -1,10 +1,10 @@
-"""Reinforcement-learning namespace."""
+"""Reinforcement-learning domain namespace."""
 
 from __future__ import annotations
 
 import importlib
 
-__all__ = ["algorithms"]
+__all__ = ["algorithms", "config", "envs", "replay_buffer", "runner"]
 
 
 def __getattr__(name: str):

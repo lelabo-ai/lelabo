@@ -6,7 +6,7 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ..core.utils.display import normalize_display_mode
+from ..core.display import normalize_display_mode
 from .defaults import DEFAULT_RL_CONFIG, DEFAULT_SUPERVISED_CONFIG
 from .schema import (
     CallbackSpec,

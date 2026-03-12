@@ -15,8 +15,9 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from lelabo.core.task import ClassificationTask, PPOConfig, PPOTask
 from lelabo.models import ActorCriticDiscrete, MLPClassifier
+from lelabo.rl.algorithms import PPOConfig, PPOTask
+from lelabo.supervised.tasks import ClassificationTask
 from lelabo.update_rules import UpdateRuleContext, build_update_rule
 
 # -----------------------------
@@ -24,7 +25,7 @@ from lelabo.update_rules import UpdateRuleContext, build_update_rule
 # -----------------------------
 
 # -----------------------------
-# Optimizer helper (fallback if core.utils not available)
+# Optimizer helper (standalone utility for this profiling script)
 # -----------------------------
 def make_optimizer(name: str, params, lr: float, weight_decay: float):
     name = str(name).lower()

@@ -386,7 +386,7 @@ def _source_root_for_subprocess() -> Path:
 
 
 def _run_index_subprocess(capsule_root: Path, *, fingerprint: str) -> tuple[CapsulePluginIndex, list[str]]:
-    worker_module = "lelabo.core.utils.capsule_plugin_worker"
+    worker_module = "lelabo.capsule.plugins.worker"
     env = dict(os.environ)
     source_root = str(_source_root_for_subprocess())
     existing_pythonpath = env.get("PYTHONPATH", "").strip()

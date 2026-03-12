@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..core.registry import Registry
-from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ..capsule.plugins.snapshot import build_capsule_registry_snapshot
 
 
 UPDATE_RULE_REGISTRY = Registry("update_rules", package="lelabo.update_rules.builtins")

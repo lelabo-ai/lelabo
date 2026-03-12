@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Tuple
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
-from lelabo.core.utils.seed import make_dataloader_seeding
+from lelabo.core.seed import make_dataloader_seeding
 
 
 @dataclass

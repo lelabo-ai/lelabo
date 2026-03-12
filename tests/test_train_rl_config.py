@@ -9,7 +9,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-rl_cfg = importlib.import_module("lelabo.api.train_rl_config")
+rl_cfg = importlib.import_module("lelabo.rl.config")
 
 
 def test_parse_rl_param_overrides_normalizes_keys() -> None:

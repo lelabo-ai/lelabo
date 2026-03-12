@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 metrics_api = importlib.import_module("lelabo.metrics")
 metrics_payload = importlib.import_module("lelabo.metrics.payload")
 trainer_api = importlib.import_module("lelabo.core.trainer")
-task_api = importlib.import_module("lelabo.core.task")
+task_api = importlib.import_module("lelabo.supervised.tasks")
 backprop_api = importlib.import_module("lelabo.update_rules.builtins.backprop")
 
 

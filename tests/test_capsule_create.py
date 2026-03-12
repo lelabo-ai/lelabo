@@ -12,10 +12,10 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 create = importlib.import_module("lelabo.capsule.create")
 registry = importlib.import_module("lelabo.capsule.registry")
-plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+plugins = importlib.import_module("lelabo.capsule.plugins")
 models_registry = importlib.import_module("lelabo.models.registry")
 datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
-train_api = importlib.import_module("lelabo.api.train")
+train_api = importlib.import_module("lelabo.cli.commands.train")
 lab_pkg = importlib.import_module("lelabo")
 
 

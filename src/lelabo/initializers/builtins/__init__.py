@@ -7,7 +7,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from .registry import InitializerContext, register_initializer
+from ..registry import InitializerContext, register_initializer
 
 
 _CONV_TYPES = (

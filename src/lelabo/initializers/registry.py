@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from ..core.registry import Registry
-from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ..capsule.plugins.snapshot import build_capsule_registry_snapshot
 
 
 INITIALIZER_REGISTRY = Registry("initializers", package="lelabo.initializers")

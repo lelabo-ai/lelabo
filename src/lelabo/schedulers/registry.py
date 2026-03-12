@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 import torch
 
 from ..core.registry import Registry
-from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ..capsule.plugins.snapshot import build_capsule_registry_snapshot
 from .controller import SchedulerController
 
 

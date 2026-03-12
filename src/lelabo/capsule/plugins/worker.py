@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from .capsule_plugins import (
+from .discovery import (
     _INDEX_SCHEMA_VERSION,
     _REGISTRY_SPECS,
     _is_optional_capsule_dependency,

@@ -6,10 +6,151 @@ from typing import Dict, Tuple, Any, List
 
 import numpy as np
 import torch
+from typing import Optional
 from torch.distributions.categorical import Categorical
 
 from .contract import list_contract_keys, resolve_dataclass_overrides
-from ...core.task import PPOConfig, PPOTask
+
+
+@dataclass
+class PPOConfig:
+    clip_coef: float = 0.2
+    ent_coef: float = 0.01
+    vf_coef: float = 0.5
+    norm_adv: bool = True
+    clip_vloss: bool = True
+    target_kl: Optional[float] = None
+
+
+class PPOTask:
+    """
+    model_out: {"logits": [B,A], "value": [B]}
+    y: dict containing:
+      - "actions": LongTensor [B]
+      - "old_logprobs": FloatTensor [B]
+      - "advantages": FloatTensor [B]
+      - "returns": FloatTensor [B]
+      - "old_values": FloatTensor [B]
+    """
+
+    def __init__(self, cfg: PPOConfig):
+        self.cfg = cfg
+        self._last: Dict[str, float] = {}
+
+    def loss(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> torch.Tensor:
+        logits = model_out["logits"]
+        values = model_out["value"]
+
+        actions = y["actions"].long()
+        old_logprobs = y["old_logprobs"].float()
+        advantages = y["advantages"].float()
+        returns = y["returns"].float()
+        old_values = y["old_values"].float()
+
+        dist = Categorical(logits=logits)
+        new_logprobs = dist.log_prob(actions)
+        entropy = dist.entropy().mean()
+
+        logratio = new_logprobs - old_logprobs
+        ratio = logratio.exp()
+
+        if self.cfg.norm_adv:
+            advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+
+        pg_loss1 = -advantages * ratio
+        pg_loss2 = -advantages * torch.clamp(ratio, 1.0 - self.cfg.clip_coef, 1.0 + self.cfg.clip_coef)
+        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+        if self.cfg.clip_vloss:
+            v_unclipped = (values - returns) ** 2
+            v_clipped = old_values + torch.clamp(values - old_values, -self.cfg.clip_coef, self.cfg.clip_coef)
+            v_clipped_loss = (v_clipped - returns) ** 2
+            v_loss = 0.5 * torch.max(v_unclipped, v_clipped_loss).mean()
+        else:
+            v_loss = 0.5 * ((values - returns) ** 2).mean()
+
+        loss = pg_loss - self.cfg.ent_coef * entropy + self.cfg.vf_coef * v_loss
+
+        with torch.no_grad():
+            approx_kl = (ratio - 1.0 - logratio).mean().item()
+            clipfrac = (torch.abs(ratio - 1.0) > self.cfg.clip_coef).float().mean().item()
+            self._last = {
+                "loss": float(loss.item()),
+                "pg_loss": float(pg_loss.item()),
+                "v_loss": float(v_loss.item()),
+                "entropy": float(entropy.item()),
+                "approx_kl": float(approx_kl),
+                "clipfrac": float(clipfrac),
+            }
+        return loss
+
+    def metrics(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> Dict[str, float]:
+        _ = (model_out, y)
+        return dict(self._last)
+
+    @torch.no_grad()
+    def output_deltas(self, model_out: Dict[str, torch.Tensor], y: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        logits = model_out["logits"]
+        values = model_out["value"]
+        values_ = values.view(-1, 1) if values.dim() == 1 else values
+
+        actions = y["actions"].long()
+        old_logprobs = y["old_logprobs"].float()
+        advantages = y["advantages"].float()
+        returns = y["returns"].float()
+        old_values = y["old_values"].float()
+
+        batch_size = logits.size(0)
+        dist = Categorical(logits=logits)
+        new_logprobs = dist.log_prob(actions)
+        logratio = new_logprobs - old_logprobs
+        ratio = logratio.exp()
+
+        if self.cfg.norm_adv:
+            advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+
+        clip_coef = float(self.cfg.clip_coef)
+        pg1 = -advantages * ratio
+        r_clamped = torch.clamp(ratio, 1.0 - clip_coef, 1.0 + clip_coef)
+        pg2 = -advantages * r_clamped
+
+        use_pg1 = pg1 > pg2
+        in_clip = (ratio >= (1.0 - clip_coef)) & (ratio <= (1.0 + clip_coef))
+        d_pg1_dlogp = -advantages * ratio
+        d_pg2_dlogp = torch.where(in_clip, -advantages * ratio, torch.zeros_like(ratio))
+        d_loss_dlogp = torch.where(use_pg1, d_pg1_dlogp, d_pg2_dlogp) / float(batch_size)
+
+        pi = torch.softmax(logits, dim=1)
+        onehot = torch.zeros_like(pi)
+        onehot.scatter_(1, actions.view(-1, 1), 1.0)
+        delta_logits_pg = d_loss_dlogp.view(-1, 1) * (onehot - pi)
+
+        if self.cfg.ent_coef != 0.0:
+            logp = torch.log(pi + 1e-8)
+            series = (pi * (logp + 1.0)).sum(dim=1, keepdim=True)
+            d_entropy_dz = pi * (series - (logp + 1.0))
+            delta_logits_ent = (-float(self.cfg.ent_coef) / float(batch_size)) * d_entropy_dz
+        else:
+            delta_logits_ent = torch.zeros_like(delta_logits_pg)
+        delta_logits = delta_logits_pg + delta_logits_ent
+
+        returns_ = returns.view(-1, 1).to(values_.dtype)
+        old_values_ = old_values.view(-1, 1).to(values_.dtype)
+
+        if self.cfg.clip_vloss:
+            v_unclipped = (values_ - returns_) ** 2
+            v_clipped = old_values_ + torch.clamp(values_ - old_values_, -clip_coef, clip_coef)
+            v_clipped_loss = (v_clipped - returns_) ** 2
+            use_unclipped = v_unclipped >= v_clipped_loss
+            d_unclipped = values_ - returns_
+            unclamped = (values_ - old_values_).abs() <= clip_coef
+            d_clipped = (v_clipped - returns_) * unclamped.to(values_.dtype)
+            d_value = torch.where(use_unclipped, d_unclipped, d_clipped)
+        else:
+            d_value = values_ - returns_
+
+        delta_value = (float(self.cfg.vf_coef) / float(batch_size)) * d_value
+        return {"logits": delta_logits, "value": delta_value}
 
 
 @dataclass

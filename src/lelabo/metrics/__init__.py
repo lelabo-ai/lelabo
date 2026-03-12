@@ -18,8 +18,7 @@ from .registry import (
 )
 
 # Force built-in metric registrations.
-from . import classification as _classification  # noqa: F401
-from . import regression as _regression  # noqa: F401
+from . import builtins as _builtins  # noqa: F401
 
 __all__ = [
     "TrainingMetric",

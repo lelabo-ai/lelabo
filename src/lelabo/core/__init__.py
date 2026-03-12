@@ -1,24 +1,20 @@
-"""LeLabo core package.
-
-Import submodules directly (for example ``lelabo.core.task``).
-Submodules are loaded lazily to avoid pulling optional dependencies at import
-time (notably RL dependencies such as ``gymnasium``).
-"""
+"""LeLabo runtime primitives."""
 
 from __future__ import annotations
 
 import importlib
 
 __all__ = [
+    "activations",
     "batch",
     "callbacks",
-    "replay_buffer",
-    "robustness",
+    "display",
+    "logger",
+    "registry",
+    "seed",
     "steps",
     "state",
-    "task",
     "trainer",
-    "utils",
 ]
 
 

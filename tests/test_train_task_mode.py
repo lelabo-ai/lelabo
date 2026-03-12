@@ -11,7 +11,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-train_api = importlib.import_module("lelabo.api.train")
+train_api = importlib.import_module("lelabo.cli.commands.train")
 update_rules_api = importlib.import_module("lelabo.update_rules")
 lab_pkg = importlib.import_module("lelabo")
 

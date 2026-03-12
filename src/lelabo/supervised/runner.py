@@ -4,32 +4,32 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import torch
-from ..trainer import Trainer
-from ...optimizers import make_optimizer, make_scheduler
-from ...losses import make_loss
-from ...initializers import make_initializer
-from ..utils.logger import RunLogger
+from ..core.logger import RunLogger
+from ..core.seed import derive_seed
+from ..core.trainer import Trainer
+from .robustness import test_with_noise
+from .tasks import ClassificationTask, GLUETask
+from ..optimizers import make_optimizer, make_scheduler
+from ..losses import make_loss
+from ..initializers import make_initializer
 
 # datasets
-from ...supervised.datasets import get_dataset
-from ...supervised.datasets.base import dataset_to_tensors
-from ..task import ClassificationTask, GLUETask
-from ..robustness import test_with_noise
+from .datasets import get_dataset
+from .datasets.base import dataset_to_tensors
 
 # models
-from ...models.registry import build_model, ModelContext
+from ..models.registry import build_model, ModelContext
 
-from ...update_rules import UpdateRuleContext, build_update_rule
-from ...metrics import (
+from ..update_rules import UpdateRuleContext, build_update_rule
+from ..metrics import (
     MetricContext,
     build_metric,
     get_metric_names,
     parse_metric_names,
     validate_metric_requests,
 )
-from ..utils.seed import derive_seed
 
-from ...callbacks import build_configured_callbacks
+from ..callbacks import build_configured_callbacks
 
 
 def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:

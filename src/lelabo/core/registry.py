@@ -114,11 +114,22 @@ class Registry:
             pkg = importlib.import_module(pkg_name)
             pkg_path = getattr(pkg, "__path__", None)
             if pkg_path is not None:
-                for _, full_name, ispkg in pkgutil.walk_packages(pkg_path, prefix=f"{pkg.__name__}."):
+                entries = list(pkgutil.walk_packages(pkg_path, prefix=f"{pkg.__name__}."))
+                package_children = {
+                    full_name
+                    for _, full_name, ispkg in entries
+                    if ispkg
+                    and any(
+                        child_name.startswith(f"{full_name}.")
+                        for _, child_name, _ in entries
+                    )
+                }
+                for _, full_name, ispkg in entries:
                     rel_name = full_name[len(pkg.__name__) + 1 :]
                     if any(part.startswith("_") for part in rel_name.split(".")):
                         continue
-                    if ispkg:
+                    # Leaf packages may hold registrations in their __init__.py and need reloading.
+                    if ispkg and full_name in package_children:
                         continue
                     if full_name in owner_modules:
                         continue

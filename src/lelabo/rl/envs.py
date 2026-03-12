@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Callable
-from lelabo.core.utils.seed import derive_seed
+from lelabo.core.seed import derive_seed
 
 
 def _require_gymnasium():

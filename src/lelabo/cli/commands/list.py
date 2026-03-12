@@ -6,9 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ...capsule.registry import get_capsule
-from ...core.utils.capsule_plugins import (
-    find_active_capsule_root,
-)
+from ...capsule.plugins.discovery import find_active_capsule_root
 from ...initializers.registry import get_initializer_names
 from ...metrics.registry import get_metric_names
 from ...losses.registry import get_loss_names

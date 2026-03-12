@@ -28,7 +28,7 @@ TORCH_OK = _torch_import_healthy()
 def _load_seed_module() -> ModuleType:
     return load_module_from_path(
         "seed_module_for_tests",
-        REPO_ROOT / "src" / "lelabo" / "core" / "utils" / "seed.py",
+        REPO_ROOT / "src" / "lelabo" / "core" / "seed.py",
     )
 
 

@@ -34,7 +34,7 @@ def _load_modules(monkeypatch: pytest.MonkeyPatch):
 
     importlib.import_module("torch")
     conv_mod = importlib.import_module("lelabo.models.builtins.convnet")
-    task_mod = importlib.import_module("lelabo.core.task")
+    task_mod = importlib.import_module("lelabo.supervised.tasks")
     dfa_mod = importlib.import_module("lelabo.update_rules.builtins.dfa")
     return conv_mod, task_mod, dfa_mod
 

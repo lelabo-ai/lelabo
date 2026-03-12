@@ -9,7 +9,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-task_api = importlib.import_module("lelabo.core.task")
+task_api = importlib.import_module("lelabo.supervised.tasks")
 loss_api = importlib.import_module("lelabo.losses")
 
 

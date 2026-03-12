@@ -7,7 +7,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+plugins = importlib.import_module("lelabo.capsule.plugins")
 datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
 capsule_registry = importlib.import_module("lelabo.capsule.registry")
 

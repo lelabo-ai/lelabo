@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from .common import (
+from ..common import (
     CLASSIFICATION_PARAMS,
     metric_average,
     metric_params,
     output_key_for,
     positive_label,
 )
-from .probes import BuiltinEpochMetric
-from .registry import MetricContext, register_metric
+from ..probes import BuiltinEpochMetric
+from ..registry import MetricContext, register_metric
 
 
 @register_metric("acc", kind="classification")

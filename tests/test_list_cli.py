@@ -11,7 +11,7 @@ from conftest import REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 list_cli = importlib.import_module("lelabo.cli.commands.list")
-plugins = importlib.import_module("lelabo.core.utils.capsule_plugins")
+plugins = importlib.import_module("lelabo.capsule.plugins")
 models_registry = importlib.import_module("lelabo.models.registry")
 optimizers_registry = importlib.import_module("lelabo.optimizers.registry")
 schedulers_registry = importlib.import_module("lelabo.schedulers.registry")

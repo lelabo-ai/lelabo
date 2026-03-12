@@ -17,11 +17,7 @@ def build_audit_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Update rule to audit (e.g. bp, fa, dni). Ignored with --all.",
     )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Audit all registered update rules.",
-    )
+    parser.add_argument("--all", action="store_true", help="Audit all registered update rules.")
     parser.add_argument(
         "--modes",
         default="supervised,rl",
@@ -36,23 +32,14 @@ def build_audit_parser() -> argparse.ArgumentParser:
             "or a comma-separated list."
         ),
     )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=1,
-        help="Number of audit epochs to run. Default: 1",
-    )
+    parser.add_argument("--epochs", type=int, default=1, help="Number of audit epochs to run. Default: 1")
     parser.add_argument(
         "--steps-per-epoch",
         type=int,
         default=1,
         help="Number of train_step calls per epoch. Default: 1",
     )
-    parser.add_argument(
-        "--no-quiet",
-        action="store_true",
-        help="Disable pytest -q to show full output.",
-    )
+    parser.add_argument("--no-quiet", action="store_true", help="Disable pytest -q to show full output.")
     parser.add_argument(
         "--show-warnings",
         action="store_true",
@@ -88,5 +75,7 @@ def run_audit(argv: Sequence[str]) -> int:
     if extra and extra[0] == "--":
         extra = extra[1:]
     cmd.extend(extra)
-
     return subprocess.call(cmd, env=env)
+
+
+__all__ = ["build_audit_parser", "run_audit"]

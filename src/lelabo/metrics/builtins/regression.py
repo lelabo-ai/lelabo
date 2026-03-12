@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .probes import BuiltinEpochMetric
-from .registry import MetricContext, register_metric
+from ..probes import BuiltinEpochMetric
+from ..registry import MetricContext, register_metric
 
 
 @register_metric("mse", kind="regression")

@@ -6,7 +6,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from .registry import LossContext, register_loss
+from ..registry import LossContext, register_loss
 
 
 def _classification_targets(y: Any, *, num_classes: int, device, dtype) -> torch.Tensor:

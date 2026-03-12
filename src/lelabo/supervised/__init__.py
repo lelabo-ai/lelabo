@@ -1,10 +1,10 @@
-"""Supervised task namespace."""
+"""Supervised domain namespace."""
 
 from __future__ import annotations
 
 import importlib
 
-__all__ = ["datasets"]
+__all__ = ["datasets", "robustness", "runner", "tasks"]
 
 
 def __getattr__(name: str):

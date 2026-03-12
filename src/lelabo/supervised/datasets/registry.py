@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from lelabo.core.registry import Registry
-from ...core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ...capsule.plugins.snapshot import build_capsule_registry_snapshot
 
 DATASET_REGISTRY = Registry("datasets", package="lelabo.supervised.datasets")
 _BASE_DATASET_ITEMS: dict[str, Any] | None = None

@@ -5,7 +5,7 @@ import time
 from collections import deque
 from typing import Any, Dict, Optional
 
-from ..utils.logger import RunLogger
+from ..core.logger import RunLogger
 
 
 class RLRunner:
@@ -133,3 +133,100 @@ class RLRunner:
             self._safe_close(self.env)
             if eval_env is not self.env:
                 self._safe_close(eval_env)
+
+
+def run_rl(args, logger: RunLogger) -> dict[str, Any]:
+    from .algorithms import DQN, PPO
+    from .config import build_rl_algo_config
+    from .envs import make_env, make_vec_env
+    from ..core.seed import derive_seed
+    from ..models.builtins.actor_critic import ActorCriticDiscrete
+    from ..models.builtins.qnet import QNet
+    from ..optimizers import make_optimizer
+    from ..update_rules import UpdateRuleContext, build_update_rule
+
+    device = args.device
+    display_mode = str(getattr(args, "display", "compact")).strip().lower()
+    show_logs = display_mode != "none"
+    rl_overrides = dict(getattr(args, "rl_params", {}) or {})
+    optimizer_params = dict(getattr(args, "optimizer_params", {}) or {})
+    lr = float(optimizer_params.pop("lr", args.lr))
+    weight_decay = float(optimizer_params.pop("weight_decay", args.weight_decay))
+    momentum = float(optimizer_params.pop("momentum", 0.9))
+    train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
+    eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
+
+    if args.rl_algo == "dqn":
+        env = make_env(args.env, seed=train_env_seed)
+        eval_env = make_env(args.env, seed=eval_env_seed)
+
+        obs_dim = int(env.observation_space.shape[0])
+        n_actions = int(env.action_space.n)
+        qnet = QNet(obs_dim=obs_dim, n_actions=n_actions, hidden=args.hidden, layers=args.layers)
+        optimizer = make_optimizer(
+            args.optimizer,
+            qnet.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            args=args,
+            mode="rl",
+            dataset=args.dataset,
+            **optimizer_params,
+        )
+        ctx = UpdateRuleContext(
+            args=args,
+            model=qnet,
+            task=None,
+            optimizer=optimizer,
+            mode="rl",
+            dataset=args.dataset,
+            rl_algo=args.rl_algo,
+            extra={"grad_clip": None},
+        )
+        learner = build_update_rule(args.algo, ctx)
+        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
+
+        algo = DQN(q_net=qnet, learner=learner, cfg=cfg)
+        algo.setup(obs_dim=obs_dim, n_actions=n_actions)
+        runner = RLRunner(train_env=env, algo=algo, device=device, logger=logger, show_logs=show_logs)
+        return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+
+    if args.rl_algo == "ppo":
+        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
+        vec_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "vec_env")
+        envs = make_vec_env(args.env, seed=vec_env_seed, num_envs=cfg.num_envs)
+        eval_env = make_env(args.env, seed=eval_env_seed)
+
+        obs_dim = int(envs.single_observation_space.shape[0])
+        n_actions = int(envs.single_action_space.n)
+        model = ActorCriticDiscrete(obs_dim=obs_dim, n_actions=n_actions, hidden_dim=args.hidden, num_layers=args.layers)
+        optimizer = make_optimizer(
+            args.optimizer,
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            args=args,
+            mode="rl",
+            dataset=args.dataset,
+            **optimizer_params,
+        )
+        ctx = UpdateRuleContext(
+            args=args,
+            model=model,
+            task=None,
+            optimizer=optimizer,
+            mode="rl",
+            dataset=args.dataset,
+            rl_algo=args.rl_algo,
+        )
+        learner = build_update_rule(args.algo, ctx)
+        algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
+        runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, show_logs=show_logs)
+        return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+
+    raise ValueError(f"Unknown rl algo: {args.rl_algo}")
+
+
+__all__ = ["RLRunner", "run_rl"]

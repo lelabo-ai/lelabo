@@ -34,7 +34,7 @@ def _load_modules(monkeypatch: pytest.MonkeyPatch):
 
     importlib.import_module("torch")
     mlp_mod = importlib.import_module("lelabo.models.builtins.mlp")
-    task_mod = importlib.import_module("lelabo.core.task")
+    task_mod = importlib.import_module("lelabo.supervised.tasks")
     dni_mod = importlib.import_module("lelabo.update_rules.builtins.dni")
     return mlp_mod, task_mod, dni_mod
 

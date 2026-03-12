@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..core.callbacks import EarlyStopping, EarlyStoppingConfig
-from .registry import CallbackContext, register_callback
+from ...core.callbacks import EarlyStopping, EarlyStoppingConfig
+from ..registry import CallbackContext, register_callback
 
 
 @register_callback("earlystopping")

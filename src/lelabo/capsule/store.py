@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from ..core.utils.capsule_plugins import find_active_capsule_root
+from .plugins.discovery import find_active_capsule_root
 from .registry import add_capsule_entry, default_capsules_dir
 from .schema import normalize_capsule_id, validate_manifest
 

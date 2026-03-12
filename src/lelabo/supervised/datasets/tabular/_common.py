@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from ....core.utils.seed import derive_seed
+from ....core.seed import derive_seed
 from ..base import DataBundle, make_loader
 from ..splits import split_train_val
 

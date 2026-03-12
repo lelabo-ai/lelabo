@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from ...api.capsule import create_capsule
+from ...capsule import create_capsule_scaffold
 
 
 CREATE_HELP = """\
@@ -33,6 +33,25 @@ def _resolve_capsule_name(parser: argparse.ArgumentParser, args: argparse.Namesp
     if not name:
         parser.error("Provide capsule name with positional value or --name/-n.")
     return str(name)
+
+
+def create_capsule(
+    *,
+    capsule_name: str,
+    base_dir: Path | None = None,
+    force: bool = False,
+    register: bool = True,
+    alias: str | None = None,
+    capsules_dir: Path | None = None,
+) -> Path:
+    return create_capsule_scaffold(
+        capsule_name=capsule_name,
+        base_dir=base_dir,
+        force=force,
+        register=register,
+        alias=alias,
+        capsules_dir=capsules_dir,
+    )
 
 
 def _cmd_capsule(argv: list[str]) -> int:

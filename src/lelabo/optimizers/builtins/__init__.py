@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from .registry import OptimizerContext, register_optimizer
+from ..registry import OptimizerContext, register_optimizer
 
 
 @register_optimizer("adamw")
@@ -88,4 +88,3 @@ def build_ano(ctx: OptimizerContext):
         weight_decay=float(ctx.weight_decay),
         **kwargs,
     )
-

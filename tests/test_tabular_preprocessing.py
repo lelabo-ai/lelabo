@@ -11,7 +11,7 @@ from conftest import REPO_ROOT
 
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
-seed_api = importlib.import_module("lelabo.core.utils.seed")
+seed_api = importlib.import_module("lelabo.core.seed")
 splits_api = importlib.import_module("lelabo.supervised.datasets.splits")
 tabular_common = importlib.import_module("lelabo.supervised.datasets.tabular._common")
 

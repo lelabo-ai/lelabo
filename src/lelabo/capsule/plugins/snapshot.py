@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from .capsule_plugins import CapsulePluginExport, get_capsule_plugin_exports, load_capsule_plugin_symbol
+from .discovery import CapsulePluginExport, get_capsule_plugin_exports, load_capsule_plugin_symbol
 
 
 @dataclass(frozen=True)

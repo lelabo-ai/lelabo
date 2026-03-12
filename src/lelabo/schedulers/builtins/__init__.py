@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from .registry import SchedulerContext, register_scheduler
+from ..registry import SchedulerContext, register_scheduler
 
 
 def _parse_int_list(val: Any) -> list[int]:

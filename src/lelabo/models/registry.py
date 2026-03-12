@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from lelabo.core.registry import Registry
-from ..core.utils.capsule_registry_snapshot import build_capsule_registry_snapshot
+from ..capsule.plugins.snapshot import build_capsule_registry_snapshot
 
 MODEL_REGISTRY = Registry("models", package="lelabo.models.builtins")
 _BASE_MODEL_ITEMS: dict[str, Any] | None = None
