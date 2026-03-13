@@ -3,6 +3,15 @@ from __future__ import annotations
 import sys
 
 
+CLI_USER_ERROR_TYPES = (
+    ValueError,
+    TypeError,
+    ImportError,
+    FileNotFoundError,
+    RuntimeError,
+)
+
+
 def is_help_token(raw: str) -> bool:
     return str(raw).strip().lower() in {"-h", "--help", "help"}
 

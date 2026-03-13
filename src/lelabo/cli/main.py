@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from typing import Sequence
 
-from ._common import coerce_system_exit_code, is_help_token
+from ._common import CLI_USER_ERROR_TYPES, coerce_system_exit_code, is_help_token
 from .commands.audit import main as run_audit_command
 from .commands.capsule import main as run_capsule_command
 from .commands.create import main as run_create_command
@@ -16,6 +16,8 @@ def _run_command(fn, argv: Sequence[str]) -> int:
         return int(fn(list(argv)))
     except SystemExit as exc:
         return coerce_system_exit_code(exc.code)
+    except CLI_USER_ERROR_TYPES as exc:
+        return coerce_system_exit_code(str(exc))
 
 
 def _run_train_cli(argv: Sequence[str]) -> int:
