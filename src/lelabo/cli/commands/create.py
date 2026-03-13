@@ -83,6 +83,16 @@ def _cmd_capsule(argv: list[str]) -> int:
         raise SystemExit(str(exc))
 
     print(str(out))
+    print()
+    print("Next steps:")
+    print("  - Start with README.md")
+    print("  - If you use Codex/Claude, open AGENTS.md")
+    print("  - Exact contracts: resources/LELABO_REFERENCE.md")
+    print("  - Param mapping: resources/PARAM_FLOW.md")
+    print('  - Official first path: uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`')
+    print("  - Run `lelabo list optimizers`")
+    print("  - Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`")
+    print("  - Run `pytest -q tests`")
     return 0
 
 

@@ -29,10 +29,17 @@ _SCAFFOLD_DIRS = (
     "callbacks",
     "configs",
     "runs",
+    "resources",
+    "tests",
 )
 
 _EXAMPLE_TEMPLATE_MAP = {
+    "AGENTS.md": "capsule_agents.md",
+    "resources/LELABO_REFERENCE.md": "resources_lelabo_reference.md",
+    "resources/PARAM_FLOW.md": "resources_param_flow.md",
+    "resources/MODEL_CACHE_ADVANCED.md": "resources_model_cache_advanced.md",
     "models/example.py": "models_example.py",
+    "models/cache_walkthrough.py": "models_cache_walkthrough.py",
     "update_rules/example.py": "update_rules_example.py",
     "datasets/example.py": "datasets_example.py",
     "metrics/example.py": "metrics_example.py",
@@ -48,6 +55,7 @@ _EXAMPLE_TEMPLATE_MAP = {
     "configs/train.supervised.capsule_optimizer.toml": "configs_train_supervised_capsule_optimizer.toml",
     "configs/train.rl.detailed.toml": "configs_train_rl_detailed.toml",
     "runs/example.py": "runs_example.py",
+    "tests/test_capsule_optimizer_smoke.py": "tests_capsule_optimizer_smoke.py",
 }
 
 
@@ -67,42 +75,20 @@ def _normalize_capsule_name(raw: str) -> str:
 def _readme_template(name: str) -> str:
     return (
         f"# {name}\n\n"
-        "LeLabo capsule scaffold.\n\n"
-        "## Structure\n\n"
-        "- `models/`: custom models\n"
-        "- `update_rules/`: custom learning rules\n"
-        "- `datasets/`: local dataset helpers\n"
-        "- `metrics/`: local training metrics\n"
-        "- `initializers/`: local parameter initializers\n"
-        "- `losses/`: local losses\n"
-        "- `optimizers/`: local optimizer builders\n"
-        "- `schedulers/`: local learning-rate schedulers\n"
-        "- `callbacks/`: local trainer callbacks\n"
-        "- `configs/`: experiment configs\n"
-        "- `runs/`: local run artifacts\n"
-        "\n"
-        "Each folder contains starter templates you can adapt.\n"
-        "\n"
-        "## Suggested first capsule path\n\n"
-        "1. Enable `capsule_sgd` in `optimizers/example.py`.\n"
-        "2. Run `lelabo list optimizers` inside this capsule.\n"
-        "3. Launch `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n"
-        "\n"
-        "## Local Registries\n\n"
-        "When you run `lelabo` inside this capsule (or a subfolder), LeLabo auto-loads\n"
-        "`models/*.py`, `update_rules/*.py`, `datasets/*.py`, `metrics/*.py`,\n"
-        "`initializers/*.py`, `losses/*.py`, `optimizers/*.py`, `schedulers/*.py`,\n"
-        "and `callbacks/*.py`.\n"
-        "Use the standard decorators in these files:\n\n"
-        "- `from lelabo.models.registry import register_model`\n"
-        "- `from lelabo.update_rules.registry import register_update_rule`\n"
-        "- `from lelabo.supervised.datasets.registry import register_dataset`\n"
-        "- `from lelabo.metrics.registry import register_metric`\n"
-        "- `from lelabo.initializers.registry import register_initializer`\n"
-        "- `from lelabo.losses.registry import register_loss`\n"
-        "- `from lelabo.optimizers import register_optimizer`\n"
-        "- `from lelabo.schedulers import register_scheduler`\n"
-        "- `from lelabo.callbacks import register_callback`\n"
+        "Local LeLabo capsule scaffold.\n\n"
+        "Start here if you want the fastest path:\n\n"
+        "1. Read `AGENTS.md` for the capsule contracts and the \"if your idea is X, edit Y\" map.\n"
+        "2. Open `optimizers/example.py` and uncomment `@register_optimizer(\"capsule_sgd\")`.\n"
+        "3. Run `lelabo list optimizers`.\n"
+        "4. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n"
+        "5. Run `pytest -q tests`.\n\n"
+        "Folders are already scaffolded for you:\n\n"
+        "- `models/`, `update_rules/`, `datasets/`, `metrics/`\n"
+        "- `initializers/`, `losses/`, `optimizers/`, `schedulers/`, `callbacks/`\n"
+        "- `configs/`, `runs/`, `resources/`, `tests/`\n\n"
+        "If you use Codex/Claude or another coding agent, open `AGENTS.md` first.\n"
+        "If you need exact contracts or param flow, jump to `resources/LELABO_REFERENCE.md`\n"
+        "and `resources/PARAM_FLOW.md`.\n"
     )
 
 

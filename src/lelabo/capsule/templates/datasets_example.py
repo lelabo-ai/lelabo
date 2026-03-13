@@ -1,40 +1,71 @@
 """
-example_dataset.py
+example.py
 
-Minimal example showing:
+Purpose
+-------
+Add a dataset builder to this capsule.
 
-1) How to register a dataset
-2) How to return a DataBundle
-3) How train/val/test loaders are built
-4) How in_dim / input_shape are defined
+Contract
+--------
+1. Register a builder with `@register_dataset("example_mnist")`
+2. The builder returns a `DataBundle`
+3. The bundle defines train/val/test loaders plus dataset metadata
 
-This example uses MNIST.
+Where params come from
+----------------------
+Dataset builders receive keyword args directly.
+For the exact `DataBundle` fields, read `resources/LELABO_REFERENCE.md`.
+For the param mapping, read `resources/PARAM_FLOW.md`.
+
+Official example
+----------------
+`example_mnist` downloads MNIST, creates train/val/test loaders, and returns the
+metadata needed by models.
+
+Config snippet
+--------------
+[dataset]
+name = "example_mnist"
+
+[dataset.params]
+batch_size = 128
+flatten = true
+
+How to activate
+---------------
+Uncomment `@register_dataset("example_mnist")`.
+
+How to test
+-----------
+lelabo list datasets
+lelabo train supervised --dataset example_mnist --model mlp
+
+Common errors
+-------------
+- The builder must return a `DataBundle`.
+- If torchvision is not installed, this example raises a clear runtime error.
 """
 
 from __future__ import annotations
+
 from typing import Optional
 
 import torch
 from torch.utils.data import random_split
 
 from lelabo.supervised.datasets.base import DataBundle, dataset_to_tensors, make_loader
-from lelabo.supervised.datasets.registry import register_dataset
 from lelabo.supervised.datasets.paths import dataset_dir
+from lelabo.supervised.datasets.registry import register_dataset
 
 try:  # optional dependency for this example only
-    from torchvision.datasets import MNIST
     from torchvision import transforms
+    from torchvision.datasets import MNIST
 except Exception:  # pragma: no cover - handled at runtime in factory
     MNIST = None
     transforms = None
 
 
-# Dataset registration
-# To make this dataset available in the command line interface, we need to register it.
-# Please uncomment the @register_dataset decorator if you want to use this dataset
-# in the command line interface.
-
-#@register_dataset("example_mnist")
+# @register_dataset("example_mnist")
 def make_example_mnist(
     *,
     batch_size: int = 128,
@@ -45,13 +76,6 @@ def make_example_mnist(
     pin_memory: bool = True,
     **_: object,
 ) -> DataBundle:
-    """
-    Factory used by:
-
-        lelabo train supervised --dataset example_mnist
-
-    Must return a DataBundle.
-    """
     if MNIST is None or transforms is None:
         raise RuntimeError(
             "example_mnist requires torchvision. Install it to use this dataset template."
@@ -59,34 +83,22 @@ def make_example_mnist(
 
     torch.manual_seed(seed)
 
-    # Transforms
-
     tfms = [
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,)),
     ]
-
     if flatten:
         tfms.append(transforms.Lambda(lambda x: x.view(-1)))
-
     transform = transforms.Compose(tfms)
 
-    # Load datasets
-
     data_root = str(dataset_dir("mnist"))
-
     train_full = MNIST(root=data_root, train=True, download=True, transform=transform)
     test_ds = MNIST(root=data_root, train=False, download=True, transform=transform)
-
-    # Train / validation split
 
     n_total = len(train_full)
     n_val = int(val_frac * n_total)
     n_train = n_total - n_val
-
     train_ds, val_ds = random_split(train_full, [n_train, n_val])
-
-    # DataLoaders
 
     train_loader = make_loader(
         train_ds,
@@ -97,7 +109,6 @@ def make_example_mnist(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
-
     val_loader = make_loader(
         val_ds,
         batch_size=batch_size,
@@ -107,7 +118,6 @@ def make_example_mnist(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
-
     test_loader = make_loader(
         test_ds,
         batch_size=batch_size,
@@ -117,8 +127,6 @@ def make_example_mnist(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
-
-    # Metadata for models
 
     x_test, y_test = dataset_to_tensors(test_ds)
 

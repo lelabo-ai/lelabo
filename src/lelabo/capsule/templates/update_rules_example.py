@@ -1,9 +1,52 @@
-"""Simple update-rule template for this capsule.
+"""
+example.py
 
-This example shows a minimal local rule that uses cache views:
-- run `forward_with_standard_cache`
-- get `views["output_blocks"]`
-- write gradients manually on the output head
+Purpose
+-------
+Add a custom update rule to this capsule.
+
+Contract
+--------
+1. Register a builder with `@register_update_rule("local_head")`
+2. The builder receives an `UpdateRuleContext`
+3. The builder returns an `UpdateRule`
+
+Where params come from
+----------------------
+In the current supervised runtime, update-rule params are usually read from
+`ctx.extra["update_rule_params"]` and may also be mirrored on
+`args.update_rule_params`.
+For exact context fields, read `resources/LELABO_REFERENCE.md`.
+For the param mapping, read `resources/PARAM_FLOW.md`.
+
+Official example
+----------------
+`local_head` is a tiny local rule that updates only the output Linear head from
+cached activations.
+
+Config snippet
+--------------
+[update_rule]
+name = "local_head"
+
+[update_rule.params]
+average_grads = false
+grad_clip = 1.0
+
+How to activate
+---------------
+Uncomment `@register_update_rule("local_head")`.
+
+How to test
+-----------
+lelabo list update_rules
+lelabo train supervised --config configs/train.supervised.quickstart.toml --algo local_head
+
+Common errors
+-------------
+- This example expects a model with a single Linear output head.
+- If you need richer block/caching behavior, read
+  `resources/MODEL_CACHE_ADVANCED.md` and `models/cache_walkthrough.py`.
 """
 
 from __future__ import annotations
@@ -43,8 +86,6 @@ def _output_delta_logits(logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 class LocalHeadRule(OptimizerUpdateRule):
-    """Tiny local rule: updates only the output Linear head from cache."""
-
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,

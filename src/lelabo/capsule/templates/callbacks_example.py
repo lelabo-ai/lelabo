@@ -1,59 +1,78 @@
-"""Custom callback templates for this capsule.
-
-LeLabo callbacks are hook-based and plug into Trainer.
-You can either subclass `lelabo.core.callbacks.Callback`
-or return any object implementing the hooks you need.
 """
+example.py
+
+Purpose
+-------
+Add a trainer callback to this capsule.
+
+Contract
+--------
+1. Register a builder with `@register_callback("epoch_echo")`
+2. The builder receives a `CallbackContext`
+3. The builder returns a callback object, usually a `Callback`
+
+Where params come from
+----------------------
+Read params with `ctx.callback_params()`.
+For exact context fields, read `resources/LELABO_REFERENCE.md`.
+For the param mapping, read `resources/PARAM_FLOW.md`.
+
+Official example
+----------------
+`EpochEchoCallback` prints one monitored scalar every `every_n_epochs`.
+
+Config snippet
+--------------
+[[callbacks]]
+name = "epoch_echo"
+enabled = true
+
+[callbacks.params]
+every_n_epochs = 2
+key = "val.loss"
+
+How to activate
+---------------
+Uncomment `@register_callback("epoch_echo")`.
+
+How to test
+-----------
+lelabo list callbacks
+lelabo train supervised --config configs/train.supervised.detailed.toml --set callbacks.0.name=epoch_echo
+
+Common errors
+-------------
+- Keep the callback side effects simple and explicit.
+- Return a real callback object; subclassing `Callback` is the safest path.
+"""
+
+from __future__ import annotations
 
 from typing import Any
 
-from lelabo.callbacks import CallbackContext, register_callback
-from lelabo.core.callbacks import Callback
+from lelabo.callbacks import Callback, CallbackContext, register_callback
 
 
-# @register_callback("my_callback_minimal")
-# def build_my_callback_minimal(ctx: CallbackContext):
-#     # Minimal object can implement only the hooks it needs.
-#     class _Minimal:
-#         def on_epoch_end(self, trainer, epoch_record, state: Any | None = None) -> None:
-#             print(
-#                 f"[my_callback_minimal] epoch={epoch_record.epoch} "
-#                 f"train.loss={epoch_record.train.loss:.6f}"
-#             )
-#
-#     return _Minimal()
-#
-#
-# class DetailedCallback(Callback):
-#     """Advanced callback with state + multiple hooks."""
-#
-#     def __init__(self, every_n_epochs: int = 5, key: str = "val.loss") -> None:
-#         super().__init__()
-#         self.every_n_epochs = int(max(1, every_n_epochs))
-#         self.key = str(key)
-#         self.best = float("inf")
-#
-#     def on_train_start(self, trainer, state: Any | None = None) -> None:
-#         self.best = float("inf")
-#
-#     def on_epoch_end(self, trainer, epoch_record, state: Any | None = None) -> None:
-#         if (int(epoch_record.epoch) % self.every_n_epochs) != 0:
-#             return
-#         logs = epoch_record.to_log_values()
-#         if self.key in logs and isinstance(logs[self.key], (int, float)):
-#             value = float(logs[self.key])
-#             if value < self.best:
-#                 self.best = value
-#             print(
-#                 f"[detailed_callback] epoch={epoch_record.epoch} "
-#                 f"{self.key}={value:.6f} best={self.best:.6f}"
-#             )
-#
-#
-# @register_callback("my_callback_detailed")
-# def build_my_callback_detailed(ctx: CallbackContext):
-#     params = ctx.callback_params()
-#     return DetailedCallback(
-#         every_n_epochs=int(params.get("every_n_epochs", 5)),
-#         key=str(params.get("key", "val.loss")),
-#     )
+class EpochEchoCallback(Callback):
+    def __init__(self, *, every_n_epochs: int = 1, key: str = "val.loss") -> None:
+        super().__init__()
+        self.every_n_epochs = int(max(1, every_n_epochs))
+        self.key = str(key)
+
+    def on_epoch_end(self, trainer, epoch_record, state: Any | None = None) -> None:
+        _ = (trainer, state)
+        if int(epoch_record.epoch) % self.every_n_epochs != 0:
+            return
+        logs = epoch_record.to_log_values()
+        value = logs.get(self.key, None)
+        if isinstance(value, (int, float)):
+            print(f"[epoch_echo] epoch={epoch_record.epoch} {self.key}={float(value):.6f}")
+
+
+# @register_callback("epoch_echo")
+def build_epoch_echo(ctx: CallbackContext):
+    params = ctx.callback_params()
+    return EpochEchoCallback(
+        every_n_epochs=int(params.get("every_n_epochs", 1)),
+        key=str(params.get("key", "val.loss")),
+    )

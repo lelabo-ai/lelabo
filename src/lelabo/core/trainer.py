@@ -326,7 +326,7 @@ class Trainer:
         state = TrainState(phase="fit", split="train")
         self.state = state
         try:
-            train_batches_per_epoch = int(len(train_loader))  # type: ignore[arg-type]
+            train_batches_per_epoch = int(len(train_loader))
             if train_batches_per_epoch <= 0:
                 train_batches_per_epoch = None
         except Exception:

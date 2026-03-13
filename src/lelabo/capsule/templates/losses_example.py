@@ -1,16 +1,47 @@
 """
-example_loss.py
+example.py
 
-Custom loss template for capsule plugins.
+Purpose
+-------
+Add a custom loss to this capsule.
 
-Loss plugins also use a 2-step contract:
+Contract
+--------
+1. Register a builder with `@register_loss("example_scaled_l1")`
+2. The builder receives a `LossContext`
+3. The builder returns the callable used during training
 
-1. A builder registered with `@register_loss(...)`
-2. The builder returns the callable used during training
+Where params come from
+----------------------
+Read params with `ctx.loss_params()`.
+For exact context fields, read `resources/LELABO_REFERENCE.md`.
+For the param mapping, read `resources/PARAM_FLOW.md`.
 
-In other words:
+Official example
+----------------
+`example_scaled_l1` wraps `nn.L1Loss` and multiplies the result by `scale`.
 
-    build_example_scaled_l1(ctx) -> loss_fn(pred, target)
+Config snippet
+--------------
+[loss]
+name = "example_scaled_l1"
+
+[loss.params]
+scale = 0.5
+
+How to activate
+---------------
+Uncomment `@register_loss("example_scaled_l1")`.
+
+How to test
+-----------
+lelabo list losses
+lelabo train supervised --config configs/train.supervised.quickstart.toml --loss example_scaled_l1
+
+Common errors
+-------------
+- The returned callable must accept `(pred, target)`.
+- Convert targets to the right device/dtype before applying the loss.
 """
 
 from __future__ import annotations
@@ -23,30 +54,13 @@ import torch.nn as nn
 from lelabo.losses.registry import LossContext, register_loss
 
 
-@register_loss("example_scaled_l1")
+# @register_loss("example_scaled_l1")
 def build_example_scaled_l1(ctx: LossContext):
-    """
-    Minimal loss that applies L1 loss and scales the result.
-
-    The builder receives a `LossContext`, which gives access to:
-    - `ctx.mode`
-    - `ctx.dataset`
-    - `ctx.task`
-    - `ctx.num_classes`
-    - `ctx.loss_params()`
-
-    Example config:
-      [loss]
-      name = "example_scaled_l1"
-      [loss.params]
-      scale = 0.5
-    """
     params = ctx.loss_params()
     scale = float(params.pop("scale", 1.0))
     module = nn.L1Loss(**params)
 
     def _loss(pred: torch.Tensor, target: Any) -> torch.Tensor:
-        """This is the callable LeLabo will use at each train/eval step."""
         if not torch.is_tensor(target):
             raise TypeError(f"example_scaled_l1 expects tensor targets, got {type(target).__name__}.")
         target_tensor = target.to(device=pred.device, dtype=pred.dtype)

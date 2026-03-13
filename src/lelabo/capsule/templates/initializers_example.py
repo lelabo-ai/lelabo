@@ -1,19 +1,52 @@
 """
-example_initializer.py
+example.py
 
-Example custom initializer plugin for LeLabo.
+Purpose
+-------
+Add a custom initializer to this capsule.
 
-This example uses a small helper so the plugin itself stays focused on the
-custom initialization logic.
+Contract
+--------
+1. Register a builder with `@register_initializer("row_sum_one")`
+2. The builder receives an `InitializerContext`
+3. The builder returns a callable that initializes a model in-place
 
-Initializer plugins follow a 2-step contract:
+Where params come from
+----------------------
+Read params with `ctx.initializer_params()`.
+For exact context fields, read `resources/LELABO_REFERENCE.md`.
+For the param mapping, read `resources/PARAM_FLOW.md`.
 
-1. Register a builder with `@register_initializer(...)`
-2. Return a callable that receives the instantiated model and initializes it in-place
+Official example
+----------------
+`row_sum_one` initializes Linear/Conv weights and then normalizes each output
+unit so its incoming weights sum to 1.
 
-In other words:
+Config snippet
+--------------
+[initializer]
+name = "row_sum_one"
 
-    build_row_sum_one(ctx) -> apply_initializer(model)
+[initializer.params]
+distribution = "uniform"
+bias = "zeros"
+norm_weight = "ones"
+norm_bias = "zeros"
+seed = 1234
+
+How to activate
+---------------
+Uncomment `@register_initializer("row_sum_one")`.
+
+How to test
+-----------
+lelabo list initializers
+lelabo train supervised --config configs/train.supervised.quickstart.toml --initializer row_sum_one
+
+Common errors
+-------------
+- The builder must return `callable(model)`.
+- Use `initializer_helpers.py` for shared validation and logging behavior.
 """
 
 from __future__ import annotations
@@ -26,12 +59,6 @@ from .initializer_helpers import make_initializer
 
 
 def _normalize_output_sums_(w: torch.Tensor, eps: float) -> None:
-    """
-    Normalize each output unit/channel so its incoming weights sum to 1.
-
-    - Linear: [out_features, in_features]
-    - ConvNd: [out_channels, in_channels, ...]
-    """
     if w.dim() < 2:
         return
 
@@ -40,36 +67,8 @@ def _normalize_output_sums_(w: torch.Tensor, eps: float) -> None:
     flat.div_(sums)
 
 
-#@register_initializer("row_sum_one")
+# @register_initializer("row_sum_one")
 def build_row_sum_one(ctx: InitializerContext):
-    """
-    Initialize Linear/Conv weights so that each output neuron/channel receives
-    weights whose sum is equal to 1.
-
-    Specific parameters in `[initializer.params]`:
-      - distribution: "uniform" | "normal", default = "uniform"
-      - mean: float, used when distribution = "normal", default = 0.0
-      - std: float, used when distribution = "normal", default = 0.02
-      - eps: float, numerical stability term, default = 1e-12
-
-    Generic parameters also supported through the helper:
-      - bias: "zeros" | "none"
-      - norm_weight: "ones" | "zeros" | "none"
-      - norm_bias: "ones" | "zeros" | "none"
-      - seed: optional integer
-
-    Example config:
-
-      [initializer]
-      name = "row_sum_one"
-
-      [initializer.params]
-      distribution = "uniform"
-      bias = "zeros"
-      norm_weight = "ones"
-      norm_bias = "zeros"
-      seed = 1234
-    """
     params = ctx.initializer_params()
 
     distribution = str(params.get("distribution", "uniform")).strip().lower()

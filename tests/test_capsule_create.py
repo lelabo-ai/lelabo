@@ -16,6 +16,8 @@ plugins = importlib.import_module("lelabo.capsule.plugins")
 models_registry = importlib.import_module("lelabo.models.registry")
 datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
 train_api = importlib.import_module("lelabo.cli.commands.train")
+create_cli = importlib.import_module("lelabo.cli.commands.create")
+list_cli = importlib.import_module("lelabo.cli.commands.list")
 lab_pkg = importlib.import_module("lelabo")
 
 
@@ -40,11 +42,18 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "callbacks").is_dir()
     assert (out / "configs").is_dir()
     assert (out / "runs").is_dir()
+    assert (out / "resources").is_dir()
+    assert (out / "tests").is_dir()
     assert (out / "README.md").exists()
+    assert (out / "AGENTS.md").exists()
     assert (out / "capsule.toml").exists()
     assert (out / "manifest.json").exists()
     assert (out / "models" / "__init__.py").exists()
     assert (out / "models" / "example.py").exists()
+    assert (out / "models" / "cache_walkthrough.py").exists()
+    assert (out / "resources" / "LELABO_REFERENCE.md").exists()
+    assert (out / "resources" / "PARAM_FLOW.md").exists()
+    assert (out / "resources" / "MODEL_CACHE_ADVANCED.md").exists()
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
@@ -60,7 +69,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "configs" / "train.supervised.capsule_optimizer.toml").exists()
     assert (out / "configs" / "train.rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
+    assert (out / "tests" / "test_capsule_optimizer_smoke.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
+    model_walkthrough = (out / "models" / "cache_walkthrough.py").read_text(encoding="utf-8")
     metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
     initializer_helper = (out / "initializers" / "initializer_helpers.py").read_text(encoding="utf-8")
     initializer_example = (out / "initializers" / "example.py").read_text(encoding="utf-8")
@@ -69,15 +80,23 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     scheduler_example = (out / "schedulers" / "example.py").read_text(encoding="utf-8")
     callback_example = (out / "callbacks" / "example.py").read_text(encoding="utf-8")
     readme_text = (out / "README.md").read_text(encoding="utf-8")
+    agents_text = (out / "AGENTS.md").read_text(encoding="utf-8")
+    lelabo_reference = (out / "resources" / "LELABO_REFERENCE.md").read_text(encoding="utf-8")
+    param_flow = (out / "resources" / "PARAM_FLOW.md").read_text(encoding="utf-8")
+    model_cache_advanced = (out / "resources" / "MODEL_CACHE_ADVANCED.md").read_text(encoding="utf-8")
+    smoke_test = (out / "tests" / "test_capsule_optimizer_smoke.py").read_text(encoding="utf-8")
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
     cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
-    assert "from lelabo.models.registry import ModelContext, build_model, register_model" in model_example
+    assert 'Uncomment `@register_model("example_mlp")`' in model_example
+    assert "cache_walkthrough.py" in model_example
+    assert "forward_with_standard_cache" in model_walkthrough
     assert "register_metric" in metric_example
     assert "ClassificationStreamingMetric" in metric_example
     assert "register_metric_fn" not in metric_example
+    assert '# @register_metric("example_error_rate", kind="classification")' in metric_example
     assert "make_initializer" in initializer_helper
     assert "from lelabo.initializers.registry import InitializerContext" in initializer_helper
     assert "register_initializer" in initializer_example
@@ -85,24 +104,81 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "from .initializer_helpers import make_initializer" in initializer_example
     assert "register_loss" in loss_example
     assert 'register_loss("example_scaled_l1")' in loss_example
+    assert "# @register_loss" in loss_example
     assert "from lelabo.optimizers import OptimizerContext, register_optimizer" in optimizer_example
+    assert 'Uncomment `@register_optimizer("capsule_sgd")`' in optimizer_example
     assert "from lelabo.schedulers import SchedulerContext, register_scheduler" in scheduler_example
-    assert "from lelabo.callbacks import CallbackContext, register_callback" in callback_example
-    assert "register_optimizer" in readme_text
-    assert "register_initializer" in readme_text
-    assert "register_loss" in readme_text
-    assert "register_callback" in readme_text
+    assert "# @register_scheduler" in scheduler_example
+    assert "from lelabo.callbacks import Callback" in callback_example
+    assert "CallbackContext" in callback_example
+    assert "register_callback" in callback_example
+    assert "# @register_callback" in callback_example
+    assert "AGENTS.md" in readme_text
+    assert "resources/LELABO_REFERENCE.md" in readme_text
+    assert "resources/PARAM_FLOW.md" in readme_text
     assert "capsule_sgd" in readme_text
+    assert "pytest -q tests" in readme_text
+    assert "If your idea is X, edit Y" in agents_text
+    assert "resources/LELABO_REFERENCE.md" in agents_text
+    assert "resources/PARAM_FLOW.md" in agents_text
+    assert "resources/MODEL_CACHE_ADVANCED.md" in agents_text
+    assert "`optimizers/`" in agents_text
+    assert "`@register_optimizer(name)`" in agents_text
+    assert "models/cache_walkthrough.py" in agents_text
+    assert "pytest -q tests" in agents_text
+    assert "ModelContext" in lelabo_reference
+    assert "OptimizerContext" in lelabo_reference
+    assert "SchedulerContext" in lelabo_reference
+    assert "CallbackContext" in lelabo_reference
+    assert "MetricContext" in lelabo_reference
+    assert "LossContext" in lelabo_reference
+    assert "InitializerContext" in lelabo_reference
+    assert "UpdateRuleContext" in lelabo_reference
+    assert "DataBundle" in lelabo_reference
+    assert "[model.params] -> args.model_params" in param_flow
+    assert "[optimizer.params] -> ctx.optimizer_params()" in param_flow
+    assert "[scheduler.params] -> ctx.scheduler_params()" in param_flow
+    assert "[loss.params] -> ctx.loss_params()" in param_flow
+    assert "[initializer.params] -> ctx.initializer_params()" in param_flow
+    assert "[callbacks.params] -> ctx.callback_params()" in param_flow
+    assert "[metrics.params.<metric_name>] -> ctx.metric_params(name)" in param_flow
+    assert '[update_rule.params] -> ctx.extra["update_rule_params"]' in param_flow
+    assert "CacheSpec" in model_cache_advanced
+    assert "forward_with_standard_cache" in model_cache_advanced
+    assert 'Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`' in smoke_test
+    assert "lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml" in smoke_test or "train.supervised.capsule_optimizer.toml" in smoke_test
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick
     assert f'lelabo_version = "{lab_pkg.__version__}"' in cfg_quick
     assert 'config_version = "auto"' not in cfg_quick
-    assert "layered config resolution" in configs_readme.lower()
+    assert "AGENTS.md" in configs_readme
     assert "train.supervised.quickstart.toml" in configs_readme
     assert "train.supervised.capsule_optimizer.toml" in configs_readme
-    assert "initializers/example.py" in configs_readme
-    assert "losses/example.py" in configs_readme
+    assert "optimizers/example.py" in configs_readme
+    assert "models/cache_walkthrough.py" in configs_readme
+    assert "../resources/LELABO_REFERENCE.md" in configs_readme
+    assert "../resources/PARAM_FLOW.md" in configs_readme
+    assert "../resources/MODEL_CACHE_ADVANCED.md" in configs_readme
+    assert "resources/LELABO_REFERENCE.md" in model_example
+    assert "resources/PARAM_FLOW.md" in model_example
+    assert "resources/LELABO_REFERENCE.md" in optimizer_example
+    assert "resources/PARAM_FLOW.md" in optimizer_example
+    assert "resources/LELABO_REFERENCE.md" in metric_example
+    assert "resources/PARAM_FLOW.md" in metric_example
+    assert "resources/LELABO_REFERENCE.md" in initializer_example
+    assert "resources/PARAM_FLOW.md" in initializer_example
+    assert "resources/LELABO_REFERENCE.md" in loss_example
+    assert "resources/PARAM_FLOW.md" in loss_example
+    assert "resources/LELABO_REFERENCE.md" in scheduler_example
+    assert "resources/PARAM_FLOW.md" in scheduler_example
+    assert "resources/LELABO_REFERENCE.md" in callback_example
+    assert "resources/PARAM_FLOW.md" in callback_example
+    assert "resources/LELABO_REFERENCE.md" in (out / "datasets" / "example.py").read_text(encoding="utf-8")
+    assert "resources/PARAM_FLOW.md" in (out / "datasets" / "example.py").read_text(encoding="utf-8")
+    assert "resources/LELABO_REFERENCE.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
+    assert "resources/PARAM_FLOW.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
+    assert "resources/MODEL_CACHE_ADVANCED.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     row = registry.get_capsule("demo_capsule", capsules_dir)
     assert row is not None
     assert row["capsule_id"] == "demo_capsule"
@@ -157,3 +233,38 @@ def test_scaffold_examples_are_train_resolvable(tmp_path, monkeypatch) -> None:
         models_registry.MODEL_REGISTRY._items = original_model_items
         datasets_registry.DATASET_REGISTRY._items = original_dataset_items
         plugins.reset_capsule_plugin_cache()
+
+
+def test_fresh_capsule_examples_do_not_pollute_plugin_listings(tmp_path, monkeypatch, capsys) -> None:
+    out = create.create_capsule_scaffold(
+        capsule_name="quiet_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    plugins.reset_capsule_plugin_cache()
+    monkeypatch.chdir(out)
+    try:
+        rc = list_cli.main(["optimizers", "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "capsule_sgd" not in payload["optimizers"]
+
+        rc = list_cli.main(["models", "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "example_mlp" not in payload["models"]
+    finally:
+        plugins.reset_capsule_plugin_cache()
+
+
+def test_create_capsule_cli_prints_guided_next_steps(tmp_path, capsys) -> None:
+    rc = create_cli.main(["capsule", "guided_capsule", "--dir", str(tmp_path), "--no-register"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert str(tmp_path / "guided_capsule") in out
+    assert "Start with README.md" in out
+    assert "open AGENTS.md" in out
+    assert "resources/LELABO_REFERENCE.md" in out
+    assert "resources/PARAM_FLOW.md" in out
+    assert 'capsule_sgd' in out
+    assert "pytest -q tests" in out
