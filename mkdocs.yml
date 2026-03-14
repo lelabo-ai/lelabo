@@ -9,6 +9,9 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Quickstart: quickstart.md
+  - Supervised: supervised.md
+  - Capsules: capsules.md
+  - Cache & Local Rules: cache-local-rules.md
   - API: api.md
   - Research notes: research-notes.md
 

@@ -21,83 +21,182 @@ A normal supervised BP path only needs:
 
 No cache provider work is required.
 
-## When to think about cache provider / blocks
+## When to think about cache / blocks
 
-You need cache-aware design when an update rule or analysis depends on intermediate activations.
+You need cache-aware design when a rule or analysis depends on intermediate activations.
 
 Typical examples:
 
-- output-head-only local rules
 - blockwise learning rules
-- research diagnostics over internal blocks
+- local rules with explicit hidden-block updates
+- probing or diagnostics over internal blocks
 
-## Core pieces
+## Stable public pieces
 
-- `forward_with_standard_cache(...)`
-- `CacheSpec`
 - `declare_blocks()`
 - `BlockSpec`
+- `ResolvedBlock`
+- `CacheSpec`
+- `forward_with_standard_cache(...)`
 - `declared`
 - `execution`
 - `paired_execution`
+- `register_cache_pair_activation(...)`
 
-See `models/cache_walkthrough.py` for a runnable Python reference.
+These are the parts you can reasonably depend on in capsule code.
+
+## Noble vs universal path
+
+Noble path:
+
+- your model implements `declare_blocks()`
+- the runtime can expose `views["declared"]`
+- use this when the model has meaningful semantic blocks
+
+Universal path:
+
+- LeLabo auto-observes `nn.Module`s
+- the runtime can expose `views["execution"]`
+- use this when the model is a regular PyTorch module and you do not want custom block declarations
+
+Paired universal path:
+
+- LeLabo starts from `execution`
+- then enriches it with post-activation pairing
+- this becomes `views["paired_execution"]`
+
+## `BlockSpec`
+
+`BlockSpec` is declarative.
+
+Important fields:
+
+- `name`
+- `module`
+- `rep`
+- `is_output`
+- `group`
+- `params`
+- `in_select`
+- `out_select`
+
+`BlockSpec` describes a block. It is not the runtime block object.
+
+## `ResolvedBlock`
+
+`ResolvedBlock` is the runtime block you receive in the selected cache view.
+
+Important fields:
+
+- `name`
+- `module`
+- `spec`
+- `rep`
+- `group`
+- `is_trainable`
+- `is_output`
+- `x`
+- `u`
+- `h`
+- `activation_name`
+- `exec_module`
+- `exec_span_names`
+
+### Meaning of the main tensors
+
+- `x`
+  best available input tensor for that block
+
+- `u`
+  best available output / pre-activation-side tensor for that block
+
+- `h`
+  post-activation tensor when pairing is available
+
+### `exec_module`
+
+`exec_module` is the best local replay module the runtime can expose for that runtime block.
+
+Use it for:
+
+- local segment replay
+- rules that need a block-like executable object
+
+`exec_span_names` tells you which runtime names are covered by that replay module.
 
 ## `CacheSpec`
 
-`CacheSpec` declares what to record during the forward pass:
+`CacheSpec` tells the runtime what to capture and what to validate.
 
-- which view is the main target (`declared`, `execution`, `paired_execution`)
-- which module types are trainable
-- which module types are observed
-- whether to capture inputs
-- whether to capture outputs
-- whether the model must expose a single output head
+Important fields:
 
-This is what lets an update rule recover activations without rewriting the model forward pass.
+- `target_view`
+- `trainable_module_types`
+- `observed_module_types`
+- `observed_module_names`
+- `capture_inputs`
+- `capture_outputs`
+- `require_single_call`
+- `require_single_output_head`
+- `require_input_ndim`
+- `require_output_ndim`
 
-## Views and declarations
+Important runtime rule:
+
+- `forward_with_standard_cache(...)` returns only the target view requested by `CacheSpec.target_view`
+
+It does not return all three views anymore.
+
+## Custom activation pairing
+
+If your model uses a custom activation module, register it:
+
+```python
+from lelabo.models import register_cache_pair_activation
+```
+
+This allows `paired_execution` to discover post-activation tensors for that module family.
+
+## Public stable vs runtime detail
+
+Public stable contract:
 
 - `declare_blocks()`
-  Lets the model expose a noble, semantic block decomposition.
+- `BlockSpec`
+- `ResolvedBlock`
+- `CacheSpec`
+- `declared`
+- `execution`
+- `paired_execution`
+- `register_cache_pair_activation(...)`
 
-- `views["declared"]`
-  Runtime projection of `declare_blocks()`.
+Runtime detail, not a stable API:
 
-- `views["execution"]`
-  Universal runtime view built from the auto-cache path.
+- the exact pairing heuristic
+- internal replay reconstruction helpers
+- the exact contents of `cache["_runtime"]`
 
-- `views["paired_execution"]`
-  Same ordered execution view, enriched with post-activation pairing when available.
+Do not make capsule code depend on internal `_runtime` shapes unless you are deliberately doing local research on internals.
 
-Output heads are now filtered from a view with `block.is_output`.
+## Current limits
 
-## Implications for local rules
+What works well:
 
-If a local rule expects:
+- standard supervised training
+- many local-rule setups based on intermediate activations
+- cache-aware models that either declare their blocks or expose regular `nn.Module` structure
 
-- a single Linear output head
-- a specific hidden block shape
-- captured input activations
+What is not first-class yet:
 
-then the model must expose those structures cleanly.
+- general staged multi-phase training programs
+- native pretrain/freeze/fine-tune programs as public runtime objects
+- arbitrary papers with several loaders, phases, and optimizers expressed as a first-class experiment program
 
-If not, the rule may fail even though BP training works.
+Some papers can still be implemented, but part of the orchestration may still live in the rule or in the experiment setup.
 
 ## Recommended workflow
 
 1. Start with the simplest model possible
 2. Validate BP first
-3. Only then add cache/block compatibility if the update rule requires it
-4. Use `models/cache_walkthrough.py` as the reference implementation pattern
-
-## Common failure modes
-
-- Model trains with BP but local rule fails
-  The expected blocks or cached tensors are missing.
-
-- Output head not found
-  The cache spec likely expects a single head and the chosen view exposes several `is_output=True` blocks.
-
-- Wrong tensor shape in the rule
-  The captured block inputs/outputs do not match the rule’s assumptions.
+3. Add cache/block compatibility only if the rule needs it
+4. Use `models/cache_walkthrough.py` as the runnable reference pattern

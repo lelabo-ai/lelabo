@@ -34,6 +34,28 @@ Use it when you need the exact builder signature, return type, or context fields
 | `schedulers/` | `@register_scheduler(name)` | `build_xxx(ctx)` | scheduler or `SchedulerController` |
 | `callbacks/` | `@register_callback(name)` | `build_xxx(ctx)` | callback object |
 
+## Cache and local-rule helper APIs
+
+Useful public helpers when working on cache-aware models or local rules:
+
+```python
+from lelabo.models.cache_provider import (
+    CacheSpec,
+    forward_with_standard_cache,
+    declares_blocks,
+    resolve_declared_blocks,
+)
+from lelabo.models.blocks import BlockSpec, ResolvedBlock
+from lelabo.models import register_cache_pair_activation
+```
+
+Current cache contract:
+
+- models may expose `declare_blocks()`
+- `forward_with_standard_cache(...)` returns `out`, `cache`, and `views`
+- `views` contains only the requested `CacheSpec.target_view`
+- the public view names are `declared`, `execution`, and `paired_execution`
+
 ## Contexts
 
 ### `ModelContext`
@@ -215,3 +237,7 @@ Important rules:
 - Local rule breaks with a model
   - the model likely does not expose the expected cache/block structure
   - read `resources/MODEL_CACHE_ADVANCED.md`
+
+- Update rule works on a simple baseline but not on a paper-like setup
+  - the issue may be lifecycle or orchestration rather than a single builder contract
+  - read `resources/UPDATE_RULE_LIFECYCLE.md` and `resources/PAPER_PACK_PLAYBOOK.md`

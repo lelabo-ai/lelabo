@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from ..base import OptimizerUpdateRule
 from ...core.batch import to_device
 from ...core.steps import compute_loss_and_stats
-from ...models.cache_provider import CacheSpec, forward_with_standard_cache
+from ...models.cache_provider import CacheSpec, forward_with_standard_cache, resolve_declared_blocks
 
 try:
     from ...models.builtins.deep_softhebb import SoftHebbBlock as _SoftHebbBlock
@@ -68,11 +68,25 @@ class SoftHebb(OptimizerUpdateRule):
     def _is_softhebb_block(module: nn.Module) -> bool:
         return (_SoftHebbBlock is not None) and isinstance(module, _SoftHebbBlock)
 
-    def _cache_spec(self) -> CacheSpec:
+    def _cache_spec(self, model: nn.Module | None = None) -> CacheSpec:
         param_types: list[type[nn.Module]] = [nn.Linear, nn.Conv2d]
         if _SoftHebbBlock is not None:
             param_types.insert(0, _SoftHebbBlock)
+
+        target_view = "execution"
+        if isinstance(model, nn.Module):
+            try:
+                declared_specs = resolve_declared_blocks(model)
+            except ValueError:
+                declared_specs = []
+            if any(
+                isinstance(block.module, tuple(param_types)) and not bool(block.is_output)
+                for block in declared_specs
+            ):
+                target_view = "declared"
+
         return CacheSpec(
+            target_view=target_view,
             trainable_module_types=tuple(param_types),
             capture_inputs=True,
             capture_outputs=True,
@@ -336,7 +350,7 @@ class SoftHebb(OptimizerUpdateRule):
             _out, _cache, views = forward_with_standard_cache(
                 model,
                 *x_args,
-                cache_spec=self._cache_spec(),
+                cache_spec=self._cache_spec(model),
                 **x_kwargs,
             )
 
@@ -384,7 +398,7 @@ class SoftHebb(OptimizerUpdateRule):
             _out, _cache, views = forward_with_standard_cache(
                 model,
                 *x_args,
-                cache_spec=self._cache_spec(),
+                cache_spec=self._cache_spec(model),
                 **x_kwargs,
             )
 

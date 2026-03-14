@@ -46,6 +46,8 @@ Common errors
 - `ctx.in_dim` is missing: this example expects a tabular input dimension.
 - Need cache/block-level behavior for a local rule: read
   `resources/MODEL_CACHE_ADVANCED.md` and `models/cache_walkthrough.py`.
+- Need to implement a full paper rather than a single model: read
+  `resources/PAPER_PACK_PLAYBOOK.md`.
 """
 
 from __future__ import annotations

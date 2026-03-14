@@ -18,11 +18,12 @@ from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
 
 def example_cache_spec() -> CacheSpec:
     """
-    Minimal cache spec that captures Linear blocks and their inputs/outputs.
+    Minimal cache spec that captures an execution view over Linear blocks.
 
     This is useful when an update rule needs intermediate activations.
     """
     return CacheSpec(
+        target_view="execution",
         trainable_module_types=(nn.Linear,),
         observed_module_types=(nn.Linear,),
         capture_inputs=True,
@@ -51,5 +52,6 @@ def inspect_output_blocks(model: nn.Module, x: torch.Tensor) -> tuple[torch.Tens
 def notes() -> str:
     return (
         "Use `forward_with_standard_cache(...)` only when a local rule or analysis really needs it. "
+        "Remember that the runtime returns only the requested target view. "
         "For a standard BP model plugin, keep `models/example.py` simple."
     )

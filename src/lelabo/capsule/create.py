@@ -38,6 +38,8 @@ _EXAMPLE_TEMPLATE_MAP = {
     "resources/LELABO_REFERENCE.md": "resources_lelabo_reference.md",
     "resources/PARAM_FLOW.md": "resources_param_flow.md",
     "resources/MODEL_CACHE_ADVANCED.md": "resources_model_cache_advanced.md",
+    "resources/UPDATE_RULE_LIFECYCLE.md": "resources_update_rule_lifecycle.md",
+    "resources/PAPER_PACK_PLAYBOOK.md": "resources_paper_pack_playbook.md",
     "models/example.py": "models_example.py",
     "models/cache_walkthrough.py": "models_cache_walkthrough.py",
     "update_rules/example.py": "update_rules_example.py",
@@ -53,9 +55,11 @@ _EXAMPLE_TEMPLATE_MAP = {
     "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
     "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
     "configs/train.supervised.capsule_optimizer.toml": "configs_train_supervised_capsule_optimizer.toml",
+    "configs/train.supervised.paper_pack.toml": "configs_train_supervised_paper_pack.toml",
     "configs/train.rl.detailed.toml": "configs_train_rl_detailed.toml",
     "runs/example.py": "runs_example.py",
     "tests/test_capsule_optimizer_smoke.py": "tests_capsule_optimizer_smoke.py",
+    "tests/test_paper_pack_smoke.py": "tests_paper_pack_smoke.py",
 }
 
 
@@ -89,6 +93,8 @@ def _readme_template(name: str) -> str:
         "If you use Codex/Claude or another coding agent, open `AGENTS.md` first.\n"
         "If you need exact contracts or param flow, jump to `resources/LELABO_REFERENCE.md`\n"
         "and `resources/PARAM_FLOW.md`.\n"
+        "If you are implementing a full paper pack, also read\n"
+        "`resources/UPDATE_RULE_LIFECYCLE.md` and `resources/PAPER_PACK_PLAYBOOK.md`.\n"
     )
 
 

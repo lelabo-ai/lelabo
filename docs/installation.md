@@ -5,39 +5,29 @@
 - Python `>= 3.11`
 - `pip`
 
-## Install from source
+## Extras matrix
 
-Minimal install:
+- minimal: `pip install -e .`
+- supervised: `pip install -e ".[supervised]"`
+- supervised + NLP: `pip install -e ".[supervised,nlp]"`
+- RL: `pip install -e ".[rl]"`
+- local development: `pip install -e ".[supervised,rl,nlp,dev,test]"`
 
-```bash
-pip install -e .
-```
+## Recommended installs
 
-Supervised workflows:
+If you want the official supervised paths:
 
 ```bash
 pip install -e ".[supervised]"
 ```
 
-Supervised + docs + tests:
+If you also want GLUE / BERT:
 
 ```bash
-pip install -e ".[supervised,dev,test]"
+pip install -e ".[supervised,nlp]"
 ```
 
-RL workflows:
-
-```bash
-pip install -e ".[rl]"
-```
-
-NLP / Hugging Face workflows:
-
-```bash
-pip install -e ".[nlp]"
-```
-
-Everything typically needed for local development:
+If you are working on the repo itself:
 
 ```bash
 pip install -e ".[supervised,rl,nlp,dev,test]"
@@ -53,15 +43,18 @@ lelabo --help
 lelabo list
 ```
 
-## Serve the documentation locally
+```bash
+lelabo train supervised --config configs/train/supervised.quickstart.toml
+```
+
+## Optional notes
+
+- CNN and dataset-heavy supervised workflows need the `supervised` extra.
+- GLUE / BERT workflows need the `nlp` extra.
+- RL entrypoints need the `rl` extra.
+
+## Serve the docs locally
 
 ```bash
 mkdocs serve
 ```
-
-Then open `http://127.0.0.1:8000`.
-
-## Notes
-
-- `pip install -e .` is the most practical setup while the project is evolving quickly.
-- Some commands require optional dependencies. For example, CNN training needs the `supervised` extra, and BERT / GLUE experiments need the `nlp` extra.

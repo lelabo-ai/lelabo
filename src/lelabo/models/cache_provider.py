@@ -610,20 +610,61 @@ def _build_views(
     spec: CacheSpec,
     declared_specs: Sequence[BlockSpec],
 ) -> dict[str, Any]:
-    declared = _attach_exec_modules(_build_declared_blocks(cache, declared_specs, spec), declared_view=True)
+    target_view = _normalize_target_view(spec.target_view)
+    if target_view == "declared":
+        return {
+            "declared": _attach_exec_modules(
+                _build_declared_blocks(cache, declared_specs, spec),
+                declared_view=True,
+            )
+        }
+
     execution = _attach_exec_modules(
         _build_execution_blocks(cache, auto_specs, capture_specs, spec, declared_specs),
         declared_view=False,
     )
+    if target_view == "execution":
+        return {"execution": execution}
+
     paired_execution = _attach_exec_modules(
         _build_paired_execution_blocks(execution, capture_specs, cache),
         declared_view=False,
     )
-    return {
-        "declared": declared,
-        "execution": execution,
-        "paired_execution": paired_execution,
-    }
+    return {"paired_execution": paired_execution}
+
+
+def _normalize_external_cache(cache: Mapping[str, Any] | None) -> dict[str, Any]:
+    module_inputs = {}
+    module_outputs = {}
+    merged: dict[str, Any] = {}
+
+    if isinstance(cache, Mapping):
+        raw_inputs = cache.get("module_inputs")
+        raw_outputs = cache.get("module_outputs")
+        if isinstance(raw_inputs, Mapping):
+            module_inputs = dict(raw_inputs)
+        if isinstance(raw_outputs, Mapping):
+            module_outputs = dict(raw_outputs)
+        passthrough_keys = {
+            "module_inputs",
+            "module_outputs",
+            "module_inputs_all",
+            "module_outputs_all",
+            "call_count_by_name",
+            "cache_version",
+            "_runtime",
+            "steps",
+            "block_specs_runtime",
+        }
+        for key, value in cache.items():
+            key_str = str(key)
+            if key_str in passthrough_keys:
+                continue
+            merged[key_str] = value
+
+    merged["module_inputs"] = module_inputs
+    merged["module_outputs"] = module_outputs
+    return normalize_standard_cache(merged)
 
 
 def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: CacheSpec) -> None:
@@ -703,6 +744,7 @@ def _validate_spec(cache: Mapping[str, Any], views: Mapping[str, Any], spec: Cac
 def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = None, **kwargs):
     spec = cache_spec or CacheSpec()
     plan = _capture_plan(spec)
+    target_view = _normalize_target_view(spec.target_view)
 
     if isinstance(model, ModelCacheWrapper):
         wrapper = model
@@ -710,16 +752,41 @@ def forward_with_standard_cache(model, *args, cache_spec: CacheSpec | None = Non
         declared_resolution = _resolve_declared_blocks(source_model)
         _raise_declared_blocks_error(declared_resolution)
         declared_specs = list(declared_resolution.specs)
-        auto_specs = wrapper.declare_blocks()
+        auto_specs = wrapper.declare_blocks() if target_view in {"execution", "paired_execution"} else []
         capture_specs = auto_specs
     else:
         source_model = model
         declared_resolution = _resolve_declared_blocks(source_model)
         _raise_declared_blocks_error(declared_resolution)
         declared_specs = list(declared_resolution.specs)
-        auto_specs = _select_auto_block_specs(model, spec)
+        auto_specs: list[BlockSpec] = []
+        if target_view in {"execution", "paired_execution"}:
+            auto_specs = _select_auto_block_specs(model, spec)
+
         pairing_specs = _pairing_capture_specs(model) if plan.needs_pairing else []
-        capture_specs = _merge_capture_specs(declared_specs, auto_specs, pairing_specs)
+        if target_view == "declared":
+            capture_specs = list(declared_specs)
+        elif target_view == "execution":
+            capture_specs = list(auto_specs)
+        else:
+            capture_specs = _merge_capture_specs(auto_specs, pairing_specs)
+
+        if not capture_specs:
+            model_res = model(*args, **kwargs)
+            if (
+                isinstance(model_res, tuple)
+                and len(model_res) == 2
+                and isinstance(model_res[1], Mapping)
+            ):
+                out = model_res[0]
+                cache = _normalize_external_cache(model_res[1])
+            else:
+                out = model_res
+                cache = normalize_standard_cache({"module_inputs": {}, "module_outputs": {}})
+            views = _build_views(cache, auto_specs, capture_specs, spec, declared_specs)
+            _validate_spec(cache, views, spec)
+            return out, cache, views
+
         wrapper = ModelCacheWrapper(
             model,
             block_specs=capture_specs,

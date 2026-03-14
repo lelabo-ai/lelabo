@@ -54,6 +54,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "resources" / "LELABO_REFERENCE.md").exists()
     assert (out / "resources" / "PARAM_FLOW.md").exists()
     assert (out / "resources" / "MODEL_CACHE_ADVANCED.md").exists()
+    assert (out / "resources" / "UPDATE_RULE_LIFECYCLE.md").exists()
+    assert (out / "resources" / "PAPER_PACK_PLAYBOOK.md").exists()
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
@@ -67,9 +69,11 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "configs" / "train.supervised.quickstart.toml").exists()
     assert (out / "configs" / "train.supervised.detailed.toml").exists()
     assert (out / "configs" / "train.supervised.capsule_optimizer.toml").exists()
+    assert (out / "configs" / "train.supervised.paper_pack.toml").exists()
     assert (out / "configs" / "train.rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
     assert (out / "tests" / "test_capsule_optimizer_smoke.py").exists()
+    assert (out / "tests" / "test_paper_pack_smoke.py").exists()
     model_example = (out / "models" / "example.py").read_text(encoding="utf-8")
     model_walkthrough = (out / "models" / "cache_walkthrough.py").read_text(encoding="utf-8")
     metric_example = (out / "metrics" / "example.py").read_text(encoding="utf-8")
@@ -84,11 +88,15 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     lelabo_reference = (out / "resources" / "LELABO_REFERENCE.md").read_text(encoding="utf-8")
     param_flow = (out / "resources" / "PARAM_FLOW.md").read_text(encoding="utf-8")
     model_cache_advanced = (out / "resources" / "MODEL_CACHE_ADVANCED.md").read_text(encoding="utf-8")
+    update_rule_lifecycle = (out / "resources" / "UPDATE_RULE_LIFECYCLE.md").read_text(encoding="utf-8")
+    paper_pack_playbook = (out / "resources" / "PAPER_PACK_PLAYBOOK.md").read_text(encoding="utf-8")
     smoke_test = (out / "tests" / "test_capsule_optimizer_smoke.py").read_text(encoding="utf-8")
+    paper_pack_smoke = (out / "tests" / "test_paper_pack_smoke.py").read_text(encoding="utf-8")
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
     cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
+    cfg_paper = (out / "configs" / "train.supervised.paper_pack.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
     assert 'Uncomment `@register_model("example_mlp")`' in model_example
     assert "cache_walkthrough.py" in model_example
@@ -122,6 +130,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "resources/LELABO_REFERENCE.md" in agents_text
     assert "resources/PARAM_FLOW.md" in agents_text
     assert "resources/MODEL_CACHE_ADVANCED.md" in agents_text
+    assert "resources/UPDATE_RULE_LIFECYCLE.md" in agents_text
+    assert "resources/PAPER_PACK_PLAYBOOK.md" in agents_text
     assert "`optimizers/`" in agents_text
     assert "`@register_optimizer(name)`" in agents_text
     assert "models/cache_walkthrough.py" in agents_text
@@ -135,6 +145,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "InitializerContext" in lelabo_reference
     assert "UpdateRuleContext" in lelabo_reference
     assert "DataBundle" in lelabo_reference
+    assert "forward_with_standard_cache" in lelabo_reference
+    assert "resolve_declared_blocks" in lelabo_reference
+    assert "register_cache_pair_activation" in lelabo_reference
     assert "[model.params] -> args.model_params" in param_flow
     assert "[optimizer.params] -> ctx.optimizer_params()" in param_flow
     assert "[scheduler.params] -> ctx.scheduler_params()" in param_flow
@@ -144,24 +157,47 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "[metrics.params.<metric_name>] -> ctx.metric_params(name)" in param_flow
     assert '[update_rule.params] -> ctx.extra["update_rule_params"]' in param_flow
     assert "CacheSpec" in model_cache_advanced
+    assert "ResolvedBlock" in model_cache_advanced
+    assert "target_view" in model_cache_advanced
+    assert "exec_module" in model_cache_advanced
+    assert "exec_span_names" in model_cache_advanced
+    assert "register_cache_pair_activation" in model_cache_advanced
+    assert "returns only the target view" in model_cache_advanced
     assert "forward_with_standard_cache" in model_cache_advanced
+    assert "train_step(model, objective, batch, device, state=None)" in update_rule_lifecycle
+    assert "What the rule must return" in update_rule_lifecycle
+    assert "Current runtime limits" in update_rule_lifecycle
+    assert "paper pack" in paper_pack_playbook.lower()
+    assert "Implementation order" in paper_pack_playbook
+    assert "Validation checklist" in paper_pack_playbook
     assert 'Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`' in smoke_test
     assert "lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml" in smoke_test or "train.supervised.capsule_optimizer.toml" in smoke_test
+    assert 'Uncomment `@register_model("example_mlp")`' in paper_pack_smoke
+    assert 'Uncomment `@register_update_rule("local_head")`' in paper_pack_smoke
+    assert "train.supervised.paper_pack.toml" in paper_pack_smoke
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick
+    assert 'config_version = "1.0"' in cfg_paper
+    assert 'name = "example_mlp"' in cfg_paper
+    assert 'name = "local_head"' in cfg_paper
     assert f'lelabo_version = "{lab_pkg.__version__}"' in cfg_quick
+    assert f'lelabo_version = "{lab_pkg.__version__}"' in cfg_paper
     assert 'config_version = "auto"' not in cfg_quick
     assert "AGENTS.md" in configs_readme
     assert "train.supervised.quickstart.toml" in configs_readme
     assert "train.supervised.capsule_optimizer.toml" in configs_readme
+    assert "train.supervised.paper_pack.toml" in configs_readme
     assert "optimizers/example.py" in configs_readme
     assert "models/cache_walkthrough.py" in configs_readme
     assert "../resources/LELABO_REFERENCE.md" in configs_readme
     assert "../resources/PARAM_FLOW.md" in configs_readme
     assert "../resources/MODEL_CACHE_ADVANCED.md" in configs_readme
+    assert "../resources/UPDATE_RULE_LIFECYCLE.md" in configs_readme
+    assert "../resources/PAPER_PACK_PLAYBOOK.md" in configs_readme
     assert "resources/LELABO_REFERENCE.md" in model_example
     assert "resources/PARAM_FLOW.md" in model_example
+    assert "resources/PAPER_PACK_PLAYBOOK.md" in model_example
     assert "resources/LELABO_REFERENCE.md" in optimizer_example
     assert "resources/PARAM_FLOW.md" in optimizer_example
     assert "resources/LELABO_REFERENCE.md" in metric_example
@@ -179,6 +215,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "resources/LELABO_REFERENCE.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     assert "resources/PARAM_FLOW.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     assert "resources/MODEL_CACHE_ADVANCED.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
+    assert "resources/UPDATE_RULE_LIFECYCLE.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
+    assert "resources/PAPER_PACK_PLAYBOOK.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     row = registry.get_capsule("demo_capsule", capsules_dir)
     assert row is not None
     assert row["capsule_id"] == "demo_capsule"
@@ -266,5 +304,7 @@ def test_create_capsule_cli_prints_guided_next_steps(tmp_path, capsys) -> None:
     assert "open AGENTS.md" in out
     assert "resources/LELABO_REFERENCE.md" in out
     assert "resources/PARAM_FLOW.md" in out
+    assert "resources/UPDATE_RULE_LIFECYCLE.md" in out
+    assert "resources/PAPER_PACK_PLAYBOOK.md" in out
     assert 'capsule_sgd' in out
     assert "pytest -q tests" in out

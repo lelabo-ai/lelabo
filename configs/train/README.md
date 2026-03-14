@@ -1,37 +1,66 @@
 # Train Configs
 
-This folder contains TOML examples for `lelabo train`.
+This folder contains the official config entrypoints for `lelabo train`.
 
-## Official supervised golden paths
+For the public supervised story, this page is the operator-facing companion to `docs/supervised.md`.
 
-These are the supervised paths LeLabo treats as first-class:
+## Official supervised configs
 
-1. `configs/train/supervised.quickstart.toml`
-   `iris + mlp + bp`
-2. Capsule path
-   `lelabo create capsule my_capsule`, enable `optimizers/example.py`, then train `mnist + cnn + bp + capsule_sgd`
-3. `configs/train/supervised.detailed.toml`
-   `cifar10 + cnn + bp`
-4. `configs/train/supervised.glue.toml`
-   `glue/sst2 + bert + bp`
-5. `configs/train/supervised.local_rule.toml`
-   `mnist + mlp + dfa`
+### `configs/train/supervised.quickstart.toml`
 
-Each config should declare:
+- dataset: `iris`
+- model: `mlp`
+- update rule: `bp`
+- role: first BP tabular baseline
 
-- `config_version`: use `"auto"` (or explicit schema version, currently `1.0`)
-- `lelabo_version`: use `"auto"` (resolved from installed LeLabo version)
+### Capsule path
 
-Priority order at runtime:
+Official flow:
 
-1. Library defaults (`src/lelabo/config/assets/*.toml`, loaded by `src/lelabo/config/defaults.py`)
-2. Project TOML (`train.<mode>.toml`, `train.toml`, `configs/train.<mode>.toml`, `configs/train.toml`)
-3. Explicit CLI overrides
-4. Advanced `--set key=value` overrides
+1. `lelabo create capsule my_capsule`
+2. enable `capsule_sgd` in `optimizers/example.py`
+3. run `configs/train.supervised.capsule_optimizer.toml` from the capsule root
 
-`--config` is optional. If provided, it overrides the auto-detected project config path.
+Role:
 
-Examples:
+- first extension path
+- proves optimizer injection without forking the built-in package
+
+### `configs/train/supervised.detailed.toml`
+
+- dataset: `cifar10`
+- model: `cnn`
+- update rule: `bp`
+- role: main BP vision baseline
+
+### `configs/train/supervised.glue.toml`
+
+- dataset: `glue/sst2`
+- model: `bert`
+- update rule: `bp`
+- role: main BP NLP baseline
+
+You can also switch this config to `stsb` for regression-oriented validation.
+
+### `configs/train/supervised.local_rule.toml`
+
+- dataset: `mnist`
+- model: `mlp`
+- update rule: `dfa`
+- role: main local-rule reference path
+
+## Resolution order
+
+Runtime precedence is:
+
+1. library defaults
+2. project TOML
+3. explicit CLI flags
+4. `--set key=value`
+
+`--config` is optional. If present, it overrides auto-detected project config paths.
+
+## Examples
 
 ```bash
 lelabo train supervised --config configs/train/supervised.quickstart.toml
@@ -46,59 +75,32 @@ lelabo train supervised --config configs/train/supervised.glue.toml
 ```
 
 ```bash
-lelabo train supervised --config configs/train/supervised.glue.toml --set hf.glue_task=stsb --loss mse --metrics mse,mae
-```
-
-```bash
 lelabo train supervised --config configs/train/supervised.local_rule.toml
 ```
 
-Built-in supervised metrics you can request in `[[metrics]]`:
+## Official examples vs local variants
 
-- `accuracy` / `acc`
-- `precision`, `recall`, `f1` (`average = macro|micro|weighted|binary`)
-- `mse`, `mae`, `rmse`, `r2`
+Official examples:
 
-Example monitor:
+- are part of the documented golden paths
+- are expected to stay readable and stable
+- are the configs new users should discover first
 
-```toml
-[[callbacks]]
-name = "earlystopping"
-[callbacks.params]
-monitor = "val.f1_macro"
-```
+Local variants:
 
-For custom metric plugins inside a capsule, use `metrics/example.py` patterns:
+- are normal and encouraged
+- should not replace the official examples as the main onboarding path
 
-1. Register a streaming metric with `register_metric`
-2. Derive from `ClassificationStreamingMetric`, `RegressionStreamingMetric`, or `ScalarStreamingMetric`
+## Capsule references
 
-For custom scheduler plugins inside a capsule, use `schedulers/example.py`
-with `register_scheduler`.
+Inside a generated capsule, read:
 
-For custom optimizer plugins inside a capsule, use `optimizers/example.py`
-with `register_optimizer`.
+- `AGENTS.md`
+- `configs/README.md`
+- `resources/LELABO_REFERENCE.md`
+- `resources/PARAM_FLOW.md`
+- `resources/MODEL_CACHE_ADVANCED.md`
 
-For custom callbacks inside a capsule, use `callbacks/example.py`
-with `register_callback`.
+## RL note
 
-For the capsule optimizer golden path:
-
-```bash
-lelabo create capsule my_capsule
-cd my_capsule
-```
-
-Enable the `capsule_sgd` example in `optimizers/example.py`, then run:
-
-```bash
-lelabo list optimizers
-```
-
-```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
-```
-
-```bash
-lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1
-```
+`configs/train/rl.detailed.toml` remains available, but RL is not part of the main polished documentation scope in this phase.

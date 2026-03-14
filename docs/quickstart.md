@@ -1,6 +1,6 @@
 # Quickstart
 
-## 1. Inspect available components
+## 1. Inspect the registries
 
 ```bash
 lelabo list
@@ -14,13 +14,13 @@ lelabo list models
 lelabo list update-rules
 ```
 
-## 2. Run a first supervised experiment
+## 2. Run the first BP tabular baseline
 
 ```bash
 lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
 
-This is the simplest baseline:
+This is the smallest official baseline:
 
 - dataset: `iris`
 - model: `mlp`
@@ -35,29 +35,22 @@ lelabo train supervised --config configs/train/supervised.detailed.toml
 This is the main vision baseline:
 
 - dataset: `cifar10`
-- model: built-in convnet (`cnn`)
+- model: `cnn`
 - update rule: `bp`
 
-## 4. Create a capsule and add a custom optimizer
+## 4. Create a capsule and enable the optimizer path
 
 ```bash
 lelabo create capsule my_capsule
 cd my_capsule
 ```
 
-Open `optimizers/example.py`, enable the `capsule_sgd` starter, then inspect discovery:
+Then:
 
-```bash
-lelabo list optimizers
-```
-
-Run the capsule optimizer path:
-
-```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
-```
-
-This path proves that you can inject your own optimizer without forking the built-in package.
+1. open `optimizers/example.py`
+2. uncomment `@register_optimizer("capsule_sgd")`
+3. run `lelabo list optimizers`
+4. run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`
 
 ## 5. Run the official GLUE / BERT path
 
@@ -83,14 +76,7 @@ This is the main non-BP reference path:
 - model: `mlp`
 - update rule: `dfa`
 
-## 7. Override nested config values
-
-The supervised CLI also supports auto-detection when no config is passed. It looks for:
-
-- `train.supervised.toml`
-- `train.toml`
-- `configs/train.supervised.toml`
-- `configs/train.toml`
+## 7. Override config values
 
 ```bash
 lelabo train supervised \
@@ -99,8 +85,7 @@ lelabo train supervised \
   --set scheduler.params.gamma=0.5
 ```
 
-Use `--set` when you want a quick ablation without editing the TOML file.
-Structured values must be valid TOML, and strings with spaces or special characters should be quoted.
+Use `--set` for quick ablations without editing the TOML file.
 
 ## 8. Save a run directory
 
@@ -111,5 +96,3 @@ lelabo train supervised \
   --algo bp \
   --run-dir outputs/runs/iris_bp_demo
 ```
-
-This writes run metadata and metrics files in the target directory.

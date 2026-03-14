@@ -1,0 +1,63 @@
+# Enable both `example_mlp` and `local_head` before using this config.
+config_version = "auto"
+lelabo_version = "auto"
+task = "supervised"
+
+[dataset]
+name = "iris"
+[dataset.params]
+
+[model]
+name = "example_mlp"
+[model.params]
+hidden = 128
+layers = 2
+dropout = 0.0
+
+[initializer]
+name = "torch_default"
+[initializer.params]
+
+[loss]
+name = "ce"
+[loss.params]
+
+[update_rule]
+name = "local_head"
+[update_rule.params]
+average_grads = false
+grad_clip = 1.0
+
+[optimizer]
+name = "adamw"
+[optimizer.params]
+lr = 0.001
+weight_decay = 0.0
+
+[runtime]
+device = "auto"
+seed = 2
+determinism = "relaxed"
+display = "compact"
+run_dir = "runs/paper_pack_demo"
+
+[train]
+epochs = 10
+batch = 32
+val_frac = 0.1
+input_noise_dataset = 0.0
+noise_on_test = false
+
+[[callbacks]]
+name = "earlystopping"
+enabled = true
+[callbacks.params]
+monitor = "val.acc"
+mode = "auto"
+patience = 5
+min_delta = 0.0
+warmup = 2
+restore_best = true
+
+[[metrics]]
+name = "acc"

@@ -89,6 +89,8 @@ def _cmd_capsule(argv: list[str]) -> int:
     print("  - If you use Codex/Claude, open AGENTS.md")
     print("  - Exact contracts: resources/LELABO_REFERENCE.md")
     print("  - Param mapping: resources/PARAM_FLOW.md")
+    print("  - Update-rule contract: resources/UPDATE_RULE_LIFECYCLE.md")
+    print("  - Paper-pack workflow: resources/PAPER_PACK_PLAYBOOK.md")
     print('  - Official first path: uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`')
     print("  - Run `lelabo list optimizers`")
     print("  - Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`")

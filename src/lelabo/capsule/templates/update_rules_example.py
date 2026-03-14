@@ -47,6 +47,10 @@ Common errors
 - This example expects a model with a single Linear output head.
 - If you need richer block/caching behavior, read
   `resources/MODEL_CACHE_ADVANCED.md` and `models/cache_walkthrough.py`.
+- If you need the exact runtime contract of a rule, read
+  `resources/UPDATE_RULE_LIFECYCLE.md`.
+- If the work spans model + rule + config + test, read
+  `resources/PAPER_PACK_PLAYBOOK.md`.
 """
 
 from __future__ import annotations
@@ -96,6 +100,7 @@ class LocalHeadRule(OptimizerUpdateRule):
         super().__init__(optimizer=optimizer, grad_clip=grad_clip)
         self.average_grads = bool(average_grads)
         self.cache_spec = CacheSpec(
+            target_view="execution",
             trainable_module_types=(nn.Linear,),
             observed_module_types=(nn.Linear,),
             capture_inputs=True,

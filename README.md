@@ -1,212 +1,100 @@
-# 🧪 Le Labo
+# LeLabo
 
-> **Personal research laboratory for modular experimentation with learning algorithms in deep learning.**
+LeLabo is a research-oriented framework for experimenting with learning algorithms.
 
----
+The current polished surface is:
 
-## 🔍 Overview
+- supervised training from the CLI
+- local-learning and alternative credit-assignment rules
+- capsule scaffolding for custom research extensions
 
-**Le Labo** is a personal research workspace dedicated to experimenting with learning algorithms in deep learning.
+The project is still research-grade. Public extension points are intentional, but internals can move.
 
-The repository is designed as a **flexible and modular laboratory**, where models, tasks, and learning rules can be combined freely in order to study and compare different training paradigms under controlled conditions.
+## What LeLabo is good at today
 
-This is not intended to be a production-ready framework, but rather a **research-oriented environment** optimized for exploration, iteration, and understanding.
+- running a clean BP baseline quickly
+- switching between update rules such as `bp`, `dfa`, `drtp`, `fa`, `dni`, `scl`, and `softhebb`
+- working with built-in models such as `mlp`, `cnn`, `resnet18`, `bert`, and `deephebb`
+- creating a capsule to add your own optimizer, model, metric, dataset, scheduler, callback, or update rule
 
----
+## Official supervised paths
 
-## 🎯 Goals
+These are the supervised paths currently treated as first-class:
 
-The main objectives of this project are to:
+1. `iris + mlp + bp`
+2. capsule optimizer path: `mnist + cnn + bp + capsule_sgd`
+3. `cifar10 + cnn + bp`
+4. `glue/sst2 + bert + bp`
+5. `mnist + mlp + dfa`
 
-- Experiment with **optimization algorithms** (SGD variants, adaptive methods, etc.)
-- Explore **alternative learning rules**, including local and biologically inspired approaches
-- Compare different **learning paradigms** on shared tasks
-- Enable rapid prototyping without unnecessary boilerplate
-- Serve as a long-term experimental playground for deep learning research
+## Install
 
-The focus is on **learning dynamics**, not on benchmarks or performance alone.
-
----
-
-## 🧠 Design Philosophy
-
-This repository follows a few guiding principles:
-
-- **Modularity first**  
-  Algorithms, models, tasks, and training logic are cleanly decoupled.
-
-- **Minimal abstractions**  
-  Only abstractions that help experimentation are introduced.
-
-- **Explicit over implicit**  
-  Research code should be readable, inspectable, and easy to reason about.
-
-- **Algorithm-centric view**  
-  Learning rules are treated as first-class objects, not implementation details.
-
-- **Flexibility over stability**  
-  APIs may evolve as research questions change.
-
----
-
-## Documentation
-
-Full documentation: https://adrienkegreisz.github.io/lelabo/
-
----
-
-## 🧩 High-level Structure
-
-The repository is now split by responsibility:
-
-- **`src/lelabo/`**  
-  Importable research code: models, datasets, algorithms, trainer/runner logic.
-
-- **`experiments/sweeps/`**  
-  YAML experiment definitions (grids, baselines, demos).
-
-- **`experiments/launchers/`**  
-  Orchestration scripts to run many jobs from config files.
-
-- **`tools/`**  
-  Utility scripts for post-processing and plotting.
-
-- **`outputs/`**  
-  Generated artifacts (`outputs/runs/`, `outputs/figures/`).
-
-The structure is designed to make it easy to answer questions like:
-
-> *What happens if I change only the learning rule while keeping the model and task fixed?*
-
----
-
-## 🚀 Usage
-
-This repository is intended for **personal research use**.
-
-Typical workflow:
-1. Define or modify a **model / algorithm** in `src/lelabo/`
-2. Create or update a sweep config in `experiments/sweeps/`
-3. Launch runs with `experiments/launchers/launch_grid.py`
-4. Analyze results with scripts in `tools/`
-
-Capsule scaffold workflow (project bootstrap):
-1. `lelabo create capsule --name my_capsule`
-2. `cd my_capsule`
-3. Add your `models/`, `update_rules/`, `datasets/`, and config files
-
-`lelabo create capsule` also:
-- writes a `manifest.json` scaffold
-- auto-registers the capsule in the user-level capsules index (visible via `lelabo capsule list`)
-- auto-loads custom files from `models/`, `update_rules/`, `datasets/`, and `metrics/` when running LeLabo inside the capsule
-- copies example templates from `src/lelabo/capsule/templates/*.py`
-
-Capsule workflow (share/install/rerun experiments):
-1. `lelabo capsule pack --from <run_dir> --out outputs/exports/capsules/my_run.tar.gz`
-2. `lelabo capsule install outputs/exports/capsules/my_run.tar.gz --name my_baseline`
-3. `lelabo capsule list`
-4. `lelabo capsule show my_baseline`
-5. `lelabo capsule rerun my_baseline --env current`
-6. `lelabo capsule remove my_baseline`
-
-By default, installed capsules are stored in a user-level app-data directory
-(`~/.local/share/lelabo/capsules` on Linux, analogous locations on macOS/Windows),
-and can be overridden with `--capsules-dir` or `LELABO_CAPSULES_DIR`.
-
-Quick examples:
+Minimal editable install:
 
 ```bash
 pip install -e .
 ```
 
-```bash
-lelabo --help
-```
+Supervised workflows:
 
 ```bash
-lelabo create capsule --name my_capsule
+pip install -e ".[supervised]"
 ```
+
+NLP / GLUE workflows:
 
 ```bash
-lelabo list update-rules
+pip install -e ".[supervised,nlp]"
 ```
+
+Local development:
 
 ```bash
-lelabo train --help
+pip install -e ".[supervised,rl,nlp,dev,test]"
 ```
+
+## First commands
+
+Inspect what is available:
 
 ```bash
-lelabo train supervised --dataset iris
+lelabo list
 ```
+
+Run the first BP baseline:
 
 ```bash
-lelabo train supervised --config configs/train/supervised.detailed.toml --dataset iris
+lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
+
+Run the main vision baseline:
 
 ```bash
-# --config is optional if train.toml is present in your project
-lelabo train supervised
+lelabo train supervised --config configs/train/supervised.detailed.toml
 ```
+
+Create a capsule:
 
 ```bash
-lelabo train supervised --dataset iris --set scheduler.params.gamma=0.5 --set model.params.hidden=1024
+lelabo create capsule my_capsule
+cd my_capsule
 ```
 
-```bash
-lelabo train rl --config configs/train/rl.detailed.toml --env CartPole-v1 --rl-algo ppo
-```
+## Documentation
 
-```bash
-python experiments/launchers/launch_grid.py \
-  --config experiments/sweeps/demo.yaml \
-  --max-parallel 4
-```
+- [Home](docs/index.md)
+- [Installation](docs/installation.md)
+- [Quickstart](docs/quickstart.md)
+- [Supervised](docs/supervised.md)
+- [Capsules](docs/capsules.md)
+- [Cache and local rules](docs/cache-local-rules.md)
+- [API overview](docs/api.md)
+- [Research notes](docs/research-notes.md)
 
-```bash
-python tools/plot_sweep_table.py \
-  --config experiments/sweeps/demo.yaml \
-  --metric eval.test.acc
-```
+## Scope and limitations
 
----
+This phase of the documentation focuses on `supervised + capsules`.
 
-## 🚧 Status
+RL, experiments, launchers, and tools remain available, but they are not documented at the same level of maturity yet.
 
-This project is under **active development**.
-
-- Code structure may change
-- APIs are not guaranteed to be stable
-- Refactoring is expected and intentional
-
-This flexibility is a feature, not a limitation.
-
----
-
-## 📖 Citation
-
-If you use ideas, code, or experiments from this repository, please cite:
-
-**Adrien Kegreisz**, *Le Labo – Personal Research Laboratory for Learning Algorithms in Deep Learning*.
-
-```bibtex
-@misc{kegreisz_le_labo,
-  author       = {Adrien Kegreisz},
-  title        = {Le Labo: Personal Research Laboratory for Learning Algorithms in Deep Learning},
-  year         = {2026},
-  note         = {Private research repository}
-}
-
-```
-## 📜 License
-
-This project is licensed under the **MIT License**.
-
-If this repository is made public in the future, **attribution is required** for any use or derivative work.
-
----
-
-## 📝 Notes
-
-**Le Labo** serves as a long-term research workspace.
-
-Clarity, experimental flexibility, and conceptual soundness are prioritized over backward compatibility or polish.
+The cache/local-rule runtime is strong for standard supervised and many local-rule setups, but staged multi-phase programs are not yet first-class runtime objects.

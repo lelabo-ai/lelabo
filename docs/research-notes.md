@@ -1,31 +1,28 @@
-# Research notes
+# Research Notes
 
-## Project status
+## Project posture
 
-LeLabo is under active development.
+LeLabo is still a research workbench.
 
-Current priorities are:
+The current priority is:
 
-- making research loops faster to run
-- keeping models close to plain PyTorch
-- supporting local learning rules through a common cache contract
-- reducing framework-specific boilerplate for custom experiments
+- strong supervised workflows
+- explicit local-rule support
+- low-friction extension through capsules
 
 ## Current design choices
 
 ### Plain `nn.Module` models
 
-Custom models are expected to stay close to normal PyTorch modules.
-
-That means:
+LeLabo keeps models close to ordinary PyTorch:
 
 - regular `forward(...)`
 - standard submodules
-- minimal framework-specific inheritance
+- no mandatory framework-specific model base class for common cases
 
 ### Registry-based composition
 
-The CLI composes experiments from registries:
+Experiments are composed from registries:
 
 - dataset
 - model
@@ -34,47 +31,36 @@ The CLI composes experiments from registries:
 - update rule
 - optimizer
 - scheduler
+- callbacks
 
-This makes ablations easy without rewriting training code.
+This keeps ablations cheap and explicit.
 
 ### Cache-first support for local rules
 
-Local update rules rely on the standard cache provider.
+Local rules are supported through a common cache contract rather than through model-specific training loops.
 
-In practice, this means:
+That contract currently revolves around:
 
-- using `nn.Module` activations is strongly preferred
-- `torch.nn.functional.*` activations are still usable for backprop, but reduce cache quality for local rules
-- `declare_blocks()` is useful for models with natural high-level blocks, such as ResNets or Hugging Face models
+- `declare_blocks()`
+- `BlockSpec`
+- `ResolvedBlock`
+- `CacheSpec`
+- `forward_with_standard_cache(...)`
 
 ## Current limitations
 
-- APIs are not yet stable
-- docs are intentionally minimal for now
-- some rules are still evolving quickly
-- performance and ergonomics are secondary to conceptual correctness
+- public APIs are still evolving
+- RL is not documented as deeply as supervised in this phase
+- staged multi-phase experiment programs are not first-class runtime objects yet
+- some papers with multiple loaders, phases, or optimizers still require workaround logic
 
-## Recommended mindset
+## Future direction
 
-Use LeLabo as a research workbench:
+The likely next conceptual step after this phase is a stronger runtime abstraction for staged training programs.
 
-- start from a built-in baseline
-- inspect the cache if you work on local rules
-- add custom components through capsules
-- expect some internal refactors over time
+That would help represent papers that need:
 
-
-## Cache : 
-
-selection
-
-quels modules/blocs on observe
-ex: trainable_module_types, observed_module_types, observed_module_names
-views
-
-quelles représentations dérivées on veut obtenir
-ex: target_view=`declared|execution|paired_execution`
-contract
-
-quelles hypothèses la règle impose sur le cache
-ex: require_single_call, require_single_output_head, require_input_ndim, require_output_ndim
+- pretrain then fine-tune
+- several loaders
+- several optimizers
+- explicit phase transitions

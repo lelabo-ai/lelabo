@@ -1,87 +1,80 @@
-# API overview
+# API Overview
 
-LeLabo is primarily CLI-first, but a few Python entrypoints are worth knowing when extending the framework.
+LeLabo is CLI-first, but a few Python surfaces are worth knowing when extending the framework.
 
 ## Stability
 
-The Python API is still research-grade.
+The public extension points below are intentional.
+Everything else should still be treated as research-grade internal code.
 
-- extension points are intentional
-- internals can still move
-- prefer registries and builders over deep imports when possible
+## Registry entrypoints
 
-## Registries
-
-The main extension pattern is registry-based.
-
-Model registration:
+Main pattern:
 
 ```python
 from lelabo.models.registry import ModelContext, register_model
+from lelabo.update_rules.registry import register_update_rule
+from lelabo.datasets import register_dataset
 ```
 
-Typical builder shape:
+The main public idea is:
 
-```python
-@register_model("my_model")
-def build_my_model(ctx: ModelContext, args):
-    ...
-```
-
-At runtime, the CLI resolves the builder by name and calls it with:
-
-- a `ModelContext`
-- parsed CLI/config arguments
-
-Useful helper:
-
-```python
-from lelabo.models.registry import build_model
-```
+- register a named builder
+- let the CLI resolve it by name
+- keep the implementation close to plain PyTorch
 
 ## Supervised runtime
 
-The supervised stack is built around:
+The supervised stack is built from:
 
 - a regular PyTorch `nn.Module`
-- a callable loss from `lelabo.losses`
-- an update rule from `lelabo.update_rules`
-- optional streaming metrics from `lelabo.metrics`
-- the supervised `Trainer`
+- a loss
+- an update rule
+- optional streaming metrics
+- the trainer runtime
 
-From Python, the runtime entrypoint worth knowing is:
+The practical entrypoint remains:
+
+```bash
+lelabo train supervised ...
+```
+
+The Python runtime surface worth knowing is:
 
 ```python
 from lelabo.core.trainer import Trainer
 ```
 
-The CLI composes this stack for you through `lelabo train supervised`.
-
-The important design point is that supervised training no longer exposes a separate `task` object in the public API. Losses, metrics, and local-rule teaching signals are handled through their dedicated components.
-
 ## Cache provider
 
-The cache provider is the main bridge between plain `nn.Module` models and local learning rules.
-
-Imports:
+Main imports:
 
 ```python
-from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
+from lelabo.models.cache_provider import (
+    CacheSpec,
+    forward_with_standard_cache,
+    declares_blocks,
+    resolve_declared_blocks,
+)
+from lelabo.models.blocks import BlockSpec, ResolvedBlock
+from lelabo.models import register_cache_pair_activation
 ```
 
-`forward_with_standard_cache(...)` returns:
+Current public cache contract:
 
-- `out`
-- `cache`
-- `views`
+- models may expose `declare_blocks()`
+- cache collection is requested through `CacheSpec`
+- `forward_with_standard_cache(...)` returns:
+  - `out`
+  - `cache`
+  - `views`
+- `forward_with_standard_cache(...)` returns only the requested `target_view`
 
-Important `views` keys:
+Public view names:
 
 - `declared`
 - `execution`
 - `paired_execution`
-
-This is the contract used by built-in local rules such as DFA, DRTP, FA, DNI, SCL, and SoftHebb.
 
 ## Minimal cache example
 
@@ -102,6 +95,7 @@ out, cache, views = forward_with_standard_cache(
     model,
     x,
     cache_spec=CacheSpec(
+        target_view="execution",
         trainable_module_types=(nn.Linear,),
         require_single_call=True,
         require_single_output_head=True,
@@ -109,22 +103,12 @@ out, cache, views = forward_with_standard_cache(
 )
 ```
 
-## Update rules
+## What this page does not promise
 
-Built-in update rules are registered by short names such as:
+This page does not document:
 
-- `bp`
-- `dfa`
-- `drtp`
-- `fa`
-- `dni`
-- `scl`
-- `softhebb`
+- internal cache pairing heuristics
+- internals of `cache["_runtime"]`
+- all helper functions under built-in update-rule implementations
 
-From the CLI:
-
-```bash
-lelabo list update-rules
-```
-
-For most users, the correct entrypoint is still the CLI rather than manually instantiating the trainer stack.
+Those are not public stability commitments.

@@ -31,6 +31,12 @@ def _default_args() -> Namespace:
 
 def _forward_with_cache(model, *args, **kwargs):
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
+    if "cache_spec" not in kwargs:
+        try:
+            if cache_provider.declares_blocks(model):
+                kwargs["cache_spec"] = cache_provider.CacheSpec(target_view="declared")
+        except Exception:
+            pass
     return cache_provider.forward_with_standard_cache(model, *args, **kwargs)
 
 
@@ -446,7 +452,7 @@ def test_cache_provider_v3_selective_linear_view() -> None:
     output_blocks = [b for b in execution_blocks if bool(b["is_output"])]
     assert isinstance(output_blocks, list)
     assert len(output_blocks) == 1
-    assert views["declared"] == []
+    assert set(views) == {"execution"}
     assert [str(b["name"]) for b in execution_blocks if b["exec_module"] is not None] == ["fc1", "head"]
 
 
@@ -674,7 +680,7 @@ def test_cache_provider_multi_head_views_and_single_head_constraint() -> None:
         )
 
 
-def test_cache_provider_declared_view_is_available_alongside_execution() -> None:
+def test_cache_provider_returns_only_target_view() -> None:
     torch = importlib.import_module("torch")
     nn = importlib.import_module("torch.nn")
     cache_provider = importlib.import_module("lelabo.models.cache_provider")
@@ -706,7 +712,20 @@ def test_cache_provider_declared_view_is_available_alongside_execution() -> None
             require_single_output_head=True,
         ),
     )
+    assert set(views) == {"execution"}
     assert [str(b["name"]) for b in views["execution"]] == ["fc1", "head"]
+
+    _out, _cache, views = cache_provider.forward_with_standard_cache(
+        model,
+        x,
+        cache_spec=cache_provider.CacheSpec(
+            target_view="declared",
+            trainable_module_types=(nn.Linear,),
+            observed_module_types=(nn.Linear,),
+            require_single_output_head=True,
+        ),
+    )
+    assert set(views) == {"declared"}
     assert [str(b["name"]) for b in views["declared"]] == ["head"]
 
 
@@ -744,17 +763,17 @@ def test_cache_provider_resolved_block_schema_is_canonical() -> None:
         "available",
         "type",
     }
-    for view_key in ("execution", "declared", "paired_execution"):
-        blocks = views[view_key]
-        assert isinstance(blocks, list)
-        assert blocks
-        assert expected_keys == set(blocks[0].keys())
+    assert set(views) == {"declared"}
+    blocks = views["declared"]
+    assert isinstance(blocks, list)
+    assert blocks
+    assert expected_keys == set(blocks[0].keys())
     assert tuple(views["declared"][0]["exec_span_names"]) == (str(views["declared"][0]["name"]),)
     assert views["declared"][0]["h"] is None
     assert views["declared"][0]["activation_name"] is None
-    execution_names = {str(block["name"]) for block in views["execution"]}
-    output_names = {str(block["name"]) for block in views["execution"] if bool(block["is_output"])}
-    assert output_names.issubset(execution_names)
+    declared_names = {str(block["name"]) for block in views["declared"]}
+    output_names = {str(block["name"]) for block in views["declared"] if bool(block["is_output"])}
+    assert output_names.issubset(declared_names)
 
 
 def test_cache_provider_helpers_report_declared_blocks() -> None:
