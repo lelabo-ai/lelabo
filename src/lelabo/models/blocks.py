@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence
 
@@ -31,6 +32,63 @@ class BlockSpec:
             yield from self.module.parameters()
 
 
+@dataclass(frozen=True)
+class ResolvedBlock(Mapping[str, Any]):
+    """Resolved runtime block shared by declared and execution cache views."""
+
+    name: str
+    module: nn.Module
+    spec: BlockSpec | None = None
+    rep: str = "identity"
+    group: str = "main"
+    is_output: bool = False
+    is_trainable: bool = False
+    x: Any = None
+    u: Any = None
+    h: Any = None
+    activation_name: str | None = None
+    exec_module: nn.Module | None = None
+    exec_span_names: tuple[str, ...] = ()
+    call_count: int = 0
+
+    @property
+    def type(self) -> str:
+        return self.module.__class__.__name__
+
+    @property
+    def available(self) -> bool:
+        return bool(torch.is_tensor(self.x) or torch.is_tensor(self.u))
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "module": self.module,
+            "type": self.type,
+            "spec": self.spec,
+            "rep": self.rep,
+            "group": self.group,
+            "is_output": self.is_output,
+            "is_trainable": self.is_trainable,
+            "x": self.x,
+            "u": self.u,
+            "h": self.h,
+            "activation_name": self.activation_name,
+            "exec_module": self.exec_module,
+            "exec_span_names": self.exec_span_names,
+            "call_count": self.call_count,
+            "available": self.available,
+        }
+
+    def __getitem__(self, key: str) -> Any:
+        return self.as_dict()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.as_dict())
+
+    def __len__(self) -> int:
+        return len(self.as_dict())
+
+
 def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
     """Normalize cache payload to the framework standard schema."""
     if not isinstance(cache, dict):
@@ -42,7 +100,7 @@ def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
         raise TypeError("Cache must contain dict keys: 'module_inputs' and 'module_outputs'.")
 
     out = dict(cache)
-    out["cache_version"] = str(cache.get("cache_version", "standard.v1"))
+    out["cache_version"] = str(cache.get("cache_version", "standard.v4"))
     out["module_inputs"] = module_inputs
     out["module_outputs"] = module_outputs
 
@@ -63,6 +121,16 @@ def normalize_standard_cache(cache: dict[str, Any]) -> dict[str, Any]:
             if isinstance(vals, list):
                 call_count[str(name)] = int(len(vals))
     out["call_count_by_name"] = call_count
+
+    runtime = out.get("_runtime")
+    if not isinstance(runtime, dict):
+        runtime = {}
+    if "steps" in out:
+        runtime["steps"] = out.pop("steps")
+    if "block_specs_runtime" in out:
+        runtime["block_specs_runtime"] = out.pop("block_specs_runtime")
+    if runtime:
+        out["_runtime"] = runtime
 
     # v2 keeps only neutral output naming. Pre-activations can be added in a later version.
     out.pop("block_preacts", None)

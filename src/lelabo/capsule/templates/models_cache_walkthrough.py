@@ -32,18 +32,19 @@ def example_cache_spec() -> CacheSpec:
 
 
 @torch.no_grad()
-def inspect_output_blocks(model: nn.Module, x: torch.Tensor) -> tuple[torch.Tensor, list[dict[str, object]]]:
+def inspect_output_blocks(model: nn.Module, x: torch.Tensor) -> tuple[torch.Tensor, list[object]]:
     """
-    Run a forward pass and return the output blocks recorded by the cache provider.
+    Run a forward pass and return the execution-view blocks marked as outputs.
     """
     logits, _cache, views = forward_with_standard_cache(
         model,
         x,
         cache_spec=example_cache_spec(),
     )
-    output_blocks = views.get("output_blocks", [])
-    if not isinstance(output_blocks, list):
-        output_blocks = []
+    execution_blocks = views.get("execution", [])
+    if not isinstance(execution_blocks, list):
+        execution_blocks = []
+    output_blocks = [block for block in execution_blocks if bool(block.get("is_output", False))]
     return logits, output_blocks
 
 

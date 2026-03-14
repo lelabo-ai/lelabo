@@ -102,7 +102,7 @@ class ModelCacheWrapper(nn.Module):
                 )
             seen.add(mid)
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         return list(self._block_specs)
 
     def _pack_tensor_with_ref(self, value: Any) -> tuple[torch.Tensor | None, int | None]:

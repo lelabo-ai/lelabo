@@ -195,16 +195,13 @@ class FeedbackAlignment(OptimizerUpdateRule):
         )
         out, _cache, views = forward_with_standard_cache(model, x, cache_spec=spec)
 
-        execution_blocks = views.get("execution_blocks", [])
-        output_blocks = views.get("output_blocks", [])
+        execution_blocks = views.get("execution", [])
         if not isinstance(execution_blocks, list):
-            raise RuntimeError("FA v1 expects views['execution_blocks'] list.")
-        if not isinstance(output_blocks, list):
-            output_blocks = []
-        output_blocks = [b for b in output_blocks if isinstance(b, Mapping)]
+            raise RuntimeError("FA v1 expects views['execution'] list.")
+        output_blocks = [b for b in execution_blocks if isinstance(b, Mapping) and bool(b.get("is_output", False))]
         if len(output_blocks) != 1:
             raise RuntimeError(
-                f"FA v1 expects exactly one output block in views['output_blocks'], got {len(output_blocks)}."
+                f"FA v1 expects exactly one output block in views['execution'], got {len(output_blocks)}."
             )
         output_block = output_blocks[0]
 

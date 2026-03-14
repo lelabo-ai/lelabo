@@ -65,15 +65,15 @@ def print_blocks_table(title: str, blocks) -> None:
         print("  " + " | ".join(row[k].ljust(widths[k]) for k in keys))
 
 
-def print_trainable_segments_table(trainable_segments) -> None:
-    print("\nTrainable segments (rule-friendly view)")
-    if not trainable_segments:
+def print_executable_blocks_table(executable_blocks) -> None:
+    print("\nExecutable blocks (rule-friendly view)")
+    if not executable_blocks:
         print("  (empty)")
         return
 
     rows = []
-    for idx, lb in enumerate(trainable_segments):
-        module = lb.get("module")
+    for idx, lb in enumerate(executable_blocks):
+        module = lb.get("exec_module") if isinstance(lb.get("exec_module"), nn.Module) else lb.get("module")
         rows.append(
             {
                 "idx": str(idx),
@@ -109,15 +109,15 @@ def print_trainable_segments_table(trainable_segments) -> None:
         print("  " + " | ".join(row[k].ljust(widths[k]) for k in keys))
 
 
-def print_trainable_segment_details(trainable_segments) -> None:
-    print("\nTrainable segment details")
-    if not trainable_segments:
+def print_executable_block_details(executable_blocks) -> None:
+    print("\nExecutable block details")
+    if not executable_blocks:
         print("  (empty)")
         return
 
-    for idx, lb in enumerate(trainable_segments):
-        module = lb.get("module")
-        seg = lb.get("segment_names", ())
+    for idx, lb in enumerate(executable_blocks):
+        module = lb.get("exec_module") if isinstance(lb.get("exec_module"), nn.Module) else lb.get("module")
+        seg = lb.get("exec_span_names", ())
         seg_names = [str(name) for name in seg] if isinstance(seg, (tuple, list)) else []
         print(f"  [{idx}] {lb.get('name', '?')}")
         print(f"      module: {module.__class__.__name__ if isinstance(module, nn.Module) else '?'}")
@@ -130,3 +130,11 @@ def print_trainable_segment_details(trainable_segments) -> None:
         act_name = lb.get("activation_name", None)
         if act_name is not None:
             print(f"      paired_activation: {act_name}")
+
+
+def print_trainable_segments_table(trainable_segments) -> None:
+    print_executable_blocks_table(trainable_segments)
+
+
+def print_trainable_segment_details(trainable_segments) -> None:
+    print_executable_block_details(trainable_segments)

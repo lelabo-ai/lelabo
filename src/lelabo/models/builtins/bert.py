@@ -91,7 +91,7 @@ class HFSequenceClassifier(nn.Module):
         if not hasattr(self, "bert"):
             self.bert = self._base
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
 
         if self._emb is not None:

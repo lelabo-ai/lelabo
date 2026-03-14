@@ -135,7 +135,7 @@ def test_scl_updates_transformer_like_hidden_block(monkeypatch: pytest.MonkeyPat
             self.layer0 = _TinyTransformerLayer(8)
             self.head = nn.Linear(8, 3)
 
-        def get_blocks(self):
+        def declare_blocks(self):
             return [
                 _BlockSpec(name="encoder.layer0", module=self.layer0, rep="cls", is_output=False),
                 _BlockSpec(name="head", module=self.head, rep="cls", is_output=True),
@@ -198,7 +198,7 @@ def test_scl_mapping_batch_hf_like_uses_hidden_state_local_view(monkeypatch: pyt
                 get_extended_attention_mask=lambda attn, input_shape, device=None: attn  # noqa: ARG005
             )
 
-        def get_blocks(self):
+        def declare_blocks(self):
             return [
                 _BlockSpec(name="embeddings", module=self.embeddings, rep="cls", is_output=False),
                 _BlockSpec(name="encoder.layer0", module=self.layer0, rep="cls", is_output=False),

@@ -35,8 +35,11 @@ Typical examples:
 
 - `forward_with_standard_cache(...)`
 - `CacheSpec`
-- output blocks
-- declared blocks
+- `declare_blocks()`
+- `BlockSpec`
+- `declared`
+- `execution`
+- `paired_execution`
 
 See `models/cache_walkthrough.py` for a runnable Python reference.
 
@@ -44,6 +47,7 @@ See `models/cache_walkthrough.py` for a runnable Python reference.
 
 `CacheSpec` declares what to record during the forward pass:
 
+- which view is the main target (`declared`, `execution`, `paired_execution`)
 - which module types are trainable
 - which module types are observed
 - whether to capture inputs
@@ -52,15 +56,21 @@ See `models/cache_walkthrough.py` for a runnable Python reference.
 
 This is what lets an update rule recover activations without rewriting the model forward pass.
 
-## Output blocks vs declared blocks
+## Views and declarations
 
-- `output_blocks`
-  Usually the blocks treated as output heads by the cache provider
+- `declare_blocks()`
+  Lets the model expose a noble, semantic block decomposition.
 
-- `declared_blocks`
-  Blocks explicitly exposed by the model for structured access
+- `views["declared"]`
+  Runtime projection of `declare_blocks()`.
 
-Different update rules may rely on one or the other.
+- `views["execution"]`
+  Universal runtime view built from the auto-cache path.
+
+- `views["paired_execution"]`
+  Same ordered execution view, enriched with post-activation pairing when available.
+
+Output heads are now filtered from a view with `block.is_output`.
 
 ## Implications for local rules
 
@@ -87,7 +97,7 @@ If not, the rule may fail even though BP training works.
   The expected blocks or cached tensors are missing.
 
 - Output head not found
-  The cache spec likely expects a single head that the model does not expose clearly.
+  The cache spec likely expects a single head and the chosen view exposes several `is_output=True` blocks.
 
 - Wrong tensor shape in the rule
   The captured block inputs/outputs do not match the rule’s assumptions.

@@ -27,6 +27,25 @@ CACHE_AUTO_PAIR_ACTIVATION_MODULE_TYPES: tuple[type[nn.Module], ...] = (
     nn.Softsign,
 )
 
+_CACHE_PAIR_ACTIVATION_REGISTRY: dict[type[nn.Module], str | None] = {
+    nn.ReLU: "relu",
+    nn.ReLU6: "relu6",
+    nn.LeakyReLU: None,
+    nn.PReLU: None,
+    nn.ELU: None,
+    nn.CELU: None,
+    nn.SELU: "selu",
+    nn.GELU: "gelu",
+    nn.SiLU: "silu",
+    nn.Mish: "mish",
+    nn.Tanh: "tanh",
+    nn.Sigmoid: "sigmoid",
+    nn.Hardtanh: None,
+    nn.Hardsigmoid: "hardsigmoid",
+    nn.Softplus: None,
+    nn.Softsign: "softsign",
+}
+
 LOCAL_RULE_SUPPORTED_ACTIVATIONS: tuple[str, ...] = (
     "relu",
     "relu6",
@@ -146,3 +165,24 @@ def local_rule_activation_derivative_from_preact(activation_name: str, preact: t
         negative = (preact <= 0).to(preact.dtype) * (scale * alpha) * torch.exp(preact)
         return positive + negative
     return torch.ones_like(preact)
+
+
+def register_cache_pair_activation(
+    module_type: type[nn.Module],
+    activation_name: str | None = None,
+) -> None:
+    if not isinstance(module_type, type) or not issubclass(module_type, nn.Module):
+        raise TypeError("register_cache_pair_activation expects an nn.Module subclass.")
+    resolved = None if activation_name is None else normalize_local_rule_activation_name(activation_name)
+    _CACHE_PAIR_ACTIVATION_REGISTRY[module_type] = resolved
+
+
+def cache_pair_activation_name_from_module(module: nn.Module) -> str | None:
+    for module_type, activation_name in _CACHE_PAIR_ACTIVATION_REGISTRY.items():
+        if isinstance(module, module_type):
+            return activation_name
+    return None
+
+
+def cache_pair_activation_module_types() -> tuple[type[nn.Module], ...]:
+    return tuple(_CACHE_PAIR_ACTIVATION_REGISTRY.keys())

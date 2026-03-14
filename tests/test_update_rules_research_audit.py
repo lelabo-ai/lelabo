@@ -242,7 +242,7 @@ def _build_supervised_case(
                 self.norm = nn.LayerNorm(d_model)
                 self.head = nn.Linear(d_model, num_classes)
 
-            def get_blocks(self):
+            def declare_blocks(self):
                 blocks = []
                 for i, layer in enumerate(self.layers):
                     blocks.append(_BlockSpec(name=f"transformer.layer{i}", module=layer, is_output=False))
@@ -322,10 +322,10 @@ def _warn_execution_issue(algo: str, mode: str, exc: Exception) -> str:
         "only supported in supervised mode",
         "expects tuple batch",
         "expected cache",
-        "requires model.get_blocks",
+        "requires model.declare_blocks",
         "no fallback",
         "unsupported",
-        "has no get_blocks()",
+        "has no declare_blocks()",
         "missing",
     )
     if any(marker in lowered for marker in incompatible_markers):

@@ -39,7 +39,7 @@ class ActorCriticDiscrete(nn.Module):
         self.actor_head: nn.Linear = self.actor.head
         self.critic_head: nn.Linear = self.critic.head
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
 
         for i, lin in enumerate(self.actor_linears):
@@ -106,7 +106,7 @@ class SquashedGaussianActor(nn.Module):
     def head(self) -> nn.Linear:
         return self.net.head
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
         for i, lin in enumerate(self.linears):
             is_out = i == (len(self.linears) - 1)
@@ -181,7 +181,7 @@ class DoubleQCritic(nn.Module):
         self.q1_linears = self.q1.linears
         self.q2_linears = self.q2.linears
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
         for i, lin in enumerate(self.q1_linears):
             is_out = i == (len(self.q1_linears) - 1)

@@ -165,7 +165,7 @@ class DeepSoftHebbClassifier(nn.Module):
 
         self._block_names = ["conv1", "conv2", "conv3"]
 
-    def get_blocks(self) -> List[BlockSpec]:
+    def declare_blocks(self) -> List[BlockSpec]:
         # expose blocks to UpdateRule
         return [
             BlockSpec(name="conv1", module=self.block1, rep="identity", is_output=False),

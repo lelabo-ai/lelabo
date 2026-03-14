@@ -77,10 +77,9 @@ from lelabo.models.cache_provider import CacheSpec, forward_with_standard_cache
 
 Important `views` keys:
 
-- `execution_blocks`
-- `output_blocks`
-- `declared_blocks`
-- `trainable_segments`
+- `declared`
+- `execution`
+- `paired_execution`
 
 This is the contract used by built-in local rules such as DFA, DRTP, FA, DNI, SCL, and SoftHebb.
 

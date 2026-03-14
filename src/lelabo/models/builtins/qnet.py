@@ -18,7 +18,7 @@ class QNet(nn.Module):
         self.linears = self.net.linears
         self.q_head: nn.Linear = self.net.head
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         blocks: list[BlockSpec] = []
         for i, lin in enumerate(self.linears):
             is_out = (i == (len(self.linears) - 1))

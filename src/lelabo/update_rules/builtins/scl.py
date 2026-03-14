@@ -13,7 +13,11 @@ from ..base import OptimizerUpdateRule
 from ..teaching_signals import best_effort_stats
 from ...core.batch import extract_loss_and_stats, to_device
 from ...core.steps import resolve_loss_callable
-from ...models.cache_provider import CacheSpec, forward_with_standard_cache
+from ...models.cache_provider import (
+    CacheSpec,
+    forward_with_standard_cache,
+    resolve_declared_blocks,
+)
 
 
 def _dedup_types(items: Sequence[type[nn.Module]]) -> tuple[type[nn.Module], ...]:
@@ -85,13 +89,9 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
 
     @staticmethod
     def _declared_block_specs(model: nn.Module) -> list[Any]:
-        if not hasattr(model, "get_blocks"):
-            return []
         try:
-            raw = model.get_blocks()
-        except Exception:
-            return []
-        if not isinstance(raw, list):
+            raw = resolve_declared_blocks(model)
+        except ValueError:
             return []
         out: list[Any] = []
         for item in raw:
@@ -104,7 +104,6 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
     def _cache_spec_for_model(self, model: nn.Module) -> CacheSpec:
         blocks = self._declared_block_specs(model)
         if blocks:
-            observed_names = tuple(str(getattr(b, "name")) for b in blocks)
             module_types = _dedup_types(
                 [
                     type(getattr(b, "module"))
@@ -115,30 +114,23 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             if not module_types:
                 module_types = (nn.Linear, nn.Conv2d)
             return CacheSpec(
+                target_view="declared",
                 trainable_module_types=module_types,
                 observed_module_types=module_types,
-                observed_module_names=observed_names,
-                declared_blocks_mode="only",
                 capture_inputs=True,
                 capture_outputs=True,
-                capture_all_calls=True,
-                capture_steps=True,
                 require_single_call=True,
                 require_single_output_head=True,
-                auto_pair_post_activation=False,
             )
 
         trainable_types = (nn.Linear, nn.Conv2d)
         return CacheSpec(
+            target_view="execution",
             trainable_module_types=trainable_types,
-            declared_blocks_mode="ignore",
             capture_inputs=True,
             capture_outputs=True,
-            capture_all_calls=True,
-            capture_steps=True,
             require_single_call=True,
             require_single_output_head=True,
-            auto_pair_post_activation=False,
         )
 
     @staticmethod
@@ -155,23 +147,33 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             out.append(
                 {
                     "name": str(item.get("name", "")),
-                    "module": module,
+                    "module": item.get("exec_module") if isinstance(item.get("exec_module"), nn.Module) else module,
+                    "source_module": module,
                     "rep": str(item.get("rep", "identity")),
                     "is_output": bool(item.get("is_output", False)),
                     "is_trainable": bool(item.get("is_trainable", False)),
+                    "exec_span_names": tuple(item.get("exec_span_names", ())),
                 }
             )
         return out
 
     def _ordered_training_blocks(self, views: Mapping[str, Any]) -> tuple[list[dict[str, Any]], int]:
-        declared_blocks = self._as_view_blocks(views.get("declared_blocks", []))
-        trainable_segments = self._as_view_blocks(views.get("trainable_segments", []))
-        execution_blocks = [
+        declared_blocks = [
             block
-            for block in self._as_view_blocks(views.get("execution_blocks", []))
+            for block in self._as_view_blocks(views.get("declared", []))
             if bool(block.get("is_trainable", False))
         ]
-        blocks = declared_blocks if declared_blocks else (trainable_segments if trainable_segments else execution_blocks)
+        paired_blocks = [
+            block
+            for block in self._as_view_blocks(views.get("paired_execution", []))
+            if bool(block.get("is_trainable", False))
+        ]
+        execution_blocks = [
+            block
+            for block in self._as_view_blocks(views.get("execution", []))
+            if bool(block.get("is_trainable", False))
+        ]
+        blocks = declared_blocks if declared_blocks else (paired_blocks if paired_blocks else execution_blocks)
         if not blocks:
             raise RuntimeError("SCL requires non-empty declared/trainable execution blocks in views.")
 
@@ -219,8 +221,11 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
                 if out:
                     return out
 
+        runtime = raw.get("_runtime", None) if isinstance(raw, Mapping) else None
         for seq_key in ("steps", "calls", "records"):
             seq = raw.get(seq_key, None)
+            if seq is None and isinstance(runtime, Mapping):
+                seq = runtime.get(seq_key, None)
             if not isinstance(seq, list):
                 continue
             for item in seq:
@@ -265,7 +270,7 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
             return out
 
         # finally inspect declared/execution blocks if they embed input tensors
-        for key in ("declared_blocks", "execution_blocks"):
+        for key in ("declared", "execution"):
             raw = views.get(key, None)
             if not isinstance(raw, list):
                 continue

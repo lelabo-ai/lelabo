@@ -102,7 +102,7 @@ class ResNet(nn.Module):
                 self._runtime_block_names.append(f"{stage_name}.{i}")
                 self._runtime_blocks.append(stage[i])
 
-    def get_blocks(self) -> list[BlockSpec]:
+    def declare_blocks(self) -> list[BlockSpec]:
         specs: list[BlockSpec] = []
         for name, block in zip(self._runtime_block_names, self._runtime_blocks):
             specs.append(

@@ -120,8 +120,11 @@ class LocalHeadRule(OptimizerUpdateRule):
             cache_spec=self.cache_spec,
         )
 
-        output_blocks = views.get("output_blocks", [])
-        output_block = output_blocks[0] if isinstance(output_blocks, list) and output_blocks else {}
+        execution_blocks = views.get("execution", [])
+        if not isinstance(execution_blocks, list):
+            execution_blocks = []
+        output_blocks = [block for block in execution_blocks if bool(block.get("is_output", False))]
+        output_block = output_blocks[0] if output_blocks else {}
         output_layer = output_block.get("module")
         x_out = output_block.get("x")
 

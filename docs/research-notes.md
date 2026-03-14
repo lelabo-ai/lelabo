@@ -45,7 +45,7 @@ In practice, this means:
 
 - using `nn.Module` activations is strongly preferred
 - `torch.nn.functional.*` activations are still usable for backprop, but reduce cache quality for local rules
-- `get_blocks()` is useful for models with natural high-level blocks, such as ResNets or Hugging Face models
+- `declare_blocks()` is useful for models with natural high-level blocks, such as ResNets or Hugging Face models
 
 ## Current limitations
 
@@ -69,11 +69,11 @@ Use LeLabo as a research workbench:
 selection
 
 quels modules/blocs on observe
-ex: trainable_module_types, observed_module_types, observed_module_names, block_source
+ex: trainable_module_types, observed_module_types, observed_module_names
 views
 
 quelles représentations dérivées on veut obtenir
-ex: include_local_blocks, include_model_blocks, auto_pair_post_activation
+ex: target_view=`declared|execution|paired_execution`
 contract
 
 quelles hypothèses la règle impose sur le cache

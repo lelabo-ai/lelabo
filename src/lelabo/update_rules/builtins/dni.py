@@ -189,7 +189,7 @@ class DNI(OptimizerUpdateRule):
                 self._sg_optimizer.load_state_dict(dict(raw_opt_state))
 
     def _linear_chain(self, views: Mapping[str, Any]) -> list[dict[str, Any]]:
-        execution_blocks = views.get("execution_blocks", [])
+        execution_blocks = views.get("execution", [])
         if not isinstance(execution_blocks, list):
             execution_blocks = []
         param_blocks = [b for b in execution_blocks if bool(b.get("is_trainable", False))]
