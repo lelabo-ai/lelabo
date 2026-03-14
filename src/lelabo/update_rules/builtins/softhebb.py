@@ -80,6 +80,25 @@ class SoftHebb(OptimizerUpdateRule):
             require_single_output_head=True,
         )
 
+    @staticmethod
+    def _resolve_rule_blocks(views: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
+        declared_blocks = views.get("declared", [])
+        if isinstance(declared_blocks, Sequence):
+            declared_hidden = [
+                block
+                for block in declared_blocks
+                if isinstance(block, Mapping)
+                and bool(block.get("is_trainable", False))
+                and not bool(block.get("is_output", False))
+            ]
+            if declared_hidden:
+                return declared_blocks
+
+        execution_blocks = views.get("execution", [])
+        if isinstance(execution_blocks, Sequence):
+            return execution_blocks
+        return []
+
     def _current_epoch(self, state: Any) -> int:
         if state is not None and hasattr(state, "epoch"):
             try:
@@ -321,7 +340,7 @@ class SoftHebb(OptimizerUpdateRule):
                 **x_kwargs,
             )
 
-        execution_blocks = views.get("execution", [])
+        execution_blocks = self._resolve_rule_blocks(views)
         hidden_blocks = [
             b for b in execution_blocks
             if bool(b.get("is_trainable", False)) and not bool(b.get("is_output", False))
@@ -369,12 +388,12 @@ class SoftHebb(OptimizerUpdateRule):
                 **x_kwargs,
             )
 
-        execution_blocks = views.get("execution", [])
+        execution_blocks = self._resolve_rule_blocks(views)
         output_blocks = [b for b in execution_blocks if isinstance(b, Mapping) and bool(b.get("is_output", False))]
         if len(output_blocks) != 1:
             raise RuntimeError(
                 "SoftHebb supervised phase requires exactly one output head "
-                f"in views['execution'], got {len(output_blocks)}."
+                f"in the selected cache view, got {len(output_blocks)}."
             )
         output_block = output_blocks[0]
         hidden_blocks = [

@@ -100,3 +100,48 @@ def test_softhebb_unsup_updates_hidden_then_sup_updates_head(monkeypatch: pytest
     assert "loss" in sup_stats
     assert any(name.startswith("head.") for name in changed_sup)
     assert not any(name.startswith("conv1.") for name in changed_sup)
+
+
+def test_softhebb_prefers_declared_blocks_for_deephebb(monkeypatch: pytest.MonkeyPatch) -> None:
+    torch = pytest.importorskip("torch")
+    _conv_mod, task_mod, state_mod, softhebb_mod = _load_modules(monkeypatch)
+    deep_mod = importlib.import_module("lelabo.models.builtins.deep_softhebb")
+
+    model = deep_mod.DeepSoftHebbClassifier(in_channels=3, num_classes=10)
+    task = task_mod.ClassificationTask(num_classes=10)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    rule = softhebb_mod.SoftHebb(
+        optimizer=optimizer,
+        head_optimizer=optimizer,
+        unsup_epochs=1,
+        conv_t_invert=12.0,
+    )
+
+    x = torch.randn(4, 3, 32, 32)
+    y = torch.randint(0, 10, (4,))
+
+    state = state_mod.TrainState(epoch=1)
+    before_unsup = _snapshot_params(model)
+    unsup_stats = rule.train_step(model, task, (x, y), device="cpu", state=state)
+    after_unsup = {name: p.detach() for name, p in model.named_parameters()}
+    changed_unsup = _changed(before_unsup, after_unsup)
+
+    assert isinstance(unsup_stats, dict)
+    assert float(unsup_stats.get("loss", 0.0)) == 0.0
+    assert any(name.startswith("block1.conv.weight") for name in changed_unsup)
+    assert any(name.startswith("block2.conv.weight") for name in changed_unsup)
+    assert any(name.startswith("block3.conv.weight") for name in changed_unsup)
+    assert not any(name.startswith("fc.") for name in changed_unsup)
+
+    state.epoch = 2
+    before_sup = {k: v.clone() for k, v in after_unsup.items()}
+    sup_stats = rule.train_step(model, task, (x, y), device="cpu", state=state)
+    after_sup = {name: p.detach() for name, p in model.named_parameters()}
+    changed_sup = _changed(before_sup, after_sup)
+
+    assert isinstance(sup_stats, dict)
+    assert "loss" in sup_stats
+    assert any(name.startswith("fc.") for name in changed_sup)
+    assert not any(name.startswith("block1.conv.weight") for name in changed_sup)
+    assert not any(name.startswith("block2.conv.weight") for name in changed_sup)
+    assert not any(name.startswith("block3.conv.weight") for name in changed_sup)
