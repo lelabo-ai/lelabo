@@ -25,6 +25,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"
 run_dir = ""
+save_checkpoints = false
 
 [rl]
 algo = "ppo"

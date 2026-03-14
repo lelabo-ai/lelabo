@@ -212,11 +212,18 @@ class Trainer:
     def _train_log_record(epoch_record: EpochRecord) -> dict[str, Any]:
         out: dict[str, Any] = {
             "t": "train",
+            "event": "epoch_end",
+            "split": "train",
             "epoch": int(epoch_record.epoch),
             "loss": float(epoch_record.train.loss),
+            "num_samples": int(epoch_record.train.num_samples),
+            "num_batches": int(epoch_record.train.num_batches),
+            "duration_sec": None if epoch_record.train.duration_sec is None else float(epoch_record.train.duration_sec),
         }
         if epoch_record.train.metric is not None:
             out["metric"] = float(epoch_record.train.metric)
+        if epoch_record.lr is not None:
+            out["lr"] = float(epoch_record.lr)
         out.update({str(k): float(v) for k, v in epoch_record.train.scalars.items()})
         return out
 
@@ -224,8 +231,12 @@ class Trainer:
     def _eval_log_record(split_summary: SplitSummary) -> dict[str, Any]:
         out: dict[str, Any] = {
             "t": "eval",
+            "event": "eval_end",
             "split": split_summary.split,
             "loss": float(split_summary.loss),
+            "num_samples": int(split_summary.num_samples),
+            "num_batches": int(split_summary.num_batches),
+            "duration_sec": None if split_summary.duration_sec is None else float(split_summary.duration_sec),
         }
         if split_summary.metric is not None:
             out["metric"] = float(split_summary.metric)
@@ -325,6 +336,7 @@ class Trainer:
         self.stop_reason = None
         state = TrainState(phase="fit", split="train")
         self.state = state
+        self._call_callback_hook(self.logger, "on_fit_start", self, state)
         try:
             train_batches_per_epoch = int(len(train_loader))
             if train_batches_per_epoch <= 0:
@@ -453,6 +465,7 @@ class Trainer:
                 epoch_record = self._with_monitor(epoch_record, early_stopping_cb)
                 state.last_epoch = epoch_record
                 self.log(self._train_log_record(epoch_record))
+                self._call_callback_hook(self.logger, "on_epoch_end", self, epoch_record, state)
                 history.append(epoch_record)
                 fit_reporter.on_epoch_end(epoch_record, state)
 
@@ -493,6 +506,7 @@ class Trainer:
             run_metrics=self._finalize_metrics(),
         )
 
+        self._call_callback_hook(self.logger, "on_fit_end", self, fit_result, state)
         fit_reporter.on_run_end(fit_result, state)
         state.phase = "idle"
         state.split = None
@@ -536,7 +550,10 @@ class Trainer:
             extra_scalars=self._compute_metrics(split_name),
         )
         state.last_eval = summary
-        self.log(self._eval_log_record(summary))
+        eval_record = self._eval_log_record(summary)
+        if int(getattr(state, "epoch", 0) or 0) > 0:
+            eval_record["epoch"] = int(state.epoch)
+        self.log(eval_record)
 
         if invoke_callbacks:
             for cb in self.callbacks:

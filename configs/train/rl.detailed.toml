@@ -27,6 +27,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"  # one of: none, compact, rich
 # run_dir = "outputs/runs/rl_demo"
+# save_checkpoints = true
 
 [rl]
 algo = "ppo"

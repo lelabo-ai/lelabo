@@ -41,6 +41,15 @@ lelabo train supervised --config configs/train.supervised.quickstart.toml
 lelabo train supervised --config configs/train.supervised.paper_pack.toml
 ```
 
+If a config sets `runtime.run_dir`, LeLabo writes:
+
+- `meta.json`
+- `resolved_config.yaml`
+- `seeds.json`
+- `metrics.jsonl`
+- `summary.json`
+- optional `checkpoints/` when `runtime.save_checkpoints = true`
+
 If you are using a coding agent, read `../AGENTS.md` first. It explains which
 folder to edit and where to find the precise local references.
 

@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 import torch
 from ..core.logger import RunLogger
+from ..core.run_artifacts import public_args_dict
 from ..core.seed import derive_seed
 from ..core.trainer import Trainer
 from .robustness import test_with_noise
@@ -220,7 +221,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         metrics=metrics,
     )
 
-    summary: Dict[str, Any] = {"args": vars(args)}
+    summary: Dict[str, Any] = {"args": public_args_dict(args)}
 
     # train (pass val_loader!)
     train_result = trainer.fit(

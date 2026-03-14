@@ -126,11 +126,11 @@ def _collect_single_run(source: Path, stage: Path, artifacts: dict[str, Any]) ->
         if _copy_if_exists(src, dst):
             copied.append(dst.relative_to(stage).as_posix())
 
-    # Checkpoints and figures if present
-    for dname in ("checkpoints", "ckpts", "figures"):
+    # Checkpoints if present. Accept legacy `ckpts/`, but normalize to `checkpoints/`.
+    for dname in ("checkpoints", "ckpts"):
         dsrc = source / dname
         if dsrc.exists() and dsrc.is_dir():
-            ddst = art_dir / dname
+            ddst = art_dir / "checkpoints"
             shutil.copytree(dsrc, ddst, dirs_exist_ok=True)
             copied.append(ddst.relative_to(stage).as_posix())
 
@@ -193,8 +193,13 @@ def _collect_sweep(source: Path, stage: Path, artifacts: dict[str, Any]) -> list
 
         out = runs_dst / child.name
         out.mkdir(parents=True, exist_ok=True)
-        for name in ("meta.json", "summary.json", "metrics.jsonl"):
+        for name in ("meta.json", "summary.json", "metrics.jsonl", "resolved_config.yaml", "seeds.json"):
             _copy_if_exists(child / name, out / name)
+
+        for dname in ("checkpoints", "ckpts"):
+            dsrc = child / dname
+            if dsrc.exists() and dsrc.is_dir():
+                shutil.copytree(dsrc, out / "checkpoints", dirs_exist_ok=True)
 
         meta = _safe_read_json(child / "meta.json")
         cmd = _entrypoint_from_meta(meta)

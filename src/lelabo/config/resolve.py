@@ -268,6 +268,7 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
         ("determinism", ["runtime", "determinism"]),
         ("display", ["runtime", "display"]),
         ("run_dir", ["runtime", "run_dir"]),
+        ("save_checkpoints", ["runtime", "save_checkpoints"]),
     ]
     if mode == "supervised":
         aliases.extend(
@@ -431,6 +432,7 @@ def resolve_supervised_config(
         determinism=str(runtime_raw.get("determinism", "relaxed")),
         display=_display_from_runtime(runtime_raw),
         run_dir=runtime_raw.get("run_dir"),
+        save_checkpoints=bool(runtime_raw.get("save_checkpoints", False)),
     )
 
     train_raw = _as_dict(merged.get("train", {}), where="train")
@@ -513,6 +515,7 @@ def resolve_rl_config(
         determinism=str(runtime_raw.get("determinism", "relaxed")),
         display=_display_from_runtime(runtime_raw),
         run_dir=runtime_raw.get("run_dir"),
+        save_checkpoints=bool(runtime_raw.get("save_checkpoints", False)),
     )
 
     rl_raw = _as_dict(merged.get("rl", {}), where="rl")
@@ -603,6 +606,7 @@ def to_supervised_namespace(
         "optimizer": cfg.optimizer.name,
         "weight_decay": float(optimizer_params.get("weight_decay", 0.01)),
         "run_dir": cfg.runtime.run_dir,
+        "save_checkpoints": bool(cfg.runtime.save_checkpoints),
         "model_params": model_params,
         "initializer_params": initializer_params,
         "loss_params": loss_params,
@@ -650,6 +654,7 @@ def to_rl_namespace(
         "display": str(cfg.runtime.display).lower(),
         "optimizer": cfg.optimizer.name,
         "run_dir": cfg.runtime.run_dir,
+        "save_checkpoints": bool(cfg.runtime.save_checkpoints),
         "model": cfg.model.name,
         "model_params": model_params,
         "update_rule_params": update_rule_params,

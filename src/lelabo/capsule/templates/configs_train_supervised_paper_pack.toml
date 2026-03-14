@@ -40,6 +40,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"
 run_dir = "runs/paper_pack_demo"
+save_checkpoints = false
 
 [train]
 epochs = 10

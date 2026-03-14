@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import sys
 import warnings
 from pathlib import Path
@@ -15,6 +16,7 @@ from ...config.resolve import (
     to_supervised_namespace,
 )
 from ...core.logger import RunLogger
+from ...core.run_artifacts import json_like, public_args_dict
 from ...core.seed import seed_everything
 from ...initializers import get_initializer_names
 from ...losses import get_loss_names
@@ -104,8 +106,22 @@ def _add_runtime_override_args(parser: argparse.ArgumentParser) -> None:
         "--run-dir",
         type=str,
         default=None,
-        help="Writes metrics.jsonl + meta.json + summary.json.",
+        help="Writes meta.json + resolved_config.yaml + seeds.json + metrics.jsonl + summary.json.",
     )
+    parser.add_argument(
+        "--save-checkpoints",
+        action="store_true",
+        default=None,
+        help="Opt in to writing checkpoints/last.pt and checkpoints/best.pt inside run_dir.",
+    )
+
+
+def _resolved_config_dict(cfg: Any, *, resolved_device: str) -> dict[str, Any]:
+    raw = json_like(asdict(cfg))
+    runtime = raw.get("runtime", {})
+    if isinstance(runtime, dict):
+        runtime["device"] = str(resolved_device)
+    return raw
 
 
 def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
@@ -196,6 +212,8 @@ def _build_supervised_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any
         _set_nested(out, ["runtime", "display"], parsed.display)
     if parsed.run_dir is not None:
         _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
+    if parsed.save_checkpoints is not None:
+        _set_nested(out, ["runtime", "save_checkpoints"], bool(parsed.save_checkpoints))
     return out
 
 
@@ -229,6 +247,8 @@ def _build_rl_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
         _set_nested(out, ["runtime", "display"], parsed.display)
     if parsed.run_dir is not None:
         _set_nested(out, ["runtime", "run_dir"], parsed.run_dir)
+    if parsed.save_checkpoints is not None:
+        _set_nested(out, ["runtime", "save_checkpoints"], bool(parsed.save_checkpoints))
     return out
 
 
@@ -281,7 +301,9 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             cli_overrides=_build_supervised_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
         )
-        return _validate_supervised_namespace(to_supervised_namespace(cfg, device_resolver=_default_device))
+        args = _validate_supervised_namespace(to_supervised_namespace(cfg, device_resolver=_default_device))
+        setattr(args, "_resolved_config", _resolved_config_dict(cfg, resolved_device=str(args.device)))
+        return args
     if parsed.mode == "rl":
         config_path = _resolve_mode_config_path("rl", parsed.config)
         cfg = resolve_rl_config(
@@ -289,7 +311,9 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             cli_overrides=_build_rl_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
         )
-        return _validate_rl_namespace(to_rl_namespace(cfg, device_resolver=_default_device))
+        args = _validate_rl_namespace(to_rl_namespace(cfg, device_resolver=_default_device))
+        setattr(args, "_resolved_config", _resolved_config_dict(cfg, resolved_device=str(args.device)))
+        return args
     raise ValueError(f"Unknown train mode '{parsed.mode}'.")
 
 
@@ -312,35 +336,52 @@ def _normalize_train_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
-    seed_state = seed_everything(args.seed, mode=args.determinism)
-
     run_dir = Path(args.run_dir) if args.run_dir else None
-    logger = RunLogger(run_dir=run_dir)
-    logger.write_meta(vars(args))
-    logger.log(
-        {
-            "t": "seed",
-            "seed": int(seed_state.seed),
-            "determinism": str(seed_state.mode),
-            "deterministic_algorithms": bool(seed_state.deterministic_algorithms),
-        }
-    )
+    save_checkpoints = bool(getattr(args, "save_checkpoints", False))
+    if save_checkpoints and run_dir is None:
+        raise ValueError("runtime.save_checkpoints requires runtime.run_dir (or --run-dir).")
 
+    logger = RunLogger(run_dir=run_dir, save_checkpoints=save_checkpoints)
+    public_args = public_args_dict(args)
     task = str(getattr(args, "task", "")).strip().lower()
-    if task == "rl":
-        from ...rl.runner import run_rl
+    logger.write_meta(public_args, task=task)
+    logger.write_resolved_config(getattr(args, "_resolved_config", public_args))
 
-        rl_summary = run_rl(args, logger)
-        summary = {"args": vars(args), "rl": {"algo": args.rl_algo, **rl_summary}}
-        logger.write_summary(summary)
-        return summary
+    try:
+        seed_state = seed_everything(args.seed, mode=args.determinism)
+        logger.write_seeds(seed_state)
+        logger.log(
+            {
+                "t": "seed",
+                "event": "seed",
+                "seed": int(seed_state.seed),
+                "determinism": str(seed_state.mode),
+                "deterministic_algorithms": bool(seed_state.deterministic_algorithms),
+            }
+        )
 
-    if task == "supervised":
-        from ...supervised.runner import run_supervised
+        if task == "rl":
+            from ...rl.runner import run_rl
 
-        summary = run_supervised(args, logger)
-        logger.write_summary(summary)
-        return summary
+            rl_summary = run_rl(args, logger)
+            summary = {"args": public_args, "rl": {"algo": args.rl_algo, **rl_summary}}
+            logger.write_summary(summary, status="succeeded")
+            logger.finalize_meta("succeeded")
+            return summary
+
+        if task == "supervised":
+            from ...supervised.runner import run_supervised
+
+            summary = run_supervised(args, logger)
+            logger.write_summary(summary, status="succeeded")
+            logger.finalize_meta("succeeded")
+            return summary
+    except KeyboardInterrupt:
+        logger.finalize_meta("interrupted")
+        raise
+    except Exception as exc:
+        logger.finalize_meta("failed", error=str(exc))
+        raise
 
     raise ValueError(f"Unknown task '{task}'.")
 

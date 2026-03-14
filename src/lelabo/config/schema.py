@@ -40,6 +40,7 @@ class RuntimeSpec:
     determinism: str = "relaxed"
     display: str = "compact"
     run_dir: str | None = None
+    save_checkpoints: bool = False
 
 
 @dataclass(frozen=True)

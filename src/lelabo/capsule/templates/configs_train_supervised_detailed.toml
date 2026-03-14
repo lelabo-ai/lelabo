@@ -48,6 +48,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"  # one of: none, compact, rich
 run_dir = "runs/supervised_demo"
+save_checkpoints = false
 
 [train]
 epochs = 20

@@ -91,6 +91,22 @@ Reference setup:
 
 This path shows the non-BP side of LeLabo without making it the first onboarding step.
 
+## Run artifacts
+
+If you set `runtime.run_dir` or pass `--run-dir`, a supervised run writes:
+
+- `meta.json`
+- `resolved_config.yaml`
+- `seeds.json`
+- `metrics.jsonl`
+- `summary.json`
+
+Checkpointing is optional and disabled by default:
+
+- enable it with `runtime.save_checkpoints = true` or `--save-checkpoints`
+- LeLabo then writes `checkpoints/last.pt`
+- if a best monitored state is available, it also writes `checkpoints/best.pt`
+
 ## What is official vs secondary
 
 Official in this phase:

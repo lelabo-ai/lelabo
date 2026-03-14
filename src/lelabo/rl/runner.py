@@ -190,7 +190,20 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
         algo = DQN(q_net=qnet, learner=learner, cfg=cfg)
         algo.setup(obs_dim=obs_dim, n_actions=n_actions)
         runner = RLRunner(train_env=env, algo=algo, device=device, logger=logger, show_logs=show_logs)
-        return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+        result = runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+        if bool(getattr(args, "save_checkpoints", False)):
+            logger.write_checkpoint(
+                "last",
+                logger.build_checkpoint_payload(
+                    task="rl",
+                    model=qnet,
+                    learner=learner,
+                    optimizer=optimizer,
+                    epoch=int(result.get("total_steps", 0)),
+                    meta={"kind": "last", "rl_algo": args.rl_algo},
+                ),
+            )
+        return result
 
     if args.rl_algo == "ppo":
         cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
@@ -224,7 +237,20 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
         learner = build_update_rule(args.algo, ctx)
         algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
         runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, show_logs=show_logs)
-        return runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+        result = runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
+        if bool(getattr(args, "save_checkpoints", False)):
+            logger.write_checkpoint(
+                "last",
+                logger.build_checkpoint_payload(
+                    task="rl",
+                    model=model,
+                    learner=learner,
+                    optimizer=optimizer,
+                    epoch=int(result.get("total_steps", 0)),
+                    meta={"kind": "last", "rl_algo": args.rl_algo},
+                ),
+            )
+        return result
 
     raise ValueError(f"Unknown rl algo: {args.rl_algo}")
 

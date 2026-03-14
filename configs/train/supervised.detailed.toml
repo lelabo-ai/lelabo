@@ -54,6 +54,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"
 # run_dir = "outputs/runs/cifar10_bp"
+# save_checkpoints = true
 
 [train]
 epochs = 20

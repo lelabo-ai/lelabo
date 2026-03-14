@@ -43,6 +43,7 @@ seed = 2
 determinism = "relaxed"
 display = "compact"
 run_dir = ""
+save_checkpoints = false
 
 [train]
 epochs = 50

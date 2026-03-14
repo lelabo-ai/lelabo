@@ -80,6 +80,15 @@ lelabo create capsule my_capsule
 cd my_capsule
 ```
 
+If you set `runtime.run_dir` or pass `--run-dir`, LeLabo writes:
+
+- `meta.json`
+- `resolved_config.yaml`
+- `seeds.json`
+- `metrics.jsonl`
+- `summary.json`
+- optional `checkpoints/` when `runtime.save_checkpoints = true`
+
 ## Documentation
 
 - [Home](docs/index.md)

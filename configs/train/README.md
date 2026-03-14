@@ -78,6 +78,22 @@ lelabo train supervised --config configs/train/supervised.glue.toml
 lelabo train supervised --config configs/train/supervised.local_rule.toml
 ```
 
+## Run artifacts
+
+When `runtime.run_dir` is set, LeLabo writes:
+
+- `meta.json`
+- `resolved_config.yaml`
+- `seeds.json`
+- `metrics.jsonl`
+- `summary.json`
+
+Checkpointing is opt-in and disabled by default:
+
+- set `runtime.save_checkpoints = true`
+- or pass `--save-checkpoints`
+- checkpoints are written under `checkpoints/`
+
 ## Official examples vs local variants
 
 Official examples:
