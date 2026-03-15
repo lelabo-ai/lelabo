@@ -61,7 +61,7 @@ def build_persisted_summary(
         "task": args.get("task"),
         "dataset": args.get("dataset"),
         "model": args.get("model"),
-        "algo": args.get("algo"),
+        "rule": args.get("rule"),
     }
 
     if isinstance(summary.get("train"), Mapping):
@@ -92,7 +92,7 @@ def build_persisted_summary(
             "run": {
                 **run_block,
                 "env": args.get("env"),
-                "rl_algo": args.get("rl_algo"),
+                "algo": args.get("algo"),
             },
             "rl": json_like(summary["rl"]),
             "artifacts": artifacts,

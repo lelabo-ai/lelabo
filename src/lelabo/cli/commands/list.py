@@ -3,19 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
-from ...capsule.registry import get_capsule
 from ...capsule.plugins.discovery import find_active_capsule_root
-from ...initializers.registry import get_initializer_names
-from ...metrics.registry import get_metric_names
-from ...losses.registry import get_loss_names
-from ...models.registry import get_model_names
-from ...optimizers.registry import get_optimizer_names
-from ...schedulers.registry import get_scheduler_names
-from ...callbacks.registry import get_callback_names
-from ...supervised.datasets.registry import get_dataset_names
-from ...update_rules.registry import get_update_rule_names
+from ...capsule.registry import get_capsule
+from ...callbacks.registry import _callback_snapshot
+from ...initializers.registry import _initializer_snapshot
+from ...metrics.registry import _metric_snapshot
+from ...losses.registry import _loss_snapshot
+from ...models.registry import _model_snapshot
+from ...optimizers.registry import _optimizer_snapshot
+from ...schedulers.registry import _scheduler_snapshot
+from ...supervised.datasets.registry import _dataset_snapshot
+from ...update_rules.registry import _update_rule_snapshot
 
 
 LIST_HELP = """\
@@ -44,8 +44,9 @@ Examples:
   lelabo list models --capsule my_capsule_alias
 
 Notes:
-  - `lelabo list` automatically includes built-ins + installed capsules.
-  - Use `--capsule` to additionally include local/uninstalled capsules.
+  - `lelabo list` includes built-ins plus the active capsule in the current working tree.
+  - Stored capsules do not affect registries until checkout or explicit `--capsule ...`.
+  - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
 
 
@@ -76,83 +77,28 @@ _TARGET_ALIASES = {
     "callbacks": "callbacks",
 }
 
+_REGISTRY_SPECS: dict[str, Any] = {
+    "update_rules": _update_rule_snapshot,
+    "datasets": _dataset_snapshot,
+    "models": _model_snapshot,
+    "initializers": _initializer_snapshot,
+    "optimizers": _optimizer_snapshot,
+    "losses": _loss_snapshot,
+    "metrics": _metric_snapshot,
+    "schedulers": _scheduler_snapshot,
+    "callbacks": _callback_snapshot,
+}
+
 
 def _normalized_target(raw: str) -> str:
     key = str(raw).strip().lower()
     target = _TARGET_ALIASES.get(key)
     if target is None:
         raise ValueError(
-            f"Unknown list target '{raw}'. Use one of: all, update-rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks."
+            "Unknown list target "
+            f"'{raw}'. Use one of: all, update-rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks."
         )
     return target
-
-
-def _collect(
-    target: str,
-    *,
-    capsules_dir: Path | None,
-    explicit_capsule_roots: Sequence[Path] | None = None,
-) -> dict[str, object]:
-    extra_roots = list(explicit_capsule_roots or [])
-    if target == "all":
-        return {
-            "update_rules": sorted(
-                get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            ),
-            "datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-            "models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-            "initializers": sorted(
-                get_initializer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            ),
-            "optimizers": sorted(get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-            "losses": sorted(get_loss_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-            "metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)),
-            "schedulers": sorted(
-                get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            ),
-            "callbacks": sorted(
-                get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            ),
-        }
-    if target == "update_rules":
-        return {
-            "update_rules": sorted(
-                get_update_rule_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            )
-        }
-    if target == "datasets":
-        return {"datasets": sorted(get_dataset_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
-    if target == "models":
-        return {"models": sorted(get_model_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
-    if target == "initializers":
-        return {
-            "initializers": sorted(
-                get_initializer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            )
-        }
-    if target == "optimizers":
-        return {
-            "optimizers": sorted(
-                get_optimizer_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            )
-        }
-    if target == "losses":
-        return {"losses": sorted(get_loss_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
-    if target == "metrics":
-        return {"metrics": sorted(get_metric_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots))}
-    if target == "schedulers":
-        return {
-            "schedulers": sorted(
-                get_scheduler_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            )
-        }
-    if target == "callbacks":
-        return {
-            "callbacks": sorted(
-                get_callback_names(capsules_dir=capsules_dir, extra_capsule_roots=extra_roots)
-            )
-        }
-    raise ValueError(f"Unknown list target '{target}'.")
 
 
 def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:
@@ -168,7 +114,7 @@ def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:
 
     row = get_capsule(ref, capsules_dir)
     if row is None:
-        raise ValueError(f"Unknown capsule '{ref}' (not found as path nor installed id/alias).")
+        raise ValueError(f"Unknown capsule '{ref}' (not found as path nor stored id/alias).")
     root = Path(str(row.get("path", ""))).resolve()
     if not root.exists():
         raise ValueError(f"Capsule path does not exist on disk: {root}")
@@ -180,16 +126,34 @@ def _resolve_explicit_capsule_roots(
     *,
     capsules_dir: Path | None,
 ) -> list[Path]:
-    if not refs:
-        return []
-    out: list[Path] = []
-    for ref in refs:
-        root = _resolve_capsule_root(ref, capsules_dir)
-        out.append(root)
-    return out
+    return [_resolve_capsule_root(ref, capsules_dir) for ref in refs]
 
 
-def _print_text(rows: dict[str, list[str]]) -> None:
+def _snapshot_rows(
+    target: str,
+    *,
+    capsules_dir: Path | None,
+    explicit_capsule_roots: Sequence[Path] | None = None,
+) -> dict[str, dict[str, list[str]]]:
+    extra_roots = list(explicit_capsule_roots or [])
+
+    def _grouped_row(name: str) -> dict[str, list[str]]:
+        snapshot_builder = _REGISTRY_SPECS[name]
+        snapshot = snapshot_builder(
+            capsules_dir=capsules_dir,
+            extra_capsule_roots=extra_roots,
+        )
+        return {
+            "builtins": sorted(snapshot.builtins.keys()),
+            "capsule": sorted(snapshot.capsule_exports.keys()),
+        }
+
+    if target == "all":
+        return {name: _grouped_row(name) for name in _REGISTRY_SPECS}
+    return {target: _grouped_row(target)}
+
+
+def _print_grouped_text(rows: dict[str, dict[str, list[str]]]) -> None:
     order = (
         "update_rules",
         "datasets",
@@ -201,19 +165,23 @@ def _print_text(rows: dict[str, list[str]]) -> None:
         "schedulers",
         "callbacks",
     )
-    first = True
+    first_section = True
     for key in order:
         if key not in rows:
             continue
-        values = rows[key]
-        if not first:
+        if not first_section:
             print("")
-        first = False
-        print(f"{key} ({len(values)})")
-        for item in values:
-            print(f"- {item}")
-        if not values:
-            print("- (none)")
+        first_section = False
+        print(f"{key}:")
+        grouped = rows[key]
+        for source in ("builtins", "capsule"):
+            print(f"{source}:")
+            values = list(grouped.get(source, []) or [])
+            if values:
+                for item in values:
+                    print(f"- {item}")
+            else:
+                print("- (none)")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -230,7 +198,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="PATH_OR_ID",
-        help="Load plugins from a capsule path or an installed capsule id/alias (repeatable)",
+        help="Load plugins from a capsule path or a stored capsule id/alias (repeatable)",
     )
     parser.add_argument(
         "--capsules-dir",
@@ -261,11 +229,11 @@ def main(argv: Sequence[str]) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc))
 
-    rows = _collect(target, capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
+    rows = _snapshot_rows(target, capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
     if bool(parsed.json):
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
-        _print_text(rows)
+        _print_grouped_text(rows)
     return 0
 
 

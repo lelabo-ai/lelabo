@@ -1,60 +1,99 @@
-# <capsule_name>
+# Configs
 
-   This capsule is a local LeLabo scaffold for implementing a paper, method, or
-   custom extension.
-   
-   Use this README as a short entry point. Once the capsule becomes a real project,
-   rewrite this file so it documents your own method, configs, assumptions, and
-   results.
-   
-   ## Quick start
-   
-   First path to a working implementation:
-   
-   1. Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`
-   2. Run `lelabo list optimizers`
-   3. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`
-   4. Run `pytest -q tests`
-   
-   ## How to navigate this capsule
-   
-   - `AGENTS.md`
-     Main local guide for Codex/Claude and task routing
-   
-   - `resources/EXTENSION_RECIPES.md`
-     Short procedural guide for adding a model, update rule, dataset, optimizer, or paper pack
-   
-   - `resources/LELABO_REFERENCE.md`
-     Exact builder signatures, contexts, and public contracts
-   
-   - `resources/PARAM_FLOW.md`
-     Where config params arrive at runtime
-   
-   - `resources/MODEL_CACHE_ADVANCED.md`
-     Only if your extension needs intermediate activations, block semantics, or local-rule cache support
-   
-   - `resources/UPDATE_RULE_LIFECYCLE.md`
-     Runtime contract for custom update rules
-   
-   - `resources/PAPER_PACK_PLAYBOOK.md`
-     How to structure a multi-component paper implementation cleanly
-   
-   ## Human docs
-   
-   For the longer human-oriented LeLabo documentation, see:
-   
-   `https://adrienkegreisz.github.io/lelabo-docs`
-   
-   ## When to rewrite this README
-   
-   Rewrite this file once the capsule becomes your real project README.
-   
-   At that point, this file should describe:
-   
-   - what your paper or method does
-   - which components in the capsule are custom
-   - which configs are the main entry points
-   - how to validate the implementation
-   - important assumptions or runtime limits
-   - expected results or current status
-   
+This folder contains the capsule entry points you are expected to run first.
+
+If you are onboarding fast, use them in this order:
+
+1. `configs/train.supervised.quickstart.toml`
+   `iris + mlp + bp`
+2. `configs/train.supervised.capsule_optimizer.toml`
+   `mnist + cnn + bp + capsule_sgd`
+3. `configs/train.supervised.detailed.toml`
+   richer supervised baseline
+4. `configs/train.supervised.paper_pack.toml`
+   `example_mlp + local_head + bp-shaped runtime`
+5. `configs/train.rl.detailed.toml`
+   RL example config
+
+For the capsule extension path, the official first run is:
+
+```bash
+lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+```
+
+Before that, uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`.
+
+Useful validation commands:
+
+```bash
+pytest -q tests
+```
+
+```bash
+lelabo list optimizers
+```
+
+```bash
+lelabo train supervised --config configs/train.supervised.quickstart.toml
+```
+
+```bash
+lelabo train supervised --config configs/train.supervised.paper_pack.toml
+```
+
+If a config sets `runtime.run_dir`, LeLabo writes:
+
+- `meta.json`
+- `resolved_config.yaml`
+- `seeds.json`
+- `metrics.jsonl`
+- `summary.json`
+- optional `checkpoints/` when `runtime.save_checkpoints = true`
+
+If you are using a coding agent, read `../AGENTS.md` first. It explains which
+folder to edit and where to find the precise local references.
+
+Local references:
+
+- `../resources/EXTENSION_RECIPES.md`
+- `../resources/LELABO_REFERENCE.md`
+- `../resources/PARAM_FLOW.md`
+- `../resources/MODEL_CACHE_ADVANCED.md`
+- `../resources/UPDATE_RULE_LIFECYCLE.md`
+- `../resources/PAPER_PACK_PLAYBOOK.md`
+
+## Config style
+
+LeLabo configs use `name + params` blocks for extensible components:
+
+- `dataset`
+- `model`
+- `initializer`
+- `loss`
+- `update_rule`
+- `optimizer`
+- `scheduler`
+- `callbacks`
+- `metrics`
+
+Layered config resolution still applies:
+
+1. library defaults
+2. config file
+3. scalar CLI overrides
+4. nested `--set key=value` overrides
+
+## Extension starters in this capsule
+
+- `models/example.py`
+- `update_rules/example.py`
+- `datasets/example.py`
+- `metrics/example.py`
+- `initializers/example.py`
+- `losses/example.py`
+- `optimizers/example.py`
+- `schedulers/example.py`
+- `callbacks/example.py`
+
+For advanced model cache patterns, see `models/cache_walkthrough.py`.
+For end-to-end extension procedures, start with `../resources/EXTENSION_RECIPES.md`.

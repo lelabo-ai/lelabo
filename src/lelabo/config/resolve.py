@@ -273,7 +273,7 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
     if mode == "supervised":
         aliases.extend(
             [
-                ("algo", ["update_rule", "name"]),
+                ("rule", ["update_rule", "name"]),
                 ("dataset", ["dataset", "name"]),
                 ("initializer", ["initializer", "name"]),
                 ("epochs", ["train", "epochs"]),
@@ -296,9 +296,9 @@ def _apply_aliases(data: dict[str, Any], *, mode: str) -> None:
     if mode == "rl":
         aliases.extend(
             [
-                ("algo", ["update_rule", "name"]),
+                ("rule", ["update_rule", "name"]),
                 ("env", ["env"]),
-                ("rl_algo", ["rl", "algo"]),
+                ("algo", ["rl", "algo"]),
                 ("rl_steps", ["rl", "steps"]),
                 ("rl_eval_episodes", ["rl", "eval_episodes"]),
             ]
@@ -577,7 +577,7 @@ def to_supervised_namespace(
         "model": cfg.model.name,
         "initializer": cfg.initializer.name,
         "loss": cfg.loss.name,
-        "algo": cfg.update_rule.name,
+        "rule": cfg.update_rule.name,
         "metrics": ",".join(metric_names),
         "metric_params": metric_params,
         "epochs": int(cfg.train.epochs),
@@ -640,8 +640,8 @@ def to_rl_namespace(
         "task": "rl",
         "env": cfg.env,
         "dataset": f"env:{cfg.env}",
-        "algo": cfg.update_rule.name,
-        "rl_algo": cfg.rl.algo,
+        "rule": cfg.update_rule.name,
+        "algo": cfg.rl.algo,
         "rl_steps": int(cfg.rl.steps),
         "rl_eval_episodes": int(cfg.rl.eval_episodes),
         "hidden": int(model_params.get("hidden", 2048)),

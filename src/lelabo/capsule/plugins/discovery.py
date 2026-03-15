@@ -496,13 +496,13 @@ def get_capsule_plugin_exports(
     capsules_dir: Path | None = None,
     extra_capsule_roots: Sequence[Path] | None = None,
 ) -> list[CapsulePluginExport]:
+    _ = capsules_dir
     normalized_kinds = tuple(str(kind).strip() for kind in kinds if str(kind).strip())
     for kind in normalized_kinds:
         if kind not in _SUPPORTED_KINDS:
             raise ValueError(f"Unsupported capsule plugin kind '{kind}'. Supported: {_SUPPORTED_KINDS}")
 
     exports_by_name: dict[tuple[str, str], CapsulePluginExport] = {}
-    seen_roots = {str(root) for root in _active_and_explicit_roots(extra_capsule_roots)}
     for root in _active_and_explicit_roots(extra_capsule_roots):
         index = ensure_capsule_plugin_index(root)
         for export in index.exports:
@@ -516,31 +516,6 @@ def get_capsule_plugin_exports(
                     f"from '{existing.capsule_root}' and '{export.capsule_root}'."
                 )
             exports_by_name[key] = export
-
-    failures: list[tuple[Path, str]] = []
-    for root in _installed_capsule_roots(capsules_dir):
-        if str(root) in seen_roots:
-            continue
-        try:
-            index = ensure_capsule_plugin_index(root)
-        except Exception as exc:
-            failures.append((root, str(exc)))
-            continue
-        for export in index.exports:
-            if export.kind not in normalized_kinds:
-                continue
-            key = (str(export.kind), str(export.name).lower())
-            if key in exports_by_name:
-                existing = exports_by_name[key]
-                raise RuntimeError(
-                    f"Duplicate capsule plugin '{export.name}' for kind '{export.kind}' "
-                    f"from '{existing.capsule_root}' and '{export.capsule_root}'."
-                )
-            exports_by_name[key] = export
-
-    if failures:
-        rendered = "; ".join(f"{path}: {msg}" for path, msg in failures)
-        raise RuntimeError(f"Failed to load installed capsule plugins: {rendered}")
 
     return sorted(
         exports_by_name.values(),

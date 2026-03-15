@@ -6,8 +6,8 @@ from .registry import list_capsules, get_capsule, default_capsules_dir
 from .rerun import rerun_capsule
 from .create import create_capsule_scaffold
 from .remove import remove_capsule
-from .restore import restore_capsule
-from .store import store_capsule
+from .restore import checkout_capsule
+from .store import stash_capsule
 
 __all__ = [
     "CAPSULE_SCHEMA_VERSION",
@@ -21,6 +21,6 @@ __all__ = [
     "rerun_capsule",
     "create_capsule_scaffold",
     "remove_capsule",
-    "store_capsule",
-    "restore_capsule",
+    "stash_capsule",
+    "checkout_capsule",
 ]

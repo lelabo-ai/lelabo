@@ -201,7 +201,7 @@ def test_bp_tabular_golden_path_uses_official_quickstart_config(tmp_path, monkey
 
     assert summary["args"]["dataset"] == "iris"
     assert summary["args"]["model"] == "mlp"
-    assert summary["args"]["algo"] == "bp"
+    assert summary["args"]["rule"] == "bp"
     assert summary["train"]["final_epoch"]["train"]["num_batches"] > 0
     assert "test" in summary["eval"]
 
@@ -232,7 +232,7 @@ def test_capsule_optimizer_golden_path_creates_lists_and_trains(
         rc = list_cli.main(["optimizers", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_sgd" in payload["optimizers"]
+        assert "capsule_sgd" in payload["optimizers"]["capsule"]
 
         summary = _run_supervised_config(
             tmp_path,
@@ -244,7 +244,7 @@ def test_capsule_optimizer_golden_path_creates_lists_and_trains(
     assert summary["args"]["dataset"] == "mnist"
     assert summary["args"]["model"] == "cnn"
     assert summary["args"]["optimizer"] == "capsule_sgd"
-    assert summary["args"]["algo"] == "bp"
+    assert summary["args"]["rule"] == "bp"
     assert "test" in summary["eval"]
 
 
@@ -255,7 +255,7 @@ def test_bp_vision_golden_path_uses_official_cifar10_config(tmp_path, monkeypatc
 
     assert summary["args"]["dataset"] == "cifar10"
     assert summary["args"]["model"] == "cnn"
-    assert summary["args"]["algo"] == "bp"
+    assert summary["args"]["rule"] == "bp"
     assert "test" in summary["eval"]
 
 
@@ -270,7 +270,7 @@ def test_bp_hf_classification_golden_path_uses_official_glue_config(
 
     assert summary["args"]["dataset"] == "glue"
     assert summary["args"]["model"] == "bert"
-    assert summary["args"]["algo"] == "bp"
+    assert summary["args"]["rule"] == "bp"
     assert "validation" in summary["eval"]
     assert "acc" in summary["eval"]["validation"]["scalars"]
 
@@ -307,12 +307,12 @@ def test_local_rule_golden_path_uses_official_dfa_mnist_mlp_config(
 
     assert summary["args"]["dataset"] == "mnist"
     assert summary["args"]["model"] == "mlp"
-    assert summary["args"]["algo"] == "dfa"
+    assert summary["args"]["rule"] == "dfa"
     assert "test" in summary["eval"]
 
 
 @pytest.mark.parametrize(
-    ("algo", "model"),
+    ("rule", "model"),
     [
         ("softhebb", "cnn"),
         ("fa", "mlp"),
@@ -323,7 +323,7 @@ def test_local_rule_golden_path_uses_official_dfa_mnist_mlp_config(
 def test_secondary_local_rule_paths_have_end_to_end_smoke_coverage(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
-    algo: str,
+    rule: str,
     model: str,
 ) -> None:
     _patch_supervised_datasets(monkeypatch)
@@ -331,12 +331,12 @@ def test_secondary_local_rule_paths_have_end_to_end_smoke_coverage(
     summary = _run_supervised_config(
         tmp_path,
         REPO_ROOT / "configs" / "train" / "supervised.local_rule.toml",
-        "--algo",
-        algo,
+        "--rule",
+        rule,
         "--model",
         model,
     )
 
-    assert summary["args"]["algo"] == algo
+    assert summary["args"]["rule"] == rule
     assert summary["args"]["model"] == model
     assert summary["train"]["final_epoch"]["train"]["num_batches"] > 0

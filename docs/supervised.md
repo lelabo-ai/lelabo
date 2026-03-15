@@ -29,7 +29,7 @@ This path proves that LeLabo can run a clean baseline without research-specific 
 Official flow:
 
 ```bash
-lelabo create capsule my_capsule
+lelabo capsule init my_capsule
 cd my_capsule
 ```
 

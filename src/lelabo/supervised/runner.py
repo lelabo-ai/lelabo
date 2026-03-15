@@ -194,12 +194,12 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         dataset=args.dataset,
         extra=rule_extra,
     )
-    learner = build_update_rule(args.algo, ctx)
+    learner = build_update_rule(args.rule, ctx)
     metric_ctx = MetricContext(
         args=args,
         mode="supervised",
         dataset=args.dataset,
-        algo=args.algo,
+        algo=args.rule,
         extra=metric_extra,
     )
     validate_metric_requests(

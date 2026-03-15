@@ -2,4 +2,4 @@
 
 # Recommended: write experiment outputs under this folder.
 # Example:
-# lelabo train supervised --dataset iris --model cnn --algo bp --run-dir runs/exp1
+# lelabo train supervised --dataset iris --model cnn --rule bp --run-dir runs/exp1

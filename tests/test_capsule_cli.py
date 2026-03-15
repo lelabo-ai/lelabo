@@ -13,7 +13,7 @@ capsule_create = importlib.import_module("lelabo.capsule.create")
 capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
-def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
+def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
@@ -25,36 +25,42 @@ def test_capsule_cli_pack_install_list_show(tmp_path, capsys) -> None:
     assert bundle.exists()
 
     caps_dir = tmp_path / "caps"
-    rc = capsule_cli.main(["install", str(bundle), "--name", "cli_alias", "--capsules-dir", str(caps_dir)])
+    rc = capsule_cli.main(["install", str(bundle), "--alias", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
+    out = capsys.readouterr().out
+    assert "installed capsule:" in out
+    assert "capsule_id: cli_cap" in out
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
+    assert "capsules:" in out
     assert "cli_cap" in out
+    assert "cli_alias" in out
 
     rc = capsule_cli.main(["show", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    out2 = capsys.readouterr().out
-    assert "cli_cap" in out2
+    out = capsys.readouterr().out
+    assert "capsule:" in out
+    assert "capsule_id: cli_cap" in out
 
     installed_dir = caps_dir / "cli_cap"
     assert installed_dir.exists()
 
     rc = capsule_cli.main(["remove", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    out3 = capsys.readouterr().out
-    assert '"capsule_id": "cli_cap"' in out3
-    assert '"deleted_files": true' in out3
+    out = capsys.readouterr().out
+    assert "removed capsule:" in out
+    assert "capsule_id: cli_cap" in out
+    assert "deleted_files: True" in out
     assert not installed_dir.exists()
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    out4 = capsys.readouterr().out
-    assert "(no capsules installed)" in out4
+    assert "(no capsules installed)" in capsys.readouterr().out
 
 
-def test_capsule_cli_remove_keep_files(tmp_path) -> None:
+def test_capsule_cli_remove_keep_files(tmp_path, capsys) -> None:
     run_dir = tmp_path / "run_keep"
     run_dir.mkdir()
     (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
@@ -65,8 +71,9 @@ def test_capsule_cli_remove_keep_files(tmp_path) -> None:
     assert rc == 0
 
     caps_dir = tmp_path / "caps_keep"
-    rc = capsule_cli.main(["install", str(bundle), "--name", "keep_alias", "--capsules-dir", str(caps_dir)])
+    rc = capsule_cli.main(["install", str(bundle), "--alias", "keep_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
+    capsys.readouterr()
 
     installed_dir = caps_dir / "cli_keep"
     assert installed_dir.exists()
@@ -143,29 +150,29 @@ def test_capsule_cli_remove_rejects_half_rf_flag(tmp_path) -> None:
     assert capsule_registry.get_capsule("external_alias_half_rf", caps_dir) is not None
 
 
-def test_capsule_cli_restore_rejects_external_paths(tmp_path) -> None:
+def test_capsule_cli_checkout_rejects_external_paths(tmp_path) -> None:
     caps_dir = tmp_path / "capsules"
     external = tmp_path / "external_capsule"
     external.mkdir()
     (external / "manifest.json").write_text("{}", encoding="utf-8")
 
     capsule_registry.add_capsule_entry(
-        capsule_id="external_restore_cap",
+        capsule_id="external_checkout_cap",
         capsule_path=external,
         manifest={"kind": "config_only", "created_at": "2026-02-20T00:00:00Z", "source": {"path": str(external)}},
-        alias="external_restore_alias",
+        alias="external_checkout_alias",
         capsules_dir=caps_dir,
     )
 
     try:
-        capsule_cli.main(["restore", "external_restore_alias", "--capsules-dir", str(caps_dir)])
+        capsule_cli.main(["checkout", "external_checkout_alias", "--capsules-dir", str(caps_dir)])
     except SystemExit as exc:
-        assert "Refusing to restore capsule files outside cache" in str(exc)
+        assert "Refusing to checkout capsule files outside cache" in str(exc)
     else:
-        raise AssertionError("Expected SystemExit for unsafe external capsule restore.")
+        raise AssertionError("Expected SystemExit for unsafe external capsule checkout.")
 
 
-def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
+def test_capsule_cli_stash_and_checkout(tmp_path, capsys) -> None:
     source = capsule_create.create_capsule_scaffold(
         capsule_name="store_demo_capsule",
         base_dir=tmp_path,
@@ -173,7 +180,7 @@ def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
     )
 
     caps_dir = tmp_path / "caps_store"
-    rc = capsule_cli.main(["store", "-n", "stored_alias", "--from", str(source), "--capsules-dir", str(caps_dir)])
+    rc = capsule_cli.main(["stash", str(source), "--alias", "stored_alias", "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
 
     store_payload = json.loads(capsys.readouterr().out)
@@ -187,22 +194,20 @@ def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
     restore_root = tmp_path / "restore_workspace"
     rc = capsule_cli.main(
         [
-            "restore",
+            "checkout",
             "stored_alias",
-            "--to",
             str(restore_root),
-            "--name",
-            "restored_local_capsule",
             "--capsules-dir",
             str(caps_dir),
+            "--json",
         ]
     )
     assert rc == 0
 
     restore_payload = json.loads(capsys.readouterr().out)
-    restored_path = restore_root / "restored_local_capsule"
+    restored_path = restore_root / "store_demo_capsule"
     assert restore_payload["capsule_id"] == "store_demo_capsule"
-    assert restore_payload["restored_path"] == str(restored_path.resolve())
+    assert restore_payload["checked_out_path"] == str(restored_path.resolve())
     assert restore_payload["moved"] is True
     assert restore_payload["removed_from_cache"] is True
     assert (restored_path / "capsule.toml").exists()
@@ -210,7 +215,7 @@ def test_capsule_cli_store_and_restore(tmp_path, capsys) -> None:
     assert capsule_registry.get_capsule("stored_alias", caps_dir) is None
 
 
-def test_capsule_cli_store_uses_active_capsule_when_from_is_omitted(tmp_path, monkeypatch) -> None:
+def test_capsule_cli_stash_uses_active_capsule_when_source_is_omitted(tmp_path, monkeypatch, capsys) -> None:
     source = capsule_create.create_capsule_scaffold(
         capsule_name="active_capsule",
         base_dir=tmp_path,
@@ -219,16 +224,18 @@ def test_capsule_cli_store_uses_active_capsule_when_from_is_omitted(tmp_path, mo
     monkeypatch.chdir(source / "models")
 
     caps_dir = tmp_path / "caps_active"
-    rc = capsule_cli.main(["store", "-n", "active_alias", "--capsules-dir", str(caps_dir)])
+    rc = capsule_cli.main(["stash", "--alias", "active_alias", "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
 
     row = capsule_registry.get_capsule("active_alias", caps_dir)
     assert row is not None
     assert row["capsule_id"] == "active_capsule"
+    assert payload["capsule_id"] == "active_capsule"
     assert not source.exists()
 
 
-def test_capsule_cli_store_accepts_manifest_without_capsule_toml(tmp_path, capsys) -> None:
+def test_capsule_cli_stash_accepts_manifest_without_capsule_toml(tmp_path, capsys) -> None:
     source = capsule_create.create_capsule_scaffold(
         capsule_name="manifest_only_capsule",
         base_dir=tmp_path,
@@ -239,13 +246,13 @@ def test_capsule_cli_store_accepts_manifest_without_capsule_toml(tmp_path, capsy
     caps_dir = tmp_path / "caps_manifest_only"
     rc = capsule_cli.main(
         [
-            "store",
-            "-n",
-            "manifest_only_alias",
-            "--from",
+            "stash",
             str(source),
+            "--alias",
+            "manifest_only_alias",
             "--capsules-dir",
             str(caps_dir),
+            "--json",
         ]
     )
     assert rc == 0
@@ -257,7 +264,7 @@ def test_capsule_cli_store_accepts_manifest_without_capsule_toml(tmp_path, capsy
     assert not source.exists()
 
 
-def test_capsule_cli_store_from_parent_directory_uses_name_subfolder(tmp_path, capsys) -> None:
+def test_capsule_cli_stash_from_parent_directory_uses_named_subfolder(tmp_path, capsys) -> None:
     root = tmp_path / "workspace"
     root.mkdir()
     source = capsule_create.create_capsule_scaffold(
@@ -269,13 +276,13 @@ def test_capsule_cli_store_from_parent_directory_uses_name_subfolder(tmp_path, c
     caps_dir = tmp_path / "caps_parent_lookup"
     rc = capsule_cli.main(
         [
-            "store",
-            "-n",
-            "test",
-            "--from",
+            "stash",
             str(root),
+            "--alias",
+            "test",
             "--capsules-dir",
             str(caps_dir),
+            "--json",
         ]
     )
     assert rc == 0
@@ -286,3 +293,46 @@ def test_capsule_cli_store_from_parent_directory_uses_name_subfolder(tmp_path, c
     assert payload["moved"] is True
     assert (caps_dir / "test" / "capsule.toml").exists()
     assert not source.exists()
+
+
+def test_capsule_cli_stash_all_moves_direct_child_capsules_only(tmp_path, capsys) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    cap_a = capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=workspace, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=workspace, register=False)
+    (workspace / "not_a_capsule").mkdir()
+
+    caps_dir = tmp_path / "caps_all"
+    rc = capsule_cli.main(["stash", "--all", str(workspace), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
+    assert sorted(item["capsule_id"] for item in payload["stashed"]) == ["cap_a", "cap_b"]
+    assert not cap_a.exists()
+    assert not cap_b.exists()
+    assert (caps_dir / "cap_a").exists()
+    assert (caps_dir / "cap_b").exists()
+
+
+def test_capsule_cli_stash_all_rejects_alias(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=workspace, register=False)
+
+    try:
+        capsule_cli.main(["stash", "--all", str(workspace), "--alias", "bad_alias"])
+    except SystemExit as exc:
+        assert "--alias" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit when using --alias with stash --all.")
+
+
+def test_capsule_cli_stash_all_rejects_running_from_active_capsule(tmp_path, monkeypatch) -> None:
+    source = capsule_create.create_capsule_scaffold(capsule_name="active_capsule", base_dir=tmp_path, register=False)
+    monkeypatch.chdir(source)
+    try:
+        capsule_cli.main(["stash", "--all"])
+    except SystemExit as exc:
+        assert "expects a container directory" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit for stash --all inside an active capsule.")

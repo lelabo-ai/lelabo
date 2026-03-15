@@ -183,7 +183,7 @@ def create_capsule_scaffold(
     capsule_name: str,
     base_dir: Path | None = None,
     force: bool = False,
-    register: bool = True,
+    register: bool = False,
     alias: str | None = None,
     capsules_dir: Path | None = None,
 ) -> Path:

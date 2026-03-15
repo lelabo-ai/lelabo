@@ -74,7 +74,7 @@ def _resolve_source_root(source_path: Path | None, alias: str | None) -> Path:
     raise ValueError(f"Path '{source_path}' is not a capsule root (missing manifest.json/capsule.toml).")
 
 
-def store_capsule(
+def stash_capsule(
     *,
     alias: str | None = None,
     source_path: Path | None = None,
@@ -120,5 +120,4 @@ def store_capsule(
     out["moved"] = moved
     return out
 
-
-__all__ = ["store_capsule"]
+__all__ = ["stash_capsule"]

@@ -198,7 +198,7 @@ lelabo list update-rules
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml --algo my_rule
+lelabo train supervised --config configs/train.supervised.paper_pack.toml --rule my_rule
 ```
 
 ```bash

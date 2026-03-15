@@ -153,10 +153,10 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
     lr = float(optimizer_params.pop("lr", args.lr))
     weight_decay = float(optimizer_params.pop("weight_decay", args.weight_decay))
     momentum = float(optimizer_params.pop("momentum", 0.9))
-    train_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "train_env")
-    eval_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "eval_env")
+    train_env_seed = derive_seed(args.seed, "rl", args.algo, "train_env")
+    eval_env_seed = derive_seed(args.seed, "rl", args.algo, "eval_env")
 
-    if args.rl_algo == "dqn":
+    if args.algo == "dqn":
         env = make_env(args.env, seed=train_env_seed)
         eval_env = make_env(args.env, seed=eval_env_seed)
 
@@ -181,11 +181,11 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
             optimizer=optimizer,
             mode="rl",
             dataset=args.dataset,
-            rl_algo=args.rl_algo,
+            rl_algo=args.algo,
             extra={"grad_clip": None},
         )
-        learner = build_update_rule(args.algo, ctx)
-        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
+        learner = build_update_rule(args.rule, ctx)
+        cfg = build_rl_algo_config(args.algo, rl_overrides)
 
         algo = DQN(q_net=qnet, learner=learner, cfg=cfg)
         algo.setup(obs_dim=obs_dim, n_actions=n_actions)
@@ -200,14 +200,14 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
                     learner=learner,
                     optimizer=optimizer,
                     epoch=int(result.get("total_steps", 0)),
-                    meta={"kind": "last", "rl_algo": args.rl_algo},
+                    meta={"kind": "last", "rl_algo": args.algo},
                 ),
             )
         return result
 
-    if args.rl_algo == "ppo":
-        cfg = build_rl_algo_config(args.rl_algo, rl_overrides)
-        vec_env_seed = derive_seed(args.seed, "rl", args.rl_algo, "vec_env")
+    if args.algo == "ppo":
+        cfg = build_rl_algo_config(args.algo, rl_overrides)
+        vec_env_seed = derive_seed(args.seed, "rl", args.algo, "vec_env")
         envs = make_vec_env(args.env, seed=vec_env_seed, num_envs=cfg.num_envs)
         eval_env = make_env(args.env, seed=eval_env_seed)
 
@@ -232,9 +232,9 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
             optimizer=optimizer,
             mode="rl",
             dataset=args.dataset,
-            rl_algo=args.rl_algo,
+            rl_algo=args.algo,
         )
-        learner = build_update_rule(args.algo, ctx)
+        learner = build_update_rule(args.rule, ctx)
         algo = PPO(actor_critic=model, learner=learner, cfg=cfg)
         runner = RLRunner(train_env=envs, algo=algo, device=device, logger=logger, show_logs=show_logs)
         result = runner.train(total_steps=args.rl_steps, eval_env=eval_env, eval_episodes=args.rl_eval_episodes)
@@ -247,12 +247,12 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
                     learner=learner,
                     optimizer=optimizer,
                     epoch=int(result.get("total_steps", 0)),
-                    meta={"kind": "last", "rl_algo": args.rl_algo},
+                    meta={"kind": "last", "rl_algo": args.algo},
                 ),
             )
         return result
 
-    raise ValueError(f"Unknown rl algo: {args.rl_algo}")
+    raise ValueError(f"Unknown rl algo: {args.algo}")
 
 
 __all__ = ["RLRunner", "run_rl"]

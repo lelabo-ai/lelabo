@@ -20,7 +20,7 @@ Use a capsule when you want to add your own research component without editing t
 The official first extension path is the optimizer path:
 
 ```bash
-lelabo create capsule my_capsule
+lelabo capsule init my_capsule
 cd my_capsule
 ```
 

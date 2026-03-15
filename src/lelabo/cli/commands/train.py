@@ -129,7 +129,7 @@ def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default=None)
     parser.add_argument("--initializer", default=None)
     parser.add_argument("--loss", default=None)
-    parser.add_argument("--algo", default=None)
+    parser.add_argument("--rule", default=None)
     parser.add_argument("--optimizer", default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
@@ -141,10 +141,10 @@ def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
 def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env", type=str, default=None, metavar="ENV_ID")
     parser.add_argument("--algo", default=None)
+    parser.add_argument("--rule", default=None)
     parser.add_argument("--optimizer", default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
-    parser.add_argument("--rl-algo", type=str, default=None)
     parser.add_argument("--rl-steps", type=int, default=None)
     parser.add_argument("--rl-eval-episodes", type=int, default=None)
     parser.add_argument("--rl-param", action="append", default=[], metavar="KEY=VALUE")
@@ -187,8 +187,8 @@ def _build_supervised_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any
         _set_nested(out, ["initializer", "name"], parsed.initializer)
     if parsed.loss is not None:
         _set_nested(out, ["loss", "name"], parsed.loss)
-    if parsed.algo is not None:
-        _set_nested(out, ["update_rule", "name"], parsed.algo)
+    if parsed.rule is not None:
+        _set_nested(out, ["update_rule", "name"], parsed.rule)
     if parsed.optimizer is not None:
         _set_nested(out, ["optimizer", "name"], parsed.optimizer)
     if parsed.lr is not None:
@@ -221,16 +221,16 @@ def _build_rl_cli_overrides(parsed: argparse.Namespace) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if parsed.env is not None:
         _set_nested(out, ["env"], parsed.env)
-    if parsed.algo is not None:
-        _set_nested(out, ["update_rule", "name"], parsed.algo)
+    if parsed.rule is not None:
+        _set_nested(out, ["update_rule", "name"], parsed.rule)
     if parsed.optimizer is not None:
         _set_nested(out, ["optimizer", "name"], parsed.optimizer)
     if parsed.lr is not None:
         _set_nested(out, ["optimizer", "params", "lr"], parsed.lr)
     if parsed.weight_decay is not None:
         _set_nested(out, ["optimizer", "params", "weight_decay"], parsed.weight_decay)
-    if parsed.rl_algo is not None:
-        _set_nested(out, ["rl", "algo"], parsed.rl_algo)
+    if parsed.algo is not None:
+        _set_nested(out, ["rl", "algo"], parsed.algo)
     if parsed.rl_steps is not None:
         _set_nested(out, ["rl", "steps"], parsed.rl_steps)
     if parsed.rl_eval_episodes is not None:
@@ -271,7 +271,7 @@ def _validate_supervised_namespace(args: argparse.Namespace) -> argparse.Namespa
         available=get_initializer_names(),
     )
     _validate_component_name(getattr(args, "loss", None), label="loss", available=get_loss_names())
-    _validate_component_name(getattr(args, "algo", None), label="algorithm", available=get_update_rule_names())
+    _validate_component_name(getattr(args, "rule", None), label="rule", available=get_update_rule_names())
     _validate_component_name(
         getattr(args, "optimizer", None),
         label="optimizer",
@@ -281,13 +281,13 @@ def _validate_supervised_namespace(args: argparse.Namespace) -> argparse.Namespa
 
 
 def _validate_rl_namespace(args: argparse.Namespace) -> argparse.Namespace:
-    _validate_component_name(getattr(args, "algo", None), label="algorithm", available=get_update_rule_names())
+    _validate_component_name(getattr(args, "rule", None), label="rule", available=get_update_rule_names())
     _validate_component_name(
         getattr(args, "optimizer", None),
         label="optimizer",
         available=get_optimizer_names(),
     )
-    _validate_component_name(getattr(args, "rl_algo", None), label="rl algo", available=get_rl_algo_names())
+    _validate_component_name(getattr(args, "algo", None), label="rl algo", available=get_rl_algo_names())
     return args
 
 
@@ -364,7 +364,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             from ...rl.runner import run_rl
 
             rl_summary = run_rl(args, logger)
-            summary = {"args": public_args, "rl": {"algo": args.rl_algo, **rl_summary}}
+            summary = {"args": public_args, "rl": {"algo": args.algo, **rl_summary}}
             logger.write_summary(summary, status="succeeded")
             logger.finalize_meta("succeeded")
             return summary

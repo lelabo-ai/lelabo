@@ -41,7 +41,7 @@ This is the main vision baseline:
 ## 4. Create a capsule and enable the optimizer path
 
 ```bash
-lelabo create capsule my_capsule
+lelabo capsule init my_capsule
 cd my_capsule
 ```
 
@@ -93,6 +93,6 @@ Use `--set` for quick ablations without editing the TOML file.
 lelabo train supervised \
   --dataset iris \
   --model mlp \
-  --algo bp \
+  --rule bp \
   --run-dir outputs/runs/iris_bp_demo
 ```

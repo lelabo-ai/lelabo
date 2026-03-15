@@ -22,6 +22,7 @@ def test_train_supervised_help_displays_parser_usage() -> None:
     assert proc.returncode == 0
     assert "usage: lelabo train supervised" in proc.stdout
     assert "--dataset" in proc.stdout
+    assert "--rule" in proc.stdout
     assert "--task" not in proc.stdout
 
 
@@ -30,6 +31,8 @@ def test_train_rl_help_displays_parser_usage() -> None:
     assert proc.returncode == 0
     assert "usage: lelabo train rl" in proc.stdout
     assert "--env ENV_ID" in proc.stdout
+    assert "--algo" in proc.stdout
+    assert "--rule" in proc.stdout
     assert "--task" not in proc.stdout
 
 def test_audit_help_displays_audit_parser_usage() -> None:
@@ -37,15 +40,6 @@ def test_audit_help_displays_audit_parser_usage() -> None:
     assert proc.returncode == 0
     assert "usage: lelabo audit" in proc.stdout
     assert "Run warn-only local update-rule audit" in proc.stdout
-
-
-def test_create_help_displays_create_usage() -> None:
-    proc = _run_cli_help("create", "-h")
-    assert proc.returncode == 0
-    assert "Create local LeLabo scaffolds." in proc.stdout
-    assert "lelabo create <target> [args]" in proc.stdout
-    assert "capsule" in proc.stdout
-
 
 def test_list_help_displays_list_usage() -> None:
     proc = _run_cli_help("list", "-h")
@@ -76,6 +70,12 @@ def test_train_rl_requires_env_flag() -> None:
     proc = _run_cli_help("train", "rl")
     assert proc.returncode != 0
     assert "--env" in proc.stderr
+
+
+def test_root_cli_rejects_removed_create_command() -> None:
+    proc = _run_cli_help("create", "-h")
+    assert proc.returncode != 0
+    assert "Unknown command: create" in proc.stderr
 
 
 def test_train_supervised_rejects_legacy_source_flag() -> None:

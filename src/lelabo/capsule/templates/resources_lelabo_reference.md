@@ -186,7 +186,8 @@ Fields:
 - `optimizer`
 - `mode`
 - `dataset`
-- `rl_algo`
+- `rule`
+- `algo` (`rl` mode only)
 - `extra`
 
 Notes:

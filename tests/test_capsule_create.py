@@ -16,7 +16,7 @@ plugins = importlib.import_module("lelabo.capsule.plugins")
 models_registry = importlib.import_module("lelabo.models.registry")
 datasets_registry = importlib.import_module("lelabo.supervised.datasets.registry")
 train_api = importlib.import_module("lelabo.cli.commands.train")
-create_cli = importlib.import_module("lelabo.cli.commands.create")
+capsule_cli = importlib.import_module("lelabo.cli.commands.capsule")
 list_cli = importlib.import_module("lelabo.cli.commands.list")
 lab_pkg = importlib.import_module("lelabo")
 
@@ -27,6 +27,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
         capsule_name="demo_capsule",
         base_dir=tmp_path,
         capsules_dir=capsules_dir,
+        register=True,
     )
 
     assert out == (tmp_path / "demo_capsule")
@@ -322,18 +323,18 @@ def test_fresh_capsule_examples_do_not_pollute_plugin_listings(tmp_path, monkeyp
         rc = list_cli.main(["optimizers", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_sgd" not in payload["optimizers"]
+        assert "capsule_sgd" not in payload["optimizers"]["capsule"]
 
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "example_mlp" not in payload["models"]
+        assert "example_mlp" not in payload["models"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
 
 def test_create_capsule_cli_prints_guided_next_steps(tmp_path, capsys) -> None:
-    rc = create_cli.main(["capsule", "guided_capsule", "--dir", str(tmp_path), "--no-register"])
+    rc = capsule_cli.main(["init", "guided_capsule", "--dir", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
     assert str(tmp_path / "guided_capsule") in out

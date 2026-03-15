@@ -41,13 +41,19 @@ def test_legacy_unified_source_flag_is_rejected() -> None:
         train_api._normalize_train_args(Namespace(source="iris"))
 
 
-def test_supervised_default_algo_is_registered() -> None:
+def test_supervised_default_rule_is_registered() -> None:
     args = train_api.parse_train_args(["supervised", "--dataset", "iris"])
     available = set(update_rules_api.get_update_rule_names())
-    assert args.algo in available
+    assert args.rule in available
     assert args.config_version == "1.0"
     assert isinstance(args.lelabo_version, str)
     assert args.lelabo_version.strip()
+
+
+def test_rl_cli_uses_algo_for_rl_algo_and_rule_for_update_rule() -> None:
+    args = train_api.parse_train_args(["rl", "--env", "CartPole-v1", "--algo", "ppo", "--rule", "bp"])
+    assert args.algo == "ppo"
+    assert args.rule == "bp"
 
 
 def test_supervised_loss_override_is_exposed() -> None:

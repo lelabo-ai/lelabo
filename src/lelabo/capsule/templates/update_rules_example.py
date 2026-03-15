@@ -41,7 +41,7 @@ Uncomment `@register_update_rule("local_head")`.
 How to test
 -----------
 lelabo list update_rules
-lelabo train supervised --config configs/train.supervised.quickstart.toml --algo local_head
+lelabo train supervised --config configs/train.supervised.quickstart.toml --rule local_head
 
 Common errors
 -------------

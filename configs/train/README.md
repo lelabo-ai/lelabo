@@ -17,7 +17,7 @@ For the public supervised story, this page is the operator-facing companion to `
 
 Official flow:
 
-1. `lelabo create capsule my_capsule`
+1. `lelabo capsule init my_capsule`
 2. enable `capsule_sgd` in `optimizers/example.py`
 3. run `configs/train.supervised.capsule_optimizer.toml` from the capsule root
 

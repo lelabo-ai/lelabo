@@ -76,7 +76,7 @@ lelabo train supervised --config configs/train/supervised.detailed.toml
 Create a capsule:
 
 ```bash
-lelabo create capsule my_capsule
+lelabo capsule init my_capsule
 cd my_capsule
 ```
 
