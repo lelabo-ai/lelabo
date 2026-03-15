@@ -146,9 +146,8 @@ Important fields:
 
 Important runtime rule:
 
-- `forward_with_standard_cache(...)` returns only the target view requested by `CacheSpec.target_view`
-
-It does not return all three views anymore.
+- `forward_with_standard_cache(...)` returns `out`, `cache`, and `views`
+- `views` contains only the requested `CacheSpec.target_view`, not all public views at once
 
 ## Custom activation pairing
 

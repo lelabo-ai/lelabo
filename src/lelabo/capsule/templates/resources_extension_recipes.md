@@ -1,6 +1,8 @@
 # Extension Recipes
 
 Use this file for the procedural "how do I add X?" path.
+Use these recipes for normal capsule work. Open the reference docs only to
+confirm a contract, not as the default starting point.
 
 Open `AGENTS.md` first if you still need to choose the right extension type.
 Open `resources/LELABO_REFERENCE.md` only when you need an exact signature or
@@ -73,12 +75,16 @@ pytest -q tests/test_capsule_optimizer_smoke.py
 - returning something that is not a real `torch.optim.Optimizer`
 - reading params from the wrong place instead of `ctx.optimizer_params()`
 
-### Definition of done
+### Core done criteria
 
 - appears in `lelabo list optimizers`
 - config runs
-- smoke test passes
 - params are read from the documented source
+
+### Extra done criteria
+
+- smoke test passes if the scaffold provides one
+- runtime assumptions are documented if fit is partial
 
 ## Add a BP model
 
@@ -135,12 +141,16 @@ lelabo train supervised --config configs/train.supervised.quickstart.toml --mode
 - expecting cache features for a normal BP-only model
 - forgetting to document extra assumptions about input shape
 
-### Definition of done
+### Core done criteria
 
 - appears in `lelabo list models`
 - config runs
 - params are read from the documented source
-- runtime assumptions are documented if the model only works on a subset of datasets
+
+### Extra done criteria
+
+- smoke test passes if the scaffold provides one
+- runtime assumptions are documented if fit is partial
 
 ## Add a local-rule update rule
 
@@ -201,13 +211,16 @@ pytest -q tests/test_paper_pack_smoke.py
 - assuming several cache views are available at once
 - depending on block structure the model does not expose
 
-### Definition of done
+### Core done criteria
 
 - appears in `lelabo list update-rules`
 - config runs
-- smoke test passes if relevant
 - params are read from the documented source
-- assumptions are documented if runtime fit is partial
+
+### Extra done criteria
+
+- smoke test passes if the scaffold provides one
+- runtime assumptions are documented if fit is partial
 
 ## Add a dataset
 
@@ -262,12 +275,16 @@ lelabo train supervised --dataset my_dataset --model mlp
 - hiding important metadata instead of setting `num_classes`, `in_dim`, or `input_shape`
 - trying to read dataset params from a context helper
 
-### Definition of done
+### Core done criteria
 
 - appears in `lelabo list datasets`
 - config runs
 - params are read from the documented source
-- required dataset metadata is present in the returned `DataBundle`
+
+### Extra done criteria
+
+- smoke test passes if the scaffold provides one
+- runtime assumptions are documented if fit is partial
 
 ## Add a paper pack
 
@@ -327,12 +344,15 @@ pytest -q tests/test_paper_pack_smoke.py
 - adding custom code where built-ins plus config would be enough
 - hiding runtime limitations instead of documenting them
 
-### Definition of done
+### Core done criteria
 
-- the config runs
-- the smoke test passes
+- config runs
 - params are read from the documented source
-- assumptions are documented if runtime fit is partial
+
+### Extra done criteria
+
+- smoke test passes if the scaffold provides one
+- runtime assumptions are documented if fit is partial
 
 ## Short appendix: secondary extension types
 

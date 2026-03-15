@@ -24,6 +24,9 @@ LeLabo internals.
 7. `resources/MODEL_CACHE_ADVANCED.md` only if you need intermediate activations or block semantics
 8. `resources/PAPER_PACK_PLAYBOOK.md` only if the work spans several components
 
+Start from the matching `example.py` in the target folder and keep the
+decorator commented until the component is ready.
+
 ## If your idea is X, edit Y
 
 - New architecture or model: `models/`
@@ -39,11 +42,12 @@ LeLabo internals.
 
 ## Decision Guide
 
-- Architecture change only -> `models/`
-- Learning or credit-assignment logic -> `update_rules/`
-- Data loading or split logic -> `datasets/`
-- Tuning only -> prefer config changes before custom code
-- Several moving parts -> use the paper-pack path
+- If config-only or parameter-only changes are enough, prefer config changes before custom code.
+- If the architecture changes but the training logic does not, edit `models/`.
+- If the training logic or credit assignment changes, edit `update_rules/`.
+- If the main change is loading, splitting, or dataset metadata, edit `datasets/`.
+- If the work spans several components, use the paper-pack path.
+- Open cache docs only if the extension needs intermediate activations or block semantics.
 
 ## Which file answers which question?
 

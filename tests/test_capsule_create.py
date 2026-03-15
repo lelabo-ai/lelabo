@@ -132,6 +132,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "Decision Guide" in agents_text
     assert "Which file answers which question?" in agents_text
     assert "Stop Signs" in agents_text
+    assert "matching `example.py`" in agents_text
+    assert "config changes before custom code" in agents_text
+    assert "training logic or credit assignment" in agents_text
     assert "resources/EXTENSION_RECIPES.md" in agents_text
     assert "resources/LELABO_REFERENCE.md" in agents_text
     assert "resources/PARAM_FLOW.md" in agents_text
@@ -141,13 +144,15 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "`optimizers/`" in agents_text
     assert "pytest -q tests" in agents_text
     assert "Choose the right extension type first" in extension_recipes
+    assert "normal capsule work" in extension_recipes
     assert "Add an optimizer" in extension_recipes
     assert "Add a BP model" in extension_recipes
     assert "Add a local-rule update rule" in extension_recipes
     assert "Add a dataset" in extension_recipes
     assert "Add a paper pack" in extension_recipes
     assert "Short appendix: secondary extension types" in extension_recipes
-    assert "Definition of done" in extension_recipes
+    assert "Core done criteria" in extension_recipes
+    assert "Extra done criteria" in extension_recipes
     assert "appears in `lelabo list" in extension_recipes
     assert "ModelContext" in lelabo_reference
     assert "OptimizerContext" in lelabo_reference
@@ -162,6 +167,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "resolve_declared_blocks" in lelabo_reference
     assert "register_cache_pair_activation" in lelabo_reference
     assert "not the first file to read" in lelabo_reference
+    assert "`forward_with_standard_cache(...)` returns `out`, `cache`, and `views`" in lelabo_reference
+    assert "contains only the requested `CacheSpec.target_view`, not all public views at once" in lelabo_reference
     assert "[model.params] -> args.model_params" in param_flow
     assert "[optimizer.params] -> ctx.optimizer_params()" in param_flow
     assert "[scheduler.params] -> ctx.scheduler_params()" in param_flow
@@ -177,7 +184,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "exec_module" in model_cache_advanced
     assert "exec_span_names" in model_cache_advanced
     assert "register_cache_pair_activation" in model_cache_advanced
-    assert "returns only the target view" in model_cache_advanced
+    assert "`forward_with_standard_cache(...)` returns `out`, `cache`, and `views`" in model_cache_advanced
+    assert "contains only the requested `CacheSpec.target_view`, not all public views at once" in model_cache_advanced
     assert "forward_with_standard_cache" in model_cache_advanced
     assert "Do not open this" in model_cache_advanced
     assert "`declare_blocks()` is optional" in model_cache_advanced
