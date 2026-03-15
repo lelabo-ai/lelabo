@@ -23,6 +23,18 @@ The rule entrypoint is conceptually:
 train_step(model, objective, batch, device, state=None) -> dict[str, Any]
 ```
 
+Tiny pseudo-template:
+
+```python
+def train_step(model, objective, batch, device, state=None):
+    # move batch to device
+    # optionally request cache with forward_with_standard_cache(...)
+    # compute updates or assign grads
+    # step optimizer if needed
+    # return numeric scalars only
+    return {"loss": 0.0}
+```
+
 ## What the rule receives
 
 - `model`

@@ -59,6 +59,14 @@ Prefer the smallest possible change set:
 
 Only add custom code where the paper really diverges.
 
+## When not to build a paper pack
+
+Do not build a paper pack when:
+
+- a config-only variation is enough
+- built-in components already cover the method
+- the change is really just one optimizer, model, or callback
+
 ## Runtime-fit check
 
 Before you commit to an implementation shape, ask:
@@ -69,6 +77,9 @@ Before you commit to an implementation shape, ask:
 - does it need several loaders or several optimizers as first-class runtime concepts?
 
 If the answer is mostly “yes” to the last two, document the limitation clearly. The current runtime may still support the paper, but not as a perfect first-class staged program.
+
+If the runtime fit is partial, document that boundary explicitly in the capsule
+instead of hiding it in ad hoc code.
 
 ## Official mini paper pack in this scaffold
 

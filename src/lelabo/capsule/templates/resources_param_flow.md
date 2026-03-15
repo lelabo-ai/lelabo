@@ -216,3 +216,20 @@ def make_example_mnist(*, batch_size: int = 128, flatten: bool = True, **_: obje
 - everything else: use the context helper method first
 
 If you are unsure, check `resources/LELABO_REFERENCE.md`.
+
+## Debugging param issues
+
+- Model params look missing
+  Check `args.model_params`.
+
+- Callback params look missing
+  Check `ctx.callback_params()`.
+
+- Metric params look missing
+  Check `ctx.metric_params(name)`.
+
+- Update-rule params look missing
+  Check both `ctx.extra["update_rule_params"]` and `args.update_rule_params`.
+
+- Dataset params look missing
+  Remember that dataset builders receive kwargs directly, not a context helper.

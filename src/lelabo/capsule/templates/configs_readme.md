@@ -55,6 +55,7 @@ folder to edit and where to find the precise local references.
 
 Local references:
 
+- `../resources/EXTENSION_RECIPES.md`
 - `../resources/LELABO_REFERENCE.md`
 - `../resources/PARAM_FLOW.md`
 - `../resources/MODEL_CACHE_ADVANCED.md`
@@ -95,3 +96,4 @@ Layered config resolution still applies:
 - `callbacks/example.py`
 
 For advanced model cache patterns, see `models/cache_walkthrough.py`.
+For end-to-end extension procedures, start with `../resources/EXTENSION_RECIPES.md`.

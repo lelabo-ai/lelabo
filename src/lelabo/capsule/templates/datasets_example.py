@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the full add-a-dataset procedure, read `resources/EXTENSION_RECIPES.md`.
 Dataset builders receive keyword args directly.
 For the exact `DataBundle` fields, read `resources/LELABO_REFERENCE.md`.
 For the param mapping, read `resources/PARAM_FLOW.md`.

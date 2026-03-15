@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the full add-a-model procedure, read `resources/EXTENSION_RECIPES.md`.
 Read model-specific params from `args.model_params`.
 For exact `ModelContext` fields, read `resources/LELABO_REFERENCE.md`.
 For the param mapping, read `resources/PARAM_FLOW.md`.

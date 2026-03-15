@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the extension recipe, read `resources/EXTENSION_RECIPES.md`.
 Use `ctx.interval`, `ctx.monitor`, `ctx.epochs`, and `ctx.steps_per_epoch`
 for normalized scheduling metadata.
 Use `ctx.scheduler_params()` for extra scheduler params.

@@ -4,6 +4,10 @@ This file is the local contract reference for capsule extensions.
 
 Use it when you need the exact builder signature, return type, or context fields.
 
+This is not the first file to read. Start with `AGENTS.md`, then
+`resources/EXTENSION_RECIPES.md`, and come back here to confirm exact
+contracts.
+
 ## Discovery rules
 
 - LeLabo auto-loads Python files under:

@@ -56,6 +56,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "resources" / "MODEL_CACHE_ADVANCED.md").exists()
     assert (out / "resources" / "UPDATE_RULE_LIFECYCLE.md").exists()
     assert (out / "resources" / "PAPER_PACK_PLAYBOOK.md").exists()
+    assert (out / "resources" / "EXTENSION_RECIPES.md").exists()
     assert (out / "update_rules" / "example.py").exists()
     assert (out / "datasets" / "example.py").exists()
     assert (out / "metrics" / "example.py").exists()
@@ -85,6 +86,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     callback_example = (out / "callbacks" / "example.py").read_text(encoding="utf-8")
     readme_text = (out / "README.md").read_text(encoding="utf-8")
     agents_text = (out / "AGENTS.md").read_text(encoding="utf-8")
+    extension_recipes = (out / "resources" / "EXTENSION_RECIPES.md").read_text(encoding="utf-8")
     lelabo_reference = (out / "resources" / "LELABO_REFERENCE.md").read_text(encoding="utf-8")
     param_flow = (out / "resources" / "PARAM_FLOW.md").read_text(encoding="utf-8")
     model_cache_advanced = (out / "resources" / "MODEL_CACHE_ADVANCED.md").read_text(encoding="utf-8")
@@ -122,20 +124,31 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_callback" in callback_example
     assert "# @register_callback" in callback_example
     assert "AGENTS.md" in readme_text
-    assert "resources/LELABO_REFERENCE.md" in readme_text
-    assert "resources/PARAM_FLOW.md" in readme_text
     assert "capsule_sgd" in readme_text
     assert "pytest -q tests" in readme_text
+    assert "resources/LELABO_REFERENCE.md" not in readme_text
+    assert "resources/PARAM_FLOW.md" not in readme_text
     assert "If your idea is X, edit Y" in agents_text
+    assert "Decision Guide" in agents_text
+    assert "Which file answers which question?" in agents_text
+    assert "Stop Signs" in agents_text
+    assert "resources/EXTENSION_RECIPES.md" in agents_text
     assert "resources/LELABO_REFERENCE.md" in agents_text
     assert "resources/PARAM_FLOW.md" in agents_text
     assert "resources/MODEL_CACHE_ADVANCED.md" in agents_text
     assert "resources/UPDATE_RULE_LIFECYCLE.md" in agents_text
     assert "resources/PAPER_PACK_PLAYBOOK.md" in agents_text
     assert "`optimizers/`" in agents_text
-    assert "`@register_optimizer(name)`" in agents_text
-    assert "models/cache_walkthrough.py" in agents_text
     assert "pytest -q tests" in agents_text
+    assert "Choose the right extension type first" in extension_recipes
+    assert "Add an optimizer" in extension_recipes
+    assert "Add a BP model" in extension_recipes
+    assert "Add a local-rule update rule" in extension_recipes
+    assert "Add a dataset" in extension_recipes
+    assert "Add a paper pack" in extension_recipes
+    assert "Short appendix: secondary extension types" in extension_recipes
+    assert "Definition of done" in extension_recipes
+    assert "appears in `lelabo list" in extension_recipes
     assert "ModelContext" in lelabo_reference
     assert "OptimizerContext" in lelabo_reference
     assert "SchedulerContext" in lelabo_reference
@@ -148,6 +161,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "forward_with_standard_cache" in lelabo_reference
     assert "resolve_declared_blocks" in lelabo_reference
     assert "register_cache_pair_activation" in lelabo_reference
+    assert "not the first file to read" in lelabo_reference
     assert "[model.params] -> args.model_params" in param_flow
     assert "[optimizer.params] -> ctx.optimizer_params()" in param_flow
     assert "[scheduler.params] -> ctx.scheduler_params()" in param_flow
@@ -156,6 +170,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "[callbacks.params] -> ctx.callback_params()" in param_flow
     assert "[metrics.params.<metric_name>] -> ctx.metric_params(name)" in param_flow
     assert '[update_rule.params] -> ctx.extra["update_rule_params"]' in param_flow
+    assert "Debugging param issues" in param_flow
     assert "CacheSpec" in model_cache_advanced
     assert "ResolvedBlock" in model_cache_advanced
     assert "target_view" in model_cache_advanced
@@ -164,12 +179,16 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "register_cache_pair_activation" in model_cache_advanced
     assert "returns only the target view" in model_cache_advanced
     assert "forward_with_standard_cache" in model_cache_advanced
+    assert "Do not open this" in model_cache_advanced
+    assert "`declare_blocks()` is optional" in model_cache_advanced
     assert "train_step(model, objective, batch, device, state=None)" in update_rule_lifecycle
+    assert "Tiny pseudo-template" in update_rule_lifecycle
     assert "What the rule must return" in update_rule_lifecycle
     assert "Current runtime limits" in update_rule_lifecycle
     assert "paper pack" in paper_pack_playbook.lower()
     assert "Implementation order" in paper_pack_playbook
     assert "Validation checklist" in paper_pack_playbook
+    assert "When not to build a paper pack" in paper_pack_playbook
     assert 'Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`' in smoke_test
     assert "lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml" in smoke_test or "train.supervised.capsule_optimizer.toml" in smoke_test
     assert 'Uncomment `@register_model("example_mlp")`' in paper_pack_smoke
@@ -190,28 +209,38 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "train.supervised.paper_pack.toml" in configs_readme
     assert "optimizers/example.py" in configs_readme
     assert "models/cache_walkthrough.py" in configs_readme
+    assert "../resources/EXTENSION_RECIPES.md" in configs_readme
     assert "../resources/LELABO_REFERENCE.md" in configs_readme
     assert "../resources/PARAM_FLOW.md" in configs_readme
     assert "../resources/MODEL_CACHE_ADVANCED.md" in configs_readme
     assert "../resources/UPDATE_RULE_LIFECYCLE.md" in configs_readme
     assert "../resources/PAPER_PACK_PLAYBOOK.md" in configs_readme
+    assert "resources/EXTENSION_RECIPES.md" in model_example
     assert "resources/LELABO_REFERENCE.md" in model_example
     assert "resources/PARAM_FLOW.md" in model_example
     assert "resources/PAPER_PACK_PLAYBOOK.md" in model_example
+    assert "resources/EXTENSION_RECIPES.md" in optimizer_example
     assert "resources/LELABO_REFERENCE.md" in optimizer_example
     assert "resources/PARAM_FLOW.md" in optimizer_example
+    assert "resources/EXTENSION_RECIPES.md" in metric_example
     assert "resources/LELABO_REFERENCE.md" in metric_example
     assert "resources/PARAM_FLOW.md" in metric_example
+    assert "resources/EXTENSION_RECIPES.md" in initializer_example
     assert "resources/LELABO_REFERENCE.md" in initializer_example
     assert "resources/PARAM_FLOW.md" in initializer_example
+    assert "resources/EXTENSION_RECIPES.md" in loss_example
     assert "resources/LELABO_REFERENCE.md" in loss_example
     assert "resources/PARAM_FLOW.md" in loss_example
+    assert "resources/EXTENSION_RECIPES.md" in scheduler_example
     assert "resources/LELABO_REFERENCE.md" in scheduler_example
     assert "resources/PARAM_FLOW.md" in scheduler_example
+    assert "resources/EXTENSION_RECIPES.md" in callback_example
     assert "resources/LELABO_REFERENCE.md" in callback_example
     assert "resources/PARAM_FLOW.md" in callback_example
+    assert "resources/EXTENSION_RECIPES.md" in (out / "datasets" / "example.py").read_text(encoding="utf-8")
     assert "resources/LELABO_REFERENCE.md" in (out / "datasets" / "example.py").read_text(encoding="utf-8")
     assert "resources/PARAM_FLOW.md" in (out / "datasets" / "example.py").read_text(encoding="utf-8")
+    assert "resources/EXTENSION_RECIPES.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     assert "resources/LELABO_REFERENCE.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     assert "resources/PARAM_FLOW.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
     assert "resources/MODEL_CACHE_ADVANCED.md" in (out / "update_rules" / "example.py").read_text(encoding="utf-8")
@@ -302,6 +331,7 @@ def test_create_capsule_cli_prints_guided_next_steps(tmp_path, capsys) -> None:
     assert str(tmp_path / "guided_capsule") in out
     assert "Start with README.md" in out
     assert "open AGENTS.md" in out
+    assert "resources/EXTENSION_RECIPES.md" in out
     assert "resources/LELABO_REFERENCE.md" in out
     assert "resources/PARAM_FLOW.md" in out
     assert "resources/UPDATE_RULE_LIFECYCLE.md" in out

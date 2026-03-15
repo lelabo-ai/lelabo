@@ -40,6 +40,7 @@ _EXAMPLE_TEMPLATE_MAP = {
     "resources/MODEL_CACHE_ADVANCED.md": "resources_model_cache_advanced.md",
     "resources/UPDATE_RULE_LIFECYCLE.md": "resources_update_rule_lifecycle.md",
     "resources/PAPER_PACK_PLAYBOOK.md": "resources_paper_pack_playbook.md",
+    "resources/EXTENSION_RECIPES.md": "resources_extension_recipes.md",
     "models/example.py": "models_example.py",
     "models/cache_walkthrough.py": "models_cache_walkthrough.py",
     "update_rules/example.py": "update_rules_example.py",
@@ -79,22 +80,17 @@ def _normalize_capsule_name(raw: str) -> str:
 def _readme_template(name: str) -> str:
     return (
         f"# {name}\n\n"
-        "Local LeLabo capsule scaffold.\n\n"
-        "Start here if you want the fastest path:\n\n"
-        "1. Read `AGENTS.md` for the capsule contracts and the \"if your idea is X, edit Y\" map.\n"
-        "2. Open `optimizers/example.py` and uncomment `@register_optimizer(\"capsule_sgd\")`.\n"
-        "3. Run `lelabo list optimizers`.\n"
-        "4. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n"
-        "5. Run `pytest -q tests`.\n\n"
-        "Folders are already scaffolded for you:\n\n"
-        "- `models/`, `update_rules/`, `datasets/`, `metrics/`\n"
-        "- `initializers/`, `losses/`, `optimizers/`, `schedulers/`, `callbacks/`\n"
-        "- `configs/`, `runs/`, `resources/`, `tests/`\n\n"
-        "If you use Codex/Claude or another coding agent, open `AGENTS.md` first.\n"
-        "If you need exact contracts or param flow, jump to `resources/LELABO_REFERENCE.md`\n"
-        "and `resources/PARAM_FLOW.md`.\n"
-        "If you are implementing a full paper pack, also read\n"
-        "`resources/UPDATE_RULE_LIFECYCLE.md` and `resources/PAPER_PACK_PLAYBOOK.md`.\n"
+        "This capsule is designed so you can add LeLabo extensions locally without starting from LeLabo internals.\n\n"
+        "## Fastest official path\n\n"
+        "1. Uncomment `@register_optimizer(\"capsule_sgd\")` in `optimizers/example.py`.\n"
+        "2. Run `lelabo list optimizers`.\n"
+        "3. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n\n"
+        "## Where to go next\n\n"
+        "Open `AGENTS.md` for the task map, decision guide, and the right local reference file for your extension.\n\n"
+        "## Basic validation\n\n"
+        "```bash\n"
+        "pytest -q tests\n"
+        "```\n"
     )
 
 

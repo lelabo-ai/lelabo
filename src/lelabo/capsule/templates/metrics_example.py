@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the extension recipe, read `resources/EXTENSION_RECIPES.md`.
 Metric params are namespaced by metric name and read with
 `ctx.metric_params("example_error_rate")`.
 For exact context fields, read `resources/LELABO_REFERENCE.md`.

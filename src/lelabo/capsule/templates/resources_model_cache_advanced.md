@@ -2,7 +2,9 @@
 
 This file is only for advanced model work.
 
-For a normal BP model plugin, `models/example.py` is enough.
+For a normal BP model plugin, `models/example.py` is enough. Do not open this
+file unless your extension needs intermediate activations, block semantics, or
+cache-aware local rules.
 
 Use this file only when you need:
 
@@ -52,6 +54,7 @@ Noble path:
 - your model implements `declare_blocks()`
 - the runtime can expose `views["declared"]`
 - use this when the model has meaningful semantic blocks
+- `declare_blocks()` is optional unless that semantic block structure matters
 
 Universal path:
 

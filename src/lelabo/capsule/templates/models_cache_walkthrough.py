@@ -5,7 +5,8 @@ Reference-only notes for advanced model work.
 
 This file is not auto-loaded by LeLabo because it does not register anything.
 Keep `models/example.py` simple. Use this file only when you need block-level caches
-for local rules, diagnostics, or research tooling.
+for local rules, diagnostics, or research tooling. Start with
+`resources/EXTENSION_RECIPES.md`, then `resources/MODEL_CACHE_ADVANCED.md`.
 """
 
 from __future__ import annotations

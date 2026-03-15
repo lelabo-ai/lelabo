@@ -87,6 +87,7 @@ def _cmd_capsule(argv: list[str]) -> int:
     print("Next steps:")
     print("  - Start with README.md")
     print("  - If you use Codex/Claude, open AGENTS.md")
+    print("  - How to add X: resources/EXTENSION_RECIPES.md")
     print("  - Exact contracts: resources/LELABO_REFERENCE.md")
     print("  - Param mapping: resources/PARAM_FLOW.md")
     print("  - Update-rule contract: resources/UPDATE_RULE_LIFECYCLE.md")

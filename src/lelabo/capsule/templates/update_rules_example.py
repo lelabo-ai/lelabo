@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the full add-an-update-rule procedure, read `resources/EXTENSION_RECIPES.md`.
 In the current supervised runtime, update-rule params are usually read from
 `ctx.extra["update_rule_params"]` and may also be mirrored on
 `args.update_rule_params`.

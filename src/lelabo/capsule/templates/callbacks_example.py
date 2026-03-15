@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the extension recipe, read `resources/EXTENSION_RECIPES.md`.
 Read params with `ctx.callback_params()`.
 For exact context fields, read `resources/LELABO_REFERENCE.md`.
 For the param mapping, read `resources/PARAM_FLOW.md`.

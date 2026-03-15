@@ -13,6 +13,7 @@ Contract
 
 Where params come from
 ----------------------
+For the full add-an-optimizer procedure, read `resources/EXTENSION_RECIPES.md`.
 Use `ctx.lr`, `ctx.weight_decay`, and `ctx.momentum` for normalized fields.
 Use `ctx.optimizer_params()` for extra optimizer params.
 For exact context fields, read `resources/LELABO_REFERENCE.md`.
