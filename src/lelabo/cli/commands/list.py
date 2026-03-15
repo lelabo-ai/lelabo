@@ -49,6 +49,8 @@ Notes:
   - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
 
+LIST_JSON_SCHEMA = "lelabo.cli.list/v1"
+
 
 _TARGET_ALIASES = {
     "all": "all",
@@ -184,6 +186,20 @@ def _print_grouped_text(rows: dict[str, dict[str, list[str]]]) -> None:
                 print("- (none)")
 
 
+def _list_json_payload(target: str, rows: dict[str, dict[str, list[str]]]) -> dict[str, Any]:
+    if target == "all":
+        return {
+            "schema_version": LIST_JSON_SCHEMA,
+            "target": "all",
+            "registries": rows,
+        }
+    return {
+        "schema_version": LIST_JSON_SCHEMA,
+        "target": target,
+        "sources": rows[target],
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lelabo list")
     parser.add_argument(
@@ -231,7 +247,7 @@ def main(argv: Sequence[str]) -> int:
 
     rows = _snapshot_rows(target, capsules_dir=caps_dir, explicit_capsule_roots=explicit_roots)
     if bool(parsed.json):
-        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        print(json.dumps(_list_json_payload(target, rows), indent=2, ensure_ascii=False))
     else:
         _print_grouped_text(rows)
     return 0

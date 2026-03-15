@@ -13,7 +13,6 @@ from ...capsule import (
     list_capsules,
     pack_capsule,
     remove_capsule,
-    rerun_capsule,
     stash_capsule,
 )
 from ...capsule.plugins.discovery import find_active_capsule_root
@@ -34,12 +33,14 @@ Subcommands:
   list       List stored capsules
   show       Show one stored capsule entry
   remove     Remove one stored capsule entry (and files by default)
-  rerun      Rerun a capsule entrypoint
 
 Help:
   lelabo capsule -h
   lelabo capsule <subcommand> -h
 """
+
+CAPSULE_JSON_SCHEMA = "lelabo.cli.capsule/v1"
+CAPSULES_JSON_SCHEMA = "lelabo.cli.capsules/v1"
 
 
 def _json_dumps(payload: Any) -> str:
@@ -55,12 +56,31 @@ def _render_aliases(row: dict[str, Any]) -> str:
     return ", ".join(aliases) if aliases else "-"
 
 
+def _capsule_json_entry(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "capsule_id": row.get("capsule_id"),
+        "aliases": list(row.get("aliases", []) or []),
+        "path": row.get("path"),
+        "kind": row.get("kind"),
+    }
+
+
+def _capsule_command_json(command: str, row: dict[str, Any], *, result_fields: Sequence[str] = ()) -> dict[str, Any]:
+    result = {field: row[field] for field in result_fields if field in row}
+    payload: dict[str, Any] = {
+        "schema_version": CAPSULE_JSON_SCHEMA,
+        "command": command,
+        "capsule": _capsule_json_entry(row),
+    }
+    if result:
+        payload["result"] = result
+    return payload
+
+
 def _print_entry_block(title: str, row: dict[str, Any]) -> None:
     print(title)
     print(f"capsule_id: {row.get('capsule_id', '-')}")
     print(f"aliases: {_render_aliases(row)}")
-    if str(row.get("kind", "")).strip():
-        print(f"kind: {row.get('kind')}")
     if str(row.get("path", "")).strip():
         print(f"path: {row.get('path')}")
 
@@ -157,9 +177,15 @@ def _cmd_install(argv: list[str]) -> int:
         capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
     )
     if bool(args.json):
-        _print_json(entry)
+        _print_json(
+            _capsule_command_json(
+                "install",
+                entry,
+                result_fields=("installed_at", "source_bundle"),
+            )
+        )
     else:
-        _print_action_block("installed capsule:", entry, extra_fields=("installed_at", "source_bundle"))
+        _print_action_block("installed capsule into store:", entry, extra_fields=("installed_at", "source_bundle"))
     return 0
 
 
@@ -189,7 +215,18 @@ def _cmd_stash(argv: list[str]) -> int:
                     )
             roots = _collect_child_capsule_roots(container)
             stored = [stash_capsule(source_path=root, capsules_dir=caps_dir) for root in roots]
-            payload = {"count": len(stored), "stashed": stored}
+            payload = {
+                "schema_version": CAPSULES_JSON_SCHEMA,
+                "command": "stash",
+                "count": len(stored),
+                "capsules": [
+                    {
+                        **_capsule_json_entry(row),
+                        "result": {field: row[field] for field in ("stored_from", "moved") if field in row},
+                    }
+                    for row in stored
+                ],
+            }
             if bool(args.json):
                 _print_json(payload)
             else:
@@ -207,7 +244,7 @@ def _cmd_stash(argv: list[str]) -> int:
         raise SystemExit(str(exc))
 
     if bool(args.json):
-        _print_json(entry)
+        _print_json(_capsule_command_json("stash", entry, result_fields=("stored_from", "moved")))
     else:
         _print_action_block("stashed capsule:", entry, extra_fields=("stored_from", "moved"))
     return 0
@@ -220,18 +257,31 @@ def _cmd_checkout(argv: list[str]) -> int:
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
+    caps_dir = Path(args.capsules_dir) if args.capsules_dir else None
 
     try:
+        row = get_capsule(args.id_or_alias, caps_dir)
+        if row is None:
+            raise ValueError(f"Unknown capsule '{args.id_or_alias}'")
         restored = checkout_capsule(
             capsule_or_alias=args.id_or_alias,
             destination_dir=Path(args.destination),
-            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
+            capsules_dir=caps_dir,
         )
     except (FileExistsError, FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc))
 
     if bool(args.json):
-        _print_json(restored)
+        json_row = dict(row)
+        json_row.update(restored)
+        json_row["path"] = restored.get("checked_out_path")
+        _print_json(
+            _capsule_command_json(
+                "checkout",
+                json_row,
+                result_fields=("source_path", "checked_out_path", "removed_from_cache", "moved"),
+            )
+        )
     else:
         print("checked out capsule:")
         print(f"capsule_id: {restored.get('capsule_id', '-')}")
@@ -249,19 +299,23 @@ def _cmd_list(argv: list[str]) -> int:
 
     rows = list_capsules(Path(args.capsules_dir) if args.capsules_dir else None)
     if bool(args.json):
-        _print_json(rows)
+        _print_json(
+            {
+                "schema_version": CAPSULES_JSON_SCHEMA,
+                "capsules": [_capsule_json_entry(row) for row in rows],
+            }
+        )
         return 0
 
     if not rows:
-        print("(no capsules installed)")
+        print("(capsule store is empty)")
         return 0
 
-    print("capsules:")
+    print("stored capsules:")
     for row in rows:
         aliases = _render_aliases(row)
-        kind = str(row.get("kind", "")).strip() or "-"
         print(
-            f"- {row.get('capsule_id')} | aliases: {aliases} | kind: {kind} | path: {row.get('path')}"
+            f"- {row.get('capsule_id')} | aliases: {aliases} | path: {row.get('path')}"
         )
     return 0
 
@@ -280,31 +334,10 @@ def _cmd_show(argv: list[str]) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc))
     if bool(args.json):
-        _print_json(row)
+        _print_json(_capsule_command_json("show", row))
     else:
-        _print_entry_block("capsule:", row)
+        _print_entry_block("stored capsule:", row)
     return 0
-
-
-def _cmd_rerun(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule rerun")
-    parser.add_argument("id_or_alias")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
-    parser.add_argument("--env", dest="env_mode", default="current", choices=["current", "venv"])
-    parser.add_argument("args", nargs=argparse.REMAINDER, help="Extra args appended to replay command")
-    args = parser.parse_args(argv)
-
-    extra = list(args.args)
-    if extra and extra[0] == "--":
-        extra = extra[1:]
-    return int(
-        rerun_capsule(
-            capsule_or_alias=args.id_or_alias,
-            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
-            env_mode=args.env_mode,
-            extra_args=extra,
-        )
-    )
 
 
 def _cmd_remove(argv: list[str]) -> int:
@@ -350,10 +383,16 @@ def _cmd_remove(argv: list[str]) -> int:
         raise SystemExit(str(exc))
 
     if bool(args.json):
-        _print_json(removed)
+        _print_json(
+            _capsule_command_json(
+                "remove",
+                removed,
+                result_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
+            )
+        )
     else:
         _print_action_block(
-            "removed capsule:",
+            "removed capsule from store:",
             removed,
             extra_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
         )
@@ -385,11 +424,9 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_show(rest)
     if cmd == "remove":
         return _cmd_remove(rest)
-    if cmd == "rerun":
-        return _cmd_rerun(rest)
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: init, stash, checkout, install, pack, list, show, remove, rerun.\n"
+        "Use one of: init, stash, checkout, install, pack, list, show, remove.\n"
         "Run `lelabo capsule -h` for usage."
     )

@@ -22,7 +22,13 @@ def test_train_supervised_help_displays_parser_usage() -> None:
     assert proc.returncode == 0
     assert "usage: lelabo train supervised" in proc.stdout
     assert "--dataset" in proc.stdout
+    assert "Override dataset.name." in proc.stdout
+    assert "Override model.name." in proc.stdout
     assert "--rule" in proc.stdout
+    assert "Override update_rule.name." in proc.stdout
+    assert "Override optimizer.name." in proc.stdout
+    assert "Override train.epochs." in proc.stdout
+    assert "Override train.batch." in proc.stdout
     assert "--task" not in proc.stdout
 
 

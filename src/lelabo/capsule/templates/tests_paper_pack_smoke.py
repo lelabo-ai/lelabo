@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -53,11 +54,11 @@ def test_paper_pack_smoke(tmp_path: Path) -> None:
 
     listed_models = _run("list", "models", "--json")
     assert listed_models.returncode == 0, listed_models.stderr or listed_models.stdout
-    assert "example_mlp" in listed_models.stdout
+    assert "example_mlp" in json.loads(listed_models.stdout)["sources"]["capsule"]
 
     listed_rules = _run("list", "update-rules", "--json")
     assert listed_rules.returncode == 0, listed_rules.stderr or listed_rules.stdout
-    assert "local_head" in listed_rules.stdout
+    assert "local_head" in json.loads(listed_rules.stdout)["sources"]["capsule"]
 
     trained = _run(
         "train",

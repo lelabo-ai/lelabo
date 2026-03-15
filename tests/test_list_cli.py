@@ -46,7 +46,28 @@ def test_list_cli_single_target_json_is_grouped(monkeypatch, capsys) -> None:
     rc = list_cli.main(["update-rules", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"update_rules": {"builtins": ["bp"], "capsule": ["dfa"]}}
+    assert payload == {
+        "schema_version": "lelabo.cli.list/v1",
+        "target": "update_rules",
+        "sources": {"builtins": ["bp"], "capsule": ["dfa"]},
+    }
+
+
+def test_list_cli_all_json_uses_registries_wrapper(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        list_cli,
+        "_snapshot_rows",
+        lambda *args, **kwargs: {"models": {"builtins": ["cnn"], "capsule": ["paper_model"]}},
+    )
+
+    rc = list_cli.main(["all", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "schema_version": "lelabo.cli.list/v1",
+        "target": "all",
+        "registries": {"models": {"builtins": ["cnn"], "capsule": ["paper_model"]}},
+    }
 
 
 def test_list_cli_algos_alias_maps_to_update_rules(monkeypatch, capsys) -> None:
@@ -59,7 +80,7 @@ def test_list_cli_algos_alias_maps_to_update_rules(monkeypatch, capsys) -> None:
     rc = list_cli.main(["algos", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert sorted(payload.keys()) == ["update_rules"]
+    assert payload["target"] == "update_rules"
 
 
 def test_list_cli_unknown_target_raises_system_exit() -> None:
@@ -87,7 +108,7 @@ def test_list_cli_can_include_capsule_models_from_path(tmp_path, capsys) -> None
         rc = list_cli.main(["models", "--capsule", str(capsule_root), "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_list_model" in payload["models"]["capsule"]
+        assert "capsule_list_model" in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -131,7 +152,7 @@ def test_list_cli_can_include_capsule_datasets_from_alias(tmp_path, capsys) -> N
         )
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_list_dataset" in payload["datasets"]["capsule"]
+        assert "capsule_list_dataset" in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -163,6 +184,6 @@ def test_list_cli_does_not_auto_include_stored_capsules(tmp_path, monkeypatch, c
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "auto_capsule_model" not in payload["models"]["capsule"]
+        assert "auto_capsule_model" not in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()

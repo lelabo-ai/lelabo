@@ -323,12 +323,12 @@ def test_fresh_capsule_examples_do_not_pollute_plugin_listings(tmp_path, monkeyp
         rc = list_cli.main(["optimizers", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_sgd" not in payload["optimizers"]["capsule"]
+        assert "capsule_sgd" not in payload["sources"]["capsule"]
 
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "example_mlp" not in payload["models"]["capsule"]
+        assert "example_mlp" not in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
 

@@ -50,7 +50,7 @@ def test_capsule_optimizer_smoke(tmp_path: Path) -> None:
     listed = _run("list", "optimizers", "--json")
     assert listed.returncode == 0, listed.stderr or listed.stdout
     payload = json.loads(listed.stdout)
-    assert "capsule_sgd" in payload.get("optimizers", [])
+    assert "capsule_sgd" in payload.get("sources", {}).get("capsule", [])
 
     trained = _run(
         "train",

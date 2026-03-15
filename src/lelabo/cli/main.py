@@ -44,7 +44,7 @@ Commands:
   train      Run supervised or RL training (explicit mode)
   audit      Run update-rule audit tests
   list       List available update-rules/datasets/models/initializers/optimizers/losses/metrics/schedulers
-  capsule    Manage experiment capsules (init/stash/checkout/install/pack/list/show/remove/rerun)
+  capsule    Manage experiment capsules (init/stash/checkout/install/pack/list/show/remove)
 
 Help:
   lelabo -h

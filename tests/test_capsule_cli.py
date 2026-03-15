@@ -28,21 +28,25 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["install", str(bundle), "--alias", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "installed capsule:" in out
+    assert "installed capsule into store:" in out
     assert "capsule_id: cli_cap" in out
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "capsules:" in out
+    assert "stored capsules:" in out
     assert "cli_cap" in out
     assert "cli_alias" in out
+    assert "kind:" not in out
+    assert "| path: " in out
 
     rc = capsule_cli.main(["show", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "capsule:" in out
+    assert "stored capsule:" in out
     assert "capsule_id: cli_cap" in out
+    assert "kind:" not in out
+    assert "path:" in out
 
     installed_dir = caps_dir / "cli_cap"
     assert installed_dir.exists()
@@ -50,14 +54,14 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["remove", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "removed capsule:" in out
+    assert "removed capsule from store:" in out
     assert "capsule_id: cli_cap" in out
     assert "deleted_files: True" in out
     assert not installed_dir.exists()
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    assert "(no capsules installed)" in capsys.readouterr().out
+    assert "(capsule store is empty)" in capsys.readouterr().out
 
 
 def test_capsule_cli_remove_keep_files(tmp_path, capsys) -> None:
@@ -81,6 +85,53 @@ def test_capsule_cli_remove_keep_files(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["remove", "keep_alias", "--keep-files", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     assert installed_dir.exists()
+
+
+def test_capsule_cli_json_outputs_use_versioned_public_schema(tmp_path, capsys) -> None:
+    run_dir = tmp_path / "run_json"
+    run_dir.mkdir()
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"acc": 0.3}), encoding="utf-8")
+
+    bundle = tmp_path / "cli_capsule_json.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_dir), "--out", str(bundle), "--id", "cli_json"])
+    assert rc == 0
+    capsys.readouterr()
+
+    caps_dir = tmp_path / "caps_json"
+
+    rc = capsule_cli.main(
+        ["install", str(bundle), "--alias", "json_alias", "--capsules-dir", str(caps_dir), "--json"]
+    )
+    assert rc == 0
+    install_payload = json.loads(capsys.readouterr().out)
+    assert install_payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert install_payload["command"] == "install"
+    assert install_payload["capsule"]["capsule_id"] == "cli_json"
+    assert install_payload["capsule"]["kind"] == "single_run"
+    assert install_payload["result"]["source_bundle"] == str(bundle.resolve())
+
+    rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload["schema_version"] == "lelabo.cli.capsules/v1"
+    assert [row["capsule_id"] for row in list_payload["capsules"]] == ["cli_json"]
+
+    rc = capsule_cli.main(["show", "json_alias", "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert show_payload["command"] == "show"
+    assert show_payload["capsule"]["capsule_id"] == "cli_json"
+    assert "result" not in show_payload
+
+    rc = capsule_cli.main(["remove", "json_alias", "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    remove_payload = json.loads(capsys.readouterr().out)
+    assert remove_payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert remove_payload["command"] == "remove"
+    assert remove_payload["capsule"]["capsule_id"] == "cli_json"
+    assert remove_payload["result"]["deleted_files"] is True
 
 
 def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
@@ -184,8 +235,11 @@ def test_capsule_cli_stash_and_checkout(tmp_path, capsys) -> None:
     assert rc == 0
 
     store_payload = json.loads(capsys.readouterr().out)
-    assert store_payload["capsule_id"] == "store_demo_capsule"
-    assert store_payload["moved"] is True
+    assert store_payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert store_payload["command"] == "stash"
+    assert store_payload["capsule"]["capsule_id"] == "store_demo_capsule"
+    assert store_payload["capsule"]["kind"] == "config_only"
+    assert store_payload["result"]["moved"] is True
     stored_path = caps_dir / "store_demo_capsule"
     assert stored_path.exists()
     assert (stored_path / "capsule.toml").exists()
@@ -206,10 +260,14 @@ def test_capsule_cli_stash_and_checkout(tmp_path, capsys) -> None:
 
     restore_payload = json.loads(capsys.readouterr().out)
     restored_path = restore_root / "store_demo_capsule"
-    assert restore_payload["capsule_id"] == "store_demo_capsule"
-    assert restore_payload["checked_out_path"] == str(restored_path.resolve())
-    assert restore_payload["moved"] is True
-    assert restore_payload["removed_from_cache"] is True
+    assert restore_payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert restore_payload["command"] == "checkout"
+    assert restore_payload["capsule"]["capsule_id"] == "store_demo_capsule"
+    assert restore_payload["capsule"]["kind"] == "config_only"
+    assert restore_payload["capsule"]["path"] == str(restored_path.resolve())
+    assert restore_payload["result"]["checked_out_path"] == str(restored_path.resolve())
+    assert restore_payload["result"]["moved"] is True
+    assert restore_payload["result"]["removed_from_cache"] is True
     assert (restored_path / "capsule.toml").exists()
     assert not stored_path.exists()
     assert capsule_registry.get_capsule("stored_alias", caps_dir) is None
@@ -231,7 +289,7 @@ def test_capsule_cli_stash_uses_active_capsule_when_source_is_omitted(tmp_path, 
     row = capsule_registry.get_capsule("active_alias", caps_dir)
     assert row is not None
     assert row["capsule_id"] == "active_capsule"
-    assert payload["capsule_id"] == "active_capsule"
+    assert payload["capsule"]["capsule_id"] == "active_capsule"
     assert not source.exists()
 
 
@@ -258,8 +316,8 @@ def test_capsule_cli_stash_accepts_manifest_without_capsule_toml(tmp_path, capsy
     assert rc == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["capsule_id"] == "manifest_only_capsule"
-    assert payload["moved"] is True
+    assert payload["capsule"]["capsule_id"] == "manifest_only_capsule"
+    assert payload["result"]["moved"] is True
     assert (caps_dir / "manifest_only_capsule" / "manifest.json").exists()
     assert not source.exists()
 
@@ -288,9 +346,9 @@ def test_capsule_cli_stash_from_parent_directory_uses_named_subfolder(tmp_path, 
     assert rc == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["capsule_id"] == "test"
-    assert payload["stored_from"] == str(source.resolve())
-    assert payload["moved"] is True
+    assert payload["capsule"]["capsule_id"] == "test"
+    assert payload["result"]["stored_from"] == str(source.resolve())
+    assert payload["result"]["moved"] is True
     assert (caps_dir / "test" / "capsule.toml").exists()
     assert not source.exists()
 
@@ -306,8 +364,11 @@ def test_capsule_cli_stash_all_moves_direct_child_capsules_only(tmp_path, capsys
     rc = capsule_cli.main(["stash", "--all", str(workspace), "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsules/v1"
+    assert payload["command"] == "stash"
     assert payload["count"] == 2
-    assert sorted(item["capsule_id"] for item in payload["stashed"]) == ["cap_a", "cap_b"]
+    assert sorted(item["capsule_id"] for item in payload["capsules"]) == ["cap_a", "cap_b"]
+    assert all(item["result"]["moved"] is True for item in payload["capsules"])
     assert not cap_a.exists()
     assert not cap_b.exists()
     assert (caps_dir / "cap_a").exists()

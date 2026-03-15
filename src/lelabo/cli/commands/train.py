@@ -87,13 +87,14 @@ def _add_config_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_runtime_override_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--device", type=str, default=None, help="Override runtime.device.")
+    parser.add_argument("--seed", type=int, default=None, help="Override runtime.seed.")
     parser.add_argument(
         "--determinism",
         type=str,
         default=None,
         choices=["off", "relaxed", "strict"],
+        help="Override runtime.determinism.",
     )
     parser.add_argument(
         "--display",
@@ -125,17 +126,27 @@ def _resolved_config_dict(cfg: Any, *, resolved_device: str) -> dict[str, Any]:
 
 
 def _add_supervised_overrides(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--dataset", type=str, default=None)
-    parser.add_argument("--model", default=None)
-    parser.add_argument("--initializer", default=None)
-    parser.add_argument("--loss", default=None)
-    parser.add_argument("--rule", default=None)
-    parser.add_argument("--optimizer", default=None)
-    parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument("--weight-decay", type=float, default=None)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--batch", type=int, default=None)
-    parser.add_argument("--metrics", type=str, default=None, help="Comma-separated metrics list.")
+    parser.add_argument("--dataset", type=str, default=None, help="Override dataset.name.")
+    parser.add_argument("--model", default=None, help="Override model.name.")
+    parser.add_argument("--initializer", default=None, help="Override initializer.name.")
+    parser.add_argument("--loss", default=None, help="Override loss.name.")
+    parser.add_argument("--rule", default=None, help="Override update_rule.name.")
+    parser.add_argument("--optimizer", default=None, help="Override optimizer.name.")
+    parser.add_argument("--lr", type=float, default=None, help="Override optimizer.params.lr.")
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=None,
+        help="Override optimizer.params.weight_decay.",
+    )
+    parser.add_argument("--epochs", type=int, default=None, help="Override train.epochs.")
+    parser.add_argument("--batch", type=int, default=None, help="Override train.batch.")
+    parser.add_argument(
+        "--metrics",
+        type=str,
+        default=None,
+        help="Comma-separated metric names overriding the config metric list.",
+    )
 
 
 def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
@@ -160,7 +171,10 @@ def build_train_parser() -> argparse.ArgumentParser:
     supervised_parser = subparsers.add_parser(
         "supervised",
         help="Run supervised training.",
-        description="Run a supervised LeLabo experiment from a layered config.",
+        description=(
+            "Run a supervised LeLabo experiment from a layered config. "
+            "CLI flags override the config; use --set for advanced nested overrides."
+        ),
     )
     _add_config_args(supervised_parser)
     _add_supervised_overrides(supervised_parser)

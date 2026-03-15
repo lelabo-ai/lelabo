@@ -232,7 +232,7 @@ def test_capsule_optimizer_golden_path_creates_lists_and_trains(
         rc = list_cli.main(["optimizers", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_sgd" in payload["optimizers"]["capsule"]
+        assert "capsule_sgd" in payload["sources"]["capsule"]
 
         summary = _run_supervised_config(
             tmp_path,
