@@ -112,7 +112,12 @@ def _collect_child_capsule_roots(container: Path) -> list[Path]:
 
 
 def _cmd_init(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule init")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule init",
+        description="Create a new local capsule scaffold in your current workspace.",
+        epilog="Examples:\n  lelabo capsule init my_capsule\n  lelabo capsule init my_paper --dir workspaces/",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("name", help="Capsule name (folder name)")
     parser.add_argument("--dir", dest="base_dir", default=".", help="Parent directory where the capsule is created")
     parser.add_argument("--force", action="store_true", help="Create scaffold even if the target directory already exists")
@@ -146,7 +151,12 @@ def _cmd_init(argv: list[str]) -> int:
 
 
 def _cmd_pack(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule pack")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule pack",
+        description="Build a shareable capsule bundle from a run directory, sweep directory, or config file.",
+        epilog="Examples:\n  lelabo capsule pack --from runs/exp1\n  lelabo capsule pack --from outputs/sweeps/demo --out demo_capsule.tar.gz",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--from", dest="source", required=True, help="Source run dir / sweep dir / config file")
     parser.add_argument("--out", dest="out_path", default=None, help="Output bundle path (.tar.gz or .tar.zst)")
     parser.add_argument("--id", dest="capsule_id", default=None, help="Optional capsule id")
@@ -164,7 +174,12 @@ def _cmd_pack(argv: list[str]) -> int:
 
 
 def _cmd_install(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule install")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule install",
+        description="Import an external capsule bundle into the local capsule store.",
+        epilog="Examples:\n  lelabo capsule install demo_capsule.tar.gz\n  lelabo capsule install demo_capsule.tar.gz --alias demo",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("bundle", help="Path to capsule bundle (.tar.gz/.tar.zst)")
     parser.add_argument("--alias", default=None, help="Optional alias inside the capsule store")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
@@ -190,7 +205,17 @@ def _cmd_install(argv: list[str]) -> int:
 
 
 def _cmd_stash(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule stash")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule stash",
+        description="Move a local capsule into the local capsule store.",
+        epilog=(
+            "Examples:\n"
+            "  lelabo capsule stash\n"
+            "  lelabo capsule stash ./my_capsule --alias paper_demo\n"
+            "  lelabo capsule stash --all ./workspace_capsules"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("source", nargs="?", default=None, help="Capsule root to stash (defaults to active capsule from cwd)")
     parser.add_argument("--alias", default=None, help="Optional alias inside the capsule store")
     parser.add_argument("--all", action="store_true", help="Stash all direct child capsule folders from SOURCE or '.'")
@@ -251,7 +276,12 @@ def _cmd_stash(argv: list[str]) -> int:
 
 
 def _cmd_checkout(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule checkout")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule checkout",
+        description="Move a stored capsule back into a local workspace.",
+        epilog="Examples:\n  lelabo capsule checkout my_capsule\n  lelabo capsule checkout my_capsule ./workbench",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("id_or_alias", help="Stored capsule id or alias to move back into a local workspace")
     parser.add_argument("destination", nargs="?", default=".", help="Parent directory where the capsule folder is recreated")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
@@ -292,7 +322,10 @@ def _cmd_checkout(argv: list[str]) -> int:
 
 
 def _cmd_list(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule list")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule list",
+        description="List capsules currently stored in the local capsule store.",
+    )
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
@@ -321,8 +354,13 @@ def _cmd_list(argv: list[str]) -> int:
 
 
 def _cmd_show(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule show")
-    parser.add_argument("id_or_alias")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule show",
+        description="Show one stored capsule entry from the local capsule store.",
+        epilog="Examples:\n  lelabo capsule show my_capsule\n  lelabo capsule show my_alias --json",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("id_or_alias", help="Stored capsule id or alias to inspect")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
@@ -341,8 +379,13 @@ def _cmd_show(argv: list[str]) -> int:
 
 
 def _cmd_remove(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lelabo capsule remove")
-    parser.add_argument("id_or_alias")
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule remove",
+        description="Remove one stored capsule entry from the local capsule store.",
+        epilog="Examples:\n  lelabo capsule remove my_capsule\n  lelabo capsule remove my_capsule --keep-files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("id_or_alias", help="Stored capsule id or alias to remove")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument(
         "--keep-files",

@@ -60,6 +60,39 @@ def test_list_help_displays_list_usage() -> None:
     assert "schedulers" in proc.stdout
 
 
+def test_capsule_help_displays_lifecycle_subcommands() -> None:
+    proc = _run_cli_help("capsule", "-h")
+    assert proc.returncode == 0
+    assert "Manage LeLabo experiment capsules" in proc.stdout
+    assert "init" in proc.stdout
+    assert "stash" in proc.stdout
+    assert "checkout" in proc.stdout
+    assert "install" in proc.stdout
+
+
+def test_capsule_show_help_documents_positionals_and_examples() -> None:
+    proc = _run_cli_help("capsule", "show", "-h")
+    assert proc.returncode == 0
+    assert "Show one stored capsule entry" in proc.stdout
+    assert "Stored capsule id or alias to inspect" in proc.stdout
+    assert "Examples:" in proc.stdout
+
+
+def test_capsule_remove_help_documents_positionals_and_examples() -> None:
+    proc = _run_cli_help("capsule", "remove", "-h")
+    assert proc.returncode == 0
+    assert "Remove one stored capsule entry" in proc.stdout
+    assert "Stored capsule id or alias to remove" in proc.stdout
+    assert "Examples:" in proc.stdout
+
+
+def test_capsule_stash_help_includes_workbench_examples() -> None:
+    proc = _run_cli_help("capsule", "stash", "-h")
+    assert proc.returncode == 0
+    assert "Move a local capsule into the local capsule store." in proc.stdout
+    assert "lelabo capsule stash --all ./workspace_capsules" in proc.stdout
+
+
 def test_train_without_subcommand_prints_help() -> None:
     proc = _run_cli_help("train")
     assert proc.returncode == 0
