@@ -29,28 +29,28 @@ These are the supervised paths currently treated as first-class:
 
 ## Install
 
-Minimal editable install:
+Minimal install:
 
 ```bash
-pip install -e .
+pip install lelabo
 ```
 
-Supervised workflows:
+Official supervised workflows:
 
 ```bash
-pip install -e ".[supervised]"
+pip install "lelabo[supervised]"
 ```
 
 NLP / GLUE workflows:
 
 ```bash
-pip install -e ".[supervised,nlp]"
+pip install "lelabo[supervised,nlp]"
 ```
 
-Local development:
+All public extras:
 
 ```bash
-pip install -e ".[supervised,rl,nlp,dev,test]"
+pip install "lelabo[supervised,rl,nlp]"
 ```
 
 ## First commands

@@ -7,30 +7,30 @@
 
 ## Extras matrix
 
-- minimal: `pip install -e .`
-- supervised: `pip install -e ".[supervised]"`
-- supervised + NLP: `pip install -e ".[supervised,nlp]"`
-- RL: `pip install -e ".[rl]"`
-- local development: `pip install -e ".[supervised,rl,nlp,dev,test]"`
+- minimal: `pip install lelabo`
+- supervised: `pip install "lelabo[supervised]"`
+- supervised + NLP: `pip install "lelabo[supervised,nlp]"`
+- RL: `pip install "lelabo[rl]"`
+- all public extras: `pip install "lelabo[supervised,rl,nlp]"`
 
 ## Recommended installs
 
 If you want the official supervised paths:
 
 ```bash
-pip install -e ".[supervised]"
+pip install "lelabo[supervised]"
 ```
 
 If you also want GLUE / BERT:
 
 ```bash
-pip install -e ".[supervised,nlp]"
+pip install "lelabo[supervised,nlp]"
 ```
 
-If you are working on the repo itself:
+If you want all public optional surfaces:
 
 ```bash
-pip install -e ".[supervised,rl,nlp,dev,test]"
+pip install "lelabo[supervised,rl,nlp]"
 ```
 
 ## Verify the install

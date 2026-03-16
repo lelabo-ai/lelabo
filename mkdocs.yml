@@ -11,22 +11,28 @@ theme:
     text: Inter
     code: JetBrains Mono
   features:
+    - navigation.instant
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.top
+    - navigation.path
     - search.suggest
     - search.highlight
     - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
   palette:
     - scheme: default
-      primary: blue
-      accent: deep purple
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - scheme: slate
-      primary: blue
-      accent: deep purple
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -34,13 +40,38 @@ theme:
 nav:
   - Home: index.md
   - Getting Started:
-      - Overview: getting-started/index.md
+      - getting-started/index.md
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
+  - Concepts:
+      - concepts/index.md
+      - Supervised Runtime: concepts/supervised-runtime.md
+      - Capsules: concepts/capsules.md
+      - Cache & Local Rules: concepts/cache-local-rules.md
+      - Run Artifacts: concepts/run-artifacts.md
+      - Configuration: concepts/configuration.md
+  - Guides:
+      - guides/index.md
+      - Run Supervised Experiments: guides/run-supervised.md
+      - Create a Capsule: guides/create-capsule.md
+      - Create a Model: guides/create-model.md
+      - Create an Update Rule: guides/create-update-rule.md
+      - Create a Dataset: guides/create-dataset.md
+      - Build a Paper Pack: guides/paper-pack.md
+  - Reference:
+      - reference/index.md
+      - CLI: reference/cli.md
+      - Public API: reference/api.md
+      - Config Schema: reference/config-schema.md
+      - Run Artifacts Contract: reference/run-artifacts.md
+  - Research Notes: research-notes.md
+  - Community: community.md
+  - RL: rl.md
 
 markdown_extensions:
   - admonition
   - attr_list
+  - md_in_html
   - tables
   - toc:
       permalink: true
@@ -49,6 +80,13 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 plugins:
   - search

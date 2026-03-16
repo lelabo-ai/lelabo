@@ -12,7 +12,7 @@ def _require_gymnasium():
         import gymnasium as gym
     except ImportError as exc:
         raise ImportError(
-            "RL environments require 'gymnasium'. Install optional deps with: pip install '.[rl]'"
+            "RL environments require 'gymnasium'"
         ) from exc
     return gym
 

@@ -36,7 +36,7 @@ def make_glue_dataset(
     except ImportError as exc:
         raise ImportError(
             "Dataset 'glue' requires optional NLP dependencies. "
-            "Install with: pip install '.[nlp]'"
+            "Install with: pip install \"datasets, transformers\""
         ) from exc
 
     task_name = str(glue_task).lower()

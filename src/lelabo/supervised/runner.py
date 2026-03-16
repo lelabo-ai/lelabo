@@ -101,7 +101,7 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
             except ImportError as exc:
                 raise ImportError(
                     "Dataset 'glue' requires 'transformers'. "
-                    "Install optional deps with: pip install '.[nlp]'"
+                    "Install optional deps with: pip install \"transformers\""
                 ) from exc
             model = AutoModelForSequenceClassification.from_pretrained(args.hf_model, num_labels=num_labels)
     else:
