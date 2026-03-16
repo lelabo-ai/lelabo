@@ -1,25 +1,57 @@
 site_name: LeLabo
-site_description: Modular research lab for learning algorithms
-site_url: https://adrienkegreisz.github.io/lelabo/
+site_description: Modular research library for reusable learning methods and capsule-based experimentation
+repo_url: https://github.com/adrienkegreisz/LeLabo
+repo_name: adrienkegreisz/lelabo
 
 theme:
   name: material
+  logo: assets/logo-mark.svg
+  favicon: assets/favicon.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: blue
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Quickstart: quickstart.md
-  - Supervised: supervised.md
-  - Capsules: capsules.md
-  - Cache & Local Rules: cache-local-rules.md
-  - API: api.md
-  - Research notes: research-notes.md
+  - Getting Started:
+      - Overview: getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
 
 markdown_extensions:
   - admonition
+  - attr_list
   - tables
   - toc:
       permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
 
 plugins:
   - search
+
+extra_css:
+  - stylesheets/extra.css

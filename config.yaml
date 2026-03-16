@@ -1,0 +1,82 @@
+# AutoResearchClaw Configuration - Optimized for Ollama + Qwen3.5:35b
+
+project:
+  name: "le-labo-autoresearch"
+  mode: "full-auto"
+
+research:
+  topic: "Your research topic here"  # ← Change this!
+  domains:
+    - "machine-learning"
+    - "neural-networks"
+  daily_paper_count: 10
+  quality_threshold: 4.0
+
+runtime:
+  timezone: "Europe/Paris"
+  max_parallel_tasks: 3
+  approval_timeout_hours: 12
+  retry_limit: 2
+
+notifications:
+  channel: "console"
+  on_stage_start: true
+  on_stage_fail: true
+  on_gate_required: true
+
+knowledge_base:
+  backend: "markdown"
+  root: "docs/kb"
+
+openclaw_bridge:
+  use_cron: false
+  use_message: false
+  use_memory: false
+  use_sessions_spawn: false
+  use_web_fetch: false
+  use_browser: false
+
+# === LLM Configuration - Ollama (qwen3.5:35b) ===
+llm:
+  provider: "openai-compatible"
+  
+  # Ollama endpoint
+  base_url: "http://localhost:11434/v1"
+  
+  # API key placeholder (Ollama doesn't require authentication, but required by config)
+  api_key: "ollama-local-key"
+  api_key_env: "OLLAMA_API_KEY"
+  
+  # Primary model: Qwen3.5 35B (optimized for research tasks)
+  primary_model: "qwen3.5:35b"
+  
+  fallback_models:
+    - "qwen2.5:72b"
+    - "llama3.1:70b"
+  
+  # Optional: Semantic Scholar API key for literature search
+  s2_api_key: ""
+
+# === Security (optional gates) ===
+security:
+  hitl_required_stages: [5, 9, 20]  # Stages that need human approval
+  allow_publish_without_approval: false
+  redact_sensitive_logs: true
+
+# === Experiment Configuration - Local sandbox with conda env ===
+experiment:
+  mode: "sandbox"
+  time_budget_sec: 600
+  max_iterations: 10
+  metric_key: "primary_metric"
+  metric_direction: "minimize"
+  
+  sandbox:
+    # Use your conda environment for experiments
+    python_path: "/home/adrien/anaconda3/envs/llm_py311/bin/python"
+    gpu_required: false
+    max_memory_mb: 8192
+
+# === Prompts (optional) ===
+prompts:
+  custom_file: ""
