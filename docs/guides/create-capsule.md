@@ -72,8 +72,10 @@ my_capsule/
     └── UPDATE_RULE_LIFECYCLE.md
 ```
 
-!!! tip "Local docs are the source of truth for extensions"
-    `resources/EXTENSION_RECIPES.md` inside the capsule has precise, step-by-step recipes for every extension type. Use those when implementing a method — they are more detailed than this public page.
+!!! info "About the local docs in `resources/`"
+    The `resources/` folder contains documentation designed to be read by AI agents working inside the capsule. When you use an assistant (like OpenCode, Codex, Claude Code, ...) to help implement a method, it will read these files automatically to understand the contracts, param flows, and extension recipes without you having to explain them.
+
+    For humans, the public documentation you're reading now is the right place.
 
 ## Run the capsule tests
 

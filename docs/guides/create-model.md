@@ -6,6 +6,11 @@ Register a custom `nn.Module` so it can be selected by name from a config or the
 
 Use a model extension when the architecture changes. If you only need different hyperparameters on an existing architecture, use `--set` or edit the config instead.
 
+## Use `nn.Module`, not `torch.nn.functional`
+
+!!! tip "Prefer `nn.Module` layers over `torch.nn.functional`"
+    We strongly encourage using module-based layers (`nn.ReLU()`, `nn.Linear(...)`) wherever possible. The autocache hooks onto `nn.Module` objects — functional calls (`F.relu`, `F.linear`) have no module to hook onto and won't be captured. If you don't need autocache or local rules, `F.*` still works fine.
+
 ## Where to edit
 
 Inside your capsule: `models/example.py`

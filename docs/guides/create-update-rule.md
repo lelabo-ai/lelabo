@@ -2,11 +2,26 @@
 
 Register a custom learning rule that the trainer will use instead of standard backpropagation.
 
+## What an update rule actually is
+
+An update rule is the general control point for learning. `train_step` receives a batch and a state object, and from there you write whatever logic you want — no constraints on what you compute, which tensors you access, or how you apply updates.
+
+Standard backpropagation is just one instantiation of this interface. But you can use it for much more:
+
+- **Alternative credit assignment** — DFA, FA, DNI, local rules, biologically inspired updates
+- **Per-layer optimizers** — different learning rates, different optimizer types for different parts of the model
+- **Architectural constraints** — impose geometric constraints, weight symmetry, orthogonality, or any structural invariant during training
+- **Asymmetric or conditional updates** — freeze certain layers, update different parts on different steps, apply updates conditionally based on activations
+- **Custom loss surfaces** — combine multiple objectives, contrastive terms, auxiliary losses, custom regularizers
+- **Any custom learning logic** — if it can be expressed as "given this batch, do something to the model", it belongs here
+
+The key idea: you control exactly **what you give**, **how you give it**, and **to whom** at every step.
+
 ## When to use this
 
-Use an update rule extension when the learning dynamics change — a different credit assignment scheme, a local rule, a biologically inspired update, or anything that differs from standard BP.
+Use an update rule extension whenever you need control over the learning loop that goes beyond choosing a standard optimizer or loss. If the standard BP + optimizer path doesn't give you what you need, the update rule is where to implement it.
 
-If you only need a custom optimizer with standard BP, use a [model extension](create-model.md) or [optimizer extension](create-capsule.md) instead.
+If you only need a custom optimizer within standard BP, use an optimizer extension instead (see [Create a capsule](create-capsule.md)).
 
 ## Where to edit
 
