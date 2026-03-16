@@ -1,3 +1,5 @@
+"""MNIST dataset builders and transform helpers."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -109,3 +111,4 @@ def make_mnist_dataset(
         input_shape=input_shape,
         test_dataset=test_ds,
     )
+"""MNIST dataset builders and transform helpers."""

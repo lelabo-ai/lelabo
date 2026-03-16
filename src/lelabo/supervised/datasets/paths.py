@@ -1,3 +1,5 @@
+"""Filesystem path helpers for dataset download and cache locations."""
+
 from __future__ import annotations
 
 import os
@@ -25,3 +27,4 @@ def dataset_dir(name: str) -> Path:
     p = DATA_DIR / name
     p.mkdir(parents=True, exist_ok=True)
     return p
+"""Filesystem path helpers for dataset download and cache locations."""

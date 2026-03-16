@@ -1,3 +1,5 @@
+"""Builtin learning-rate scheduler registrations."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -196,3 +198,4 @@ def build_linear_lr(ctx: SchedulerContext):
 def build_constant_lr(ctx: SchedulerContext):
     kwargs = ctx.scheduler_params()
     return torch.optim.lr_scheduler.ConstantLR(ctx.optimizer, **kwargs)
+"""Builtin learning-rate scheduler registrations."""

@@ -1,3 +1,5 @@
+"""Install external capsule bundles into the local capsule store."""
+
 from __future__ import annotations
 
 import json

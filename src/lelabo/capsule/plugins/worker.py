@@ -1,3 +1,5 @@
+"""Subprocess worker used by capsule plugin discovery."""
+
 from __future__ import annotations
 
 import argparse

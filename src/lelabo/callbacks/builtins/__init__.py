@@ -1,3 +1,5 @@
+"""Built-in callback registrations."""
+
 from __future__ import annotations
 
 from ...core.callbacks import EarlyStopping, EarlyStoppingConfig

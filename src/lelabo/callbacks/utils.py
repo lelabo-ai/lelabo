@@ -1,3 +1,5 @@
+"""Convenience helpers for building configured callback stacks."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -50,4 +52,3 @@ def build_configured_callbacks(
         )
         out.append(build_callback(name, ctx))
     return out
-

@@ -1,3 +1,5 @@
+"""Version helpers for train-config schemas and LeLabo compatibility markers."""
+
 from __future__ import annotations
 
 try:

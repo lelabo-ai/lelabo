@@ -1,3 +1,5 @@
+"""Create local capsule scaffolds for new paper packs or experiments."""
+
 from __future__ import annotations
 
 import json

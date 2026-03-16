@@ -1,3 +1,5 @@
+"""Default configuration bundles used as the base layer for resolution."""
+
 from __future__ import annotations
 
 import copy

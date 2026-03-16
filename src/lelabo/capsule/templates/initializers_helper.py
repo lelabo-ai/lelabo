@@ -1,3 +1,5 @@
+"""Template helper snippet for initializer extension examples."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -160,3 +162,4 @@ def make_initializer(
         return out
 
     return _apply
+"""Template helper snippet for initializer extension examples."""

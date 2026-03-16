@@ -1,4 +1,6 @@
 # lab/models/resnet.py
+"""Residual network baselines for vision classification."""
+
 from __future__ import annotations
 
 import torch

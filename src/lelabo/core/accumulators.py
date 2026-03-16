@@ -1,3 +1,5 @@
+"""Online split-level accumulation helpers for training and evaluation loops."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,6 +10,8 @@ from .train_types import SplitSummary
 
 
 class SplitAccumulator:
+    """Accumulate weighted loss and scalar statistics for one split."""
+
     def __init__(self, *, split: str | None):
         self.split = split
         self.loss_sum = 0.0
@@ -16,6 +20,7 @@ class SplitAccumulator:
         self.num_batches = 0
 
     def update(self, *, loss: float, stats: Mapping[str, Any], batch_size: int) -> None:
+        """Add one batch worth of observations to the running aggregate."""
         weight = int(max(1, int(batch_size)))
         self.loss_sum += float(loss) * float(weight)
         self.num_samples += weight
@@ -33,6 +38,7 @@ class SplitAccumulator:
         duration_sec: float | None,
         extra_scalars: Mapping[str, float] | None = None,
     ) -> SplitSummary:
+        """Finalize the accumulated values into a ``SplitSummary``."""
         denom = float(max(1, self.num_samples))
         scalars = {str(k): float(v / denom) for k, v in self.scalar_sums.items()}
         if extra_scalars:
@@ -64,4 +70,5 @@ class SplitAccumulator:
         *,
         extra_scalars: Mapping[str, float] | None = None,
     ) -> SplitSummary:
+        """Return a transient ``SplitSummary`` without closing the accumulator."""
         return self.build(duration_sec=None, extra_scalars=extra_scalars)

@@ -1,3 +1,5 @@
+"""Activation helpers shared by local rules and cache-pairing logic."""
+
 from __future__ import annotations
 
 import math
@@ -76,6 +78,7 @@ _LOCAL_RULE_MODULE_TO_NAME: tuple[tuple[type[nn.Module], str], ...] = (
 
 
 def normalize_local_rule_activation_name(raw: str | None) -> str:
+    """Validate and normalize a local-rule activation token."""
     act = str(raw).strip().lower()
     if act not in LOCAL_RULE_SUPPORTED_ACTIVATIONS:
         raise ValueError(
@@ -86,6 +89,7 @@ def normalize_local_rule_activation_name(raw: str | None) -> str:
 
 
 def local_rule_activation_name_from_value(raw: Any) -> str | None:
+    """Infer a supported local-rule activation name from a string, module, or function."""
     if isinstance(raw, str):
         token = raw.strip().lower()
         if token in LOCAL_RULE_SUPPORTED_ACTIVATIONS:
@@ -106,6 +110,7 @@ def local_rule_activation_name_from_value(raw: Any) -> str | None:
 
 
 def local_rule_activation_from_preact(activation_name: str, preact: torch.Tensor) -> torch.Tensor:
+    """Apply a supported activation to a pre-activation tensor."""
     act = normalize_local_rule_activation_name(activation_name)
     if act == "relu":
         return torch.relu(preact)
@@ -131,6 +136,7 @@ def local_rule_activation_from_preact(activation_name: str, preact: torch.Tensor
 
 
 def local_rule_activation_derivative_from_preact(activation_name: str, preact: torch.Tensor) -> torch.Tensor:
+    """Return the derivative of a supported activation with respect to its pre-activation."""
     act = normalize_local_rule_activation_name(activation_name)
     if act == "relu":
         return (preact > 0).to(preact.dtype)
@@ -171,6 +177,7 @@ def register_cache_pair_activation(
     module_type: type[nn.Module],
     activation_name: str | None = None,
 ) -> None:
+    """Register how cache auto-pairing should interpret an activation module type."""
     if not isinstance(module_type, type) or not issubclass(module_type, nn.Module):
         raise TypeError("register_cache_pair_activation expects an nn.Module subclass.")
     resolved = None if activation_name is None else normalize_local_rule_activation_name(activation_name)
@@ -178,6 +185,7 @@ def register_cache_pair_activation(
 
 
 def cache_pair_activation_name_from_module(module: nn.Module) -> str | None:
+    """Resolve the cache-pair activation name for a concrete activation module."""
     for module_type, activation_name in _CACHE_PAIR_ACTIVATION_REGISTRY.items():
         if isinstance(module, module_type):
             return activation_name
@@ -185,4 +193,5 @@ def cache_pair_activation_name_from_module(module: nn.Module) -> str | None:
 
 
 def cache_pair_activation_module_types() -> tuple[type[nn.Module], ...]:
+    """Return the activation module types recognized by cache auto-pairing."""
     return tuple(_CACHE_PAIR_ACTIVATION_REGISTRY.keys())

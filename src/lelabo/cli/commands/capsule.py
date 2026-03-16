@@ -1,3 +1,5 @@
+"""CLI entrypoint for capsule lifecycle and store operations."""
+
 from __future__ import annotations
 
 import argparse

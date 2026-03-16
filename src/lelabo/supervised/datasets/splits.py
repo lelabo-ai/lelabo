@@ -1,3 +1,5 @@
+"""Dataset split helpers for train, validation, and test partitions."""
+
 from __future__ import annotations
 
 import torch
@@ -20,3 +22,4 @@ def split_train_val(n: int, val_frac: float, seed: int):
     val_idx = perm[:val_size]
     train_idx = perm[val_size:]
     return train_idx, val_idx
+"""Dataset split helpers for train, validation, and test partitions."""

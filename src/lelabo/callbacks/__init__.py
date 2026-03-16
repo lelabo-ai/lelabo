@@ -1,3 +1,5 @@
+"""Public callback registration and construction API."""
+
 from __future__ import annotations
 
 from ..core.callbacks import Callback, EarlyStopping, EarlyStoppingConfig

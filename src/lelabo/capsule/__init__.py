@@ -1,3 +1,5 @@
+"""Public capsule lifecycle API for scaffolding, packing, and storage."""
+
 from .schema import CAPSULE_SCHEMA_VERSION, validate_manifest
 from .collect import collect_capsule
 from .pack import pack_capsule

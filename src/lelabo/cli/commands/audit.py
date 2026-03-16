@@ -1,3 +1,5 @@
+"""CLI command wrapper for update-rule audit runs."""
+
 from __future__ import annotations
 
 import argparse

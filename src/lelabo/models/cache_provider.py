@@ -1,3 +1,5 @@
+"""Public cache provider contract and cache view utilities."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence

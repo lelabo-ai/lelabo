@@ -1,3 +1,5 @@
+"""Remove stored capsules and optionally delete their files."""
+
 from __future__ import annotations
 
 import shutil

@@ -1,3 +1,5 @@
+"""Registry and context helpers for loss builders."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

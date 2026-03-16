@@ -1,3 +1,5 @@
+"""Block declaration helpers for cache-aware model execution."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping

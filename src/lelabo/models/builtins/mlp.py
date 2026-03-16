@@ -1,3 +1,5 @@
+"""Multi-layer perceptron baselines and activation helpers."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

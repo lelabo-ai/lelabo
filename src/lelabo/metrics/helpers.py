@@ -1,3 +1,5 @@
+"""Streaming metric mixins and reusable trainer metric helpers."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

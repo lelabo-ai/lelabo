@@ -1,3 +1,5 @@
+"""Tensor and vision transform helpers for dataset pipelines."""
+
 from __future__ import annotations
 
 import torch
@@ -36,3 +38,4 @@ class AddGaussianNoise:
 class Flatten:
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         return x.view(-1)
+"""Tensor and vision transform helpers for dataset pipelines."""

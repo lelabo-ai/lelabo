@@ -1,3 +1,5 @@
+"""Metric registry and builder helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

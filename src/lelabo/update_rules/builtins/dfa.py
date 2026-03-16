@@ -1,3 +1,5 @@
+"""Direct Feedback Alignment update rule implementation."""
+
 from __future__ import annotations
 
 import math
@@ -238,3 +240,4 @@ class DirectFeedbackAlignment(OptimizerUpdateRule):
         stats = best_effort_stats(objective, out, y)
         self._mark_step_done()
         return stats
+"""Direct Feedback Alignment update rule implementation."""

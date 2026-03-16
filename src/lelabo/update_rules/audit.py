@@ -1,3 +1,5 @@
+"""Static checks and runtime audits for update rule compatibility."""
+
 from __future__ import annotations
 
 import argparse
@@ -79,3 +81,4 @@ def run_audit(argv: Sequence[str]) -> int:
 
 
 __all__ = ["build_audit_parser", "run_audit"]
+"""Static checks and runtime audits for update rule compatibility."""

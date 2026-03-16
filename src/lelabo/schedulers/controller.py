@@ -1,3 +1,5 @@
+"""Scheduler controller used by the trainer runtime."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -78,3 +80,4 @@ class SchedulerController:
         if optimizer is None:
             return []
         return [float(group.get("lr", 0.0)) for group in optimizer.param_groups]
+"""Scheduler controller used by the trainer runtime."""

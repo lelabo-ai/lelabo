@@ -1,4 +1,6 @@
 # lab/models/deep_softhebb.py
+"""Deep SoftHebb model variants and supporting layers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

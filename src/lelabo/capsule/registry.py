@@ -1,3 +1,5 @@
+"""Persistent metadata registry for capsules stored on disk."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

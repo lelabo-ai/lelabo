@@ -1,3 +1,5 @@
+"""Registry helpers for RL algorithms and their config contracts."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -37,4 +39,4 @@ def resolve_rl_config(algo: str, overrides: dict[str, str]) -> Any:
     if fn is None:
         raise ValueError(f"Unknown rl algo: {algo}")
     return fn(overrides)
-
+"""Registry helpers for RL algorithms and their config contracts."""

@@ -1,3 +1,5 @@
+"""Regression metrics used by supervised tasks."""
+
 from __future__ import annotations
 
 from ..helpers import BuiltinStreamingMetric

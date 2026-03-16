@@ -1,3 +1,5 @@
+"""Builtin metric registrations shipped with LeLabo."""
+
 from __future__ import annotations
 
 from . import classification as _classification  # noqa: F401

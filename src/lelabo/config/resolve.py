@@ -1,3 +1,5 @@
+"""Resolve layered configs from defaults, files, and CLI overrides."""
+
 from __future__ import annotations
 
 import copy

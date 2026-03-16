@@ -1,3 +1,5 @@
+"""SoftHebb update rule implementation and helpers."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -436,3 +438,4 @@ class SoftHebb(OptimizerUpdateRule):
             out = self._sup_step(model, objective, batch, device, state=state)
         self._mark_step_done()
         return out
+"""SoftHebb update rule implementation and helpers."""

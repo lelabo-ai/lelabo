@@ -1,3 +1,5 @@
+"""Factory helpers for constructing optimizers and schedulers."""
+
 # lab/optimizers/factory.py
 from __future__ import annotations
 

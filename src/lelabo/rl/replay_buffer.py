@@ -1,3 +1,5 @@
+"""Replay buffer utilities for off-policy RL algorithms."""
+
 # lab/core/replay_buffer.py
 from __future__ import annotations
 
@@ -92,3 +94,4 @@ class ReplayBuffer:
         done = torch.as_tensor(self.done[idx], device=device)
 
         return TransitionBatch(s=s, a=a, r=r, sp=sp, done=done)
+"""Replay buffer utilities for off-policy RL algorithms."""

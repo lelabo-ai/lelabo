@@ -1,3 +1,5 @@
+"""Breast cancer tabular dataset builder."""
+
 from __future__ import annotations
 
 from ..base import DataBundle
@@ -30,3 +32,4 @@ def make_breast_cancer_dataset(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
+"""Breast cancer tabular dataset builder."""

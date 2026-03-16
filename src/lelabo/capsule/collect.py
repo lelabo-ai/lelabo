@@ -1,3 +1,5 @@
+"""Collect run outputs into a normalized capsule directory."""
+
 from __future__ import annotations
 
 import json

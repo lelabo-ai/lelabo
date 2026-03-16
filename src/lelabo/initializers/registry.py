@@ -1,3 +1,5 @@
+"""Registry and context helpers for parameter initializers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

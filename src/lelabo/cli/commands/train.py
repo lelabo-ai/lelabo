@@ -1,3 +1,5 @@
+"""CLI entrypoint for supervised and reinforcement-learning training."""
+
 from __future__ import annotations
 
 import argparse

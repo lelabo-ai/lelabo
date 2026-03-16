@@ -1,3 +1,5 @@
+"""Template smoke test for the capsule optimizer golden path."""
+
 from __future__ import annotations
 
 import json
@@ -65,3 +67,4 @@ def test_capsule_optimizer_smoke(tmp_path: Path) -> None:
         str(tmp_path / "capsule_optimizer_smoke"),
     )
     assert trained.returncode == 0, trained.stderr or trained.stdout
+"""Template smoke test for the capsule optimizer golden path."""

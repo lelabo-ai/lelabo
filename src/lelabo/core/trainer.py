@@ -1,4 +1,11 @@
-# lab/core/trainer.py
+"""Core supervised training loop and evaluation runtime.
+
+This module hosts :class:`Trainer`, the central runtime object used by
+supervised experiments. The trainer is responsible for coordinating the model,
+learner, loss, callbacks, metrics, schedulers, structured logging, and console
+reporting while producing stable :mod:`lelabo.core.train_types` outputs.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -30,6 +37,22 @@ from ..schedulers import SchedulerController
 
 
 class Trainer:
+    """Run supervised training and evaluation with LeLabo's runtime contracts.
+
+    A :class:`Trainer` owns the high-level control flow around one model and one
+    learner:
+
+    - validates runtime dependencies up front
+    - runs epoch and batch loops for training
+    - runs evaluation passes on validation or external loaders
+    - updates callbacks, metrics, reporters, and schedulers at the right hooks
+    - emits structured run artifacts through :class:`RunLogger`
+    - returns stable dataclass summaries such as :class:`FitResult`
+
+    The trainer does not implement the learning algorithm itself. That work is
+    delegated to ``learner.train_step(...)`` and the loss object.
+    """
+
     FitResult = FitResult
     SplitSummary = SplitSummary
     EpochRecord = EpochRecord
@@ -50,6 +73,22 @@ class Trainer:
         schedulers: Optional[list[SchedulerController]] = None,
         metrics: Optional[list[TrainerMetric]] = None,
     ):
+        """Initialize a trainer with validated runtime dependencies.
+
+        Args:
+            model: Torch module trained and evaluated by the runtime.
+            learner: Update-rule object that owns ``train_step(...)`` and any
+                optimizer state.
+            loss: Loss module or callable consumed by the learner and eval path.
+            device: Device string used to place the model and incoming batches.
+            display_mode: Reporter mode used for console progress output.
+            callbacks: Optional callback hooks invoked during fit and eval.
+            logger: Structured logger responsible for artifact persistence.
+            schedulers: Optional scheduler controllers stepped on batch or epoch
+                boundaries.
+            metrics: Optional trainer metrics updated from batch statistics and
+                finalized into split and run summaries.
+        """
         validate_model(model)
         validate_loss(loss)
         validate_learner(learner)
@@ -77,21 +116,30 @@ class Trainer:
 
     @staticmethod
     def _call_callback_hook(callback: Any, hook: str, *args, **kwargs) -> Any:
+        """Invoke ``hook`` on ``callback`` when it exists."""
         fn = getattr(callback, hook, None)
         if not callable(fn):
             return None
         return fn(*args, **kwargs)
 
     def log(self, record: Dict[str, Any]) -> None:
+        """Forward one structured log record to the configured logger."""
         self.logger.log(record)
 
     def request_stop(self, reason: str | None = None) -> None:
+        """Request an orderly early stop from callbacks or external control flow.
+
+        The stop is not immediate: the current callback hook or batch finishes,
+        then the fit loop exits cleanly with the stop reason recorded in
+        :class:`TrainState` and the returned :class:`FitRuntime`.
+        """
         self.stop_training = True
         self.stop_reason = None if reason is None else str(reason)
         if self.state is not None:
             self.state.request_stop(self.stop_reason)
 
     def _resolve_display_metric_keys(self) -> list[str]:
+        """Validate and cache metric keys that should be shown by reporters."""
         reserved = {"loss", "metric", "lr"}
         keys: list[str] = []
         seen: set[str] = set()
@@ -120,6 +168,7 @@ class Trainer:
         return keys
 
     def _current_lr(self) -> float | None:
+        """Return the current learning rate from the learner optimizer when available."""
         optimizer = getattr(self.learner, "optimizer", None)
         if not isinstance(optimizer, torch.optim.Optimizer):
             return None
@@ -130,6 +179,7 @@ class Trainer:
         return float(lr) if isinstance(lr, (int, float)) else None
 
     def _step_schedulers(self, *, interval: str, logs: Optional[Dict[str, Any]] = None) -> None:
+        """Step all attached scheduler controllers for one interval."""
         if not self.schedulers:
             return
         interval = str(interval).lower()
@@ -140,15 +190,18 @@ class Trainer:
                 sched.step_epoch(logs=logs)
 
     def _reset_metrics(self, split: str) -> None:
+        """Reset all metrics for one split."""
         for metric in self.metrics:
             metric.reset(split, self.state)
 
     def _update_metrics(self, split: str, *, stats: Mapping[str, Any], batch_size: int) -> None:
+        """Update all metrics with one batch worth of statistics."""
         payload = dict(stats)
         for metric in self.metrics:
             metric.update(split, payload, int(batch_size), self.state)
 
     def _compute_metrics(self, split: str) -> dict[str, float]:
+        """Compute current metric values for one split and validate their shapes."""
         out: dict[str, float] = {}
         reserved = {"loss", "metric", "lr"}
         for metric in self.metrics:
@@ -179,6 +232,7 @@ class Trainer:
         return out
 
     def _finalize_metrics(self) -> dict[str, float]:
+        """Finalize metrics at the end of fit and validate their shapes."""
         out: dict[str, float] = {}
         reserved = {"loss", "metric", "lr"}
         for metric in self.metrics:
@@ -210,6 +264,12 @@ class Trainer:
 
     @staticmethod
     def _train_log_record(epoch_record: EpochRecord) -> dict[str, Any]:
+        """Build the canonical epoch-end training record for ``metrics.jsonl``.
+
+        The returned mapping is intentionally flat and JSONL-friendly so that
+        downstream analysis tools can consume it without understanding internal
+        trainer dataclasses.
+        """
         out: dict[str, Any] = {
             "t": "train",
             "event": "epoch_end",
@@ -229,6 +289,11 @@ class Trainer:
 
     @staticmethod
     def _eval_log_record(split_summary: SplitSummary) -> dict[str, Any]:
+        """Build the canonical eval-end record for ``metrics.jsonl``.
+
+        Eval records mirror the persisted public run-artifact contract: one flat
+        record per split summary, with optional metric and scalar payloads.
+        """
         out: dict[str, Any] = {
             "t": "eval",
             "event": "eval_end",
@@ -245,6 +310,7 @@ class Trainer:
 
     @staticmethod
     def _with_monitor(record: EpochRecord, early_stopping_cb: EarlyStopping | None) -> EpochRecord:
+        """Attach monitor status to an epoch record when early stopping is active."""
         if early_stopping_cb is None:
             return record
         status = early_stopping_cb.status()
@@ -252,6 +318,7 @@ class Trainer:
 
     @staticmethod
     def _monitor_mode_from_name(name: str) -> str:
+        """Infer whether a monitor should be minimized or maximized from its name."""
         token = str(name).strip().lower()
         if any(item in token for item in ("acc", "f1", "precision", "recall", "r2", "auc")):
             return "max"
@@ -264,6 +331,7 @@ class Trainer:
         monitor_name: str,
         monitor_mode: str,
     ) -> tuple[EpochRecord, float] | None:
+        """Return the best epoch record for one monitor key across the fit history."""
         matches: list[tuple[EpochRecord, float]] = []
         for record in history:
             value = record.to_log_values().get(monitor_name)
@@ -276,6 +344,7 @@ class Trainer:
         return min(matches, key=lambda item: item[1])
 
     def _build_best_summary(self, history: list[EpochRecord], early_stopping_cb: EarlyStopping | None) -> BestSummary:
+        """Resolve the best epoch summary using callback, scheduler, or default monitors."""
         if not history:
             raise RuntimeError("Cannot build best summary from an empty history.")
 
@@ -321,6 +390,7 @@ class Trainer:
 
     @staticmethod
     def _restoration_status(early_stopping_cb: EarlyStopping | None) -> RestorationStatus:
+        """Return the effective restoration status for the fit result."""
         if early_stopping_cb is None:
             return RestorationStatus(
                 enabled=False,
@@ -331,6 +401,25 @@ class Trainer:
         return early_stopping_cb.restoration_status()
 
     def fit(self, train_loader, epochs: int = 10, val_loader=None) -> FitResult:
+        """Run the full supervised fit loop and return a structured ``FitResult``.
+
+        The fit lifecycle is:
+
+        1. initialize :class:`TrainState` and notify callbacks/logger
+        2. iterate over epochs and training batches
+        3. collect training summaries and optional validation summaries
+        4. step schedulers, callbacks, reporters, and structured logging hooks
+        5. resolve the best epoch, runtime metadata, and finalized metrics
+
+        Args:
+            train_loader: Iterable of training batches.
+            epochs: Maximum number of epochs to run.
+            val_loader: Optional validation loader evaluated once per epoch.
+
+        Returns:
+            A :class:`FitResult` containing history, best checkpoint metadata,
+            runtime status, restoration status, and finalized run metrics.
+        """
         self._in_fit = True
         self.stop_training = False
         self.stop_reason = None
@@ -521,6 +610,12 @@ class Trainer:
         emit_report: bool,
         invoke_callbacks: bool,
     ) -> SplitSummary:
+        """Run one evaluation pass over ``loader`` and return a ``SplitSummary``.
+
+        This internal helper is shared by validation inside :meth:`fit` and by
+        the public :meth:`evaluate` entry point. The flags control whether the
+        pass should emit human-facing reporter output and callback hooks.
+        """
         split_name = str(split or "eval")
         self.model.eval()
         if self.state is None:
@@ -564,6 +659,17 @@ class Trainer:
 
     @torch.no_grad()
     def evaluate(self, loader, split: Optional[str] = None) -> SplitSummary:
+        """Evaluate the current model on ``loader`` outside or inside ``fit``.
+
+        Args:
+            loader: Iterable of evaluation batches.
+            split: Optional split name stored in logs and summaries. Defaults to
+                ``"eval"`` when omitted.
+
+        Returns:
+            A :class:`SplitSummary` with aggregate loss, optional metric, scalar
+            payloads, and runtime counters for the requested split.
+        """
         summary = self._evaluate(loader, split=split, emit_report=True, invoke_callbacks=True)
         if self.state is not None:
             self.state.phase = "idle" if not self._in_fit else "fit"

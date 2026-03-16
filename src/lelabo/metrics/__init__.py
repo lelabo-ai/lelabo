@@ -1,3 +1,5 @@
+"""Public metric interfaces, helpers, and registry exports."""
+
 from .base import TrainerMetric
 from .helpers import (
     BuiltinStreamingMetric,

@@ -1,3 +1,5 @@
+"""Pack configs, runs, or sweeps into shareable capsule archives."""
+
 from __future__ import annotations
 
 import io

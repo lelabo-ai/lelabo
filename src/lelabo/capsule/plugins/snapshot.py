@@ -1,3 +1,5 @@
+"""Registry snapshots combining built-ins with capsule-provided exports."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

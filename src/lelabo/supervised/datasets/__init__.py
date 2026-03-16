@@ -1,3 +1,5 @@
+"""Dataset bundles, registries, and builtin supervised datasets."""
+
 from .base import DataBundle
 from .registry import get_dataset, get_dataset_names, register_dataset
 from .paths import DATA_DIR, dataset_dir
@@ -10,3 +12,4 @@ __all__ = [
     "DATA_DIR",
     "dataset_dir",
 ]
+"""Dataset bundles, registries, and builtin supervised datasets."""

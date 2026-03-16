@@ -1,4 +1,6 @@
 # lab/models/actor_critic.py
+"""Actor-critic model builders used by RL baselines."""
+
 from __future__ import annotations
 
 import torch

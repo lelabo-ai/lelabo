@@ -1,3 +1,5 @@
+"""Top-level dispatcher for the LeLabo command-line interface."""
+
 from __future__ import annotations
 
 import sys

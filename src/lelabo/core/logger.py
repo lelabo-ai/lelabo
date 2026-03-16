@@ -1,3 +1,5 @@
+"""Run logging, metadata persistence, and checkpoint writing for training jobs."""
+
 from __future__ import annotations
 
 import json
@@ -25,17 +27,20 @@ from .run_artifacts import (
 
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    """Append one JSON record to a JSONL file, creating parent directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def write_json(path: Path, obj: dict[str, Any]) -> None:
+    """Write a formatted JSON file, creating parent directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def safe_git_commit() -> Optional[str]:
+    """Return the current short git commit hash when available."""
     try:
         out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL)
         return out.decode().strip()
@@ -44,6 +49,7 @@ def safe_git_commit() -> Optional[str]:
 
 
 def _to_cpu_state(raw: Any) -> Any:
+    """Detach tensors recursively so persisted checkpoints are device-agnostic."""
     try:
         import torch
     except Exception:
@@ -60,6 +66,7 @@ def _to_cpu_state(raw: Any) -> Any:
 
 
 def _checkpoint_mode_from_name(name: str) -> str:
+    """Infer whether a monitor should be minimized or maximized from its name."""
     token = str(name).strip().lower()
     if any(item in token for item in ("acc", "f1", "precision", "recall", "r2", "auc")):
         return "max"
@@ -68,11 +75,14 @@ def _checkpoint_mode_from_name(name: str) -> str:
 
 @dataclass
 class RunLogger:
+    """Own run-artifact writing for one training execution."""
+
     run_dir: Optional[Path] = None
     save_checkpoints: bool = False
     run_id: str = field(default_factory=lambda: uuid4().hex[:12])
 
     def __post_init__(self) -> None:
+        """Materialize artifact paths for the configured run directory."""
         if self.run_dir is not None:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             self.metrics_path = self.run_dir / "metrics.jsonl"
@@ -95,6 +105,7 @@ class RunLogger:
         self._best_checkpoint_payload: dict[str, Any] | None = None
 
     def log(self, record: Mapping[str, Any]) -> None:
+        """Append one metrics/event record to ``metrics.jsonl`` when enabled."""
         if self.metrics_path is None:
             return
         payload = {str(k): json_like(v) for k, v in dict(record).items()}
@@ -102,6 +113,7 @@ class RunLogger:
         append_jsonl(self.metrics_path, payload)
 
     def write_meta(self, args: Mapping[str, Any] | Any, *, task: str) -> None:
+        """Write the initial ``meta.json`` lifecycle record for a run."""
         if self.meta_path is None:
             return
         public_args = public_args_dict(args)
@@ -134,6 +146,7 @@ class RunLogger:
         write_json(self.meta_path, payload)
 
     def finalize_meta(self, status: str, *, error: str | None = None) -> None:
+        """Finalize ``meta.json`` with a terminal status and optional error string."""
         if self.meta_path is None:
             return
         payload = dict(self._meta_payload or {})
@@ -155,6 +168,7 @@ class RunLogger:
         write_json(self.meta_path, payload)
 
     def write_resolved_config(self, resolved_config: Mapping[str, Any] | Any) -> None:
+        """Persist the fully resolved runtime config as ``resolved_config.yaml``."""
         if self.config_path is None:
             return
         payload = json_like(resolved_config)
@@ -165,6 +179,7 @@ class RunLogger:
         )
 
     def write_seeds(self, seed_state: Any) -> None:
+        """Persist the effective seed/determinism state as ``seeds.json``."""
         if self.seeds_path is None:
             return
         payload = {
@@ -179,6 +194,7 @@ class RunLogger:
         write_json(self.seeds_path, payload)
 
     def write_summary(self, summary: Mapping[str, Any], *, status: str) -> None:
+        """Persist the compact on-disk summary artifact for a completed run."""
         if self.summary_path is None:
             return
         payload = build_persisted_summary(
@@ -200,6 +216,7 @@ class RunLogger:
         epoch: int | None = None,
         meta: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Build a device-agnostic checkpoint payload from trainer objects."""
         payload: dict[str, Any] = {
             "schema_version": RUN_CHECKPOINT_SCHEMA_VERSION,
             "run_id": str(self.run_id),
@@ -224,6 +241,7 @@ class RunLogger:
         return payload
 
     def write_checkpoint(self, name: str, payload: Mapping[str, Any]) -> None:
+        """Write one named checkpoint payload into ``checkpoints/<name>.pt``."""
         if self.checkpoints_path is None:
             return
         import torch
@@ -232,6 +250,7 @@ class RunLogger:
         torch.save(dict(payload), self.checkpoints_path / f"{name}.pt")
 
     def _resolve_checkpoint_monitor(self, trainer: Any, epoch_record: Any) -> tuple[str, str] | tuple[None, None]:
+        """Resolve the monitor used to decide whether a checkpoint is the new best."""
         if self._best_monitor_name is not None and self._best_monitor_mode is not None:
             return self._best_monitor_name, self._best_monitor_mode
 
@@ -266,6 +285,7 @@ class RunLogger:
         return self._best_monitor_name, self._best_monitor_mode
 
     def on_fit_start(self, trainer: Any, state: Any | None = None) -> None:
+        """Reset best-checkpoint tracking at the beginning of a fit call."""
         _ = (trainer, state)
         self._best_monitor_name = None
         self._best_monitor_mode = None
@@ -273,6 +293,7 @@ class RunLogger:
         self._best_checkpoint_payload = None
 
     def on_epoch_end(self, trainer: Any, epoch_record: Any, state: Any | None = None) -> None:
+        """Capture a best checkpoint candidate after a completed epoch."""
         _ = state
         if self.checkpoints_path is None:
             return
@@ -308,6 +329,7 @@ class RunLogger:
         )
 
     def on_fit_end(self, trainer: Any, fit_result: Any, state: Any | None = None) -> None:
+        """Write ``last.pt`` and ``best.pt`` checkpoint artifacts when enabled."""
         _ = state
         if self.checkpoints_path is None:
             return

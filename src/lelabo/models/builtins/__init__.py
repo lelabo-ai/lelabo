@@ -1,3 +1,5 @@
+"""Builtin model architectures shipped with LeLabo."""
+
 from .actor_critic import ActorCriticDiscrete, DoubleQCritic, SquashedGaussianActor
 from .bert import HFSequenceClassifier
 from .convnet import ConvNetClassifier

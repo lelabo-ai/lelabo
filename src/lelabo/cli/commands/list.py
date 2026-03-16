@@ -1,3 +1,5 @@
+"""CLI entrypoint for listing built-in and capsule registry exports."""
+
 from __future__ import annotations
 
 import argparse

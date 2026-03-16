@@ -1,3 +1,5 @@
+"""Pure helpers for persisted run-artifact schemas and serialization."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -14,10 +16,12 @@ RUN_CHECKPOINT_SCHEMA_VERSION = "run_checkpoint/v1"
 
 
 def utc_now_iso() -> str:
+    """Return the current UTC timestamp in a stable ISO-8601 form."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def json_like(value: Any) -> Any:
+    """Recursively coerce values into JSON/YAML-friendly primitives."""
     if isinstance(value, Mapping):
         return {str(k): json_like(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -28,6 +32,7 @@ def json_like(value: Any) -> Any:
 
 
 def public_args_dict(args_or_mapping: Any) -> dict[str, Any]:
+    """Extract public, non-private fields from an args namespace or mapping."""
     if isinstance(args_or_mapping, Mapping):
         raw = dict(args_or_mapping)
     elif hasattr(args_or_mapping, "__dict__"):
@@ -48,6 +53,7 @@ def build_persisted_summary(
     status: str,
     checkpoints_dir: str | None,
 ) -> dict[str, Any]:
+    """Build the compact on-disk summary artifact from a richer runtime summary."""
     args = public_args_dict(summary.get("args", {}))
     artifacts = {
         "meta": "meta.json",

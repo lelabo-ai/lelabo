@@ -1,3 +1,5 @@
+"""Builder helpers for composing builtin update rules."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -273,3 +275,4 @@ def build_softhebb(ctx: UpdateRuleContext):
         if key in params:
             kwargs[key] = params[key]
     return SoftHebb(**kwargs)
+"""Builder helpers for composing builtin update rules."""

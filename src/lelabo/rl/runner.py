@@ -1,3 +1,5 @@
+"""Top-level runner for reinforcement learning experiments."""
+
 # lab/runners/rl_runner.py
 from __future__ import annotations
 
@@ -256,3 +258,4 @@ def run_rl(args, logger: RunLogger) -> dict[str, Any]:
 
 
 __all__ = ["RLRunner", "run_rl"]
+"""Top-level runner for reinforcement learning experiments."""

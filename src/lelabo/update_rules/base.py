@@ -1,3 +1,5 @@
+"""Base classes shared by all update rule implementations."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -118,3 +120,4 @@ class OptimizerUpdateRule(UpdateRule):
             self.strict_require_grads = bool(state["strict_require_grads"])
         if "check_finite_grads" in state:
             self.check_finite_grads = bool(state["check_finite_grads"])
+"""Base classes shared by all update rule implementations."""

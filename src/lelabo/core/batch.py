@@ -1,4 +1,5 @@
-# lab/core/batch.py
+"""Batch normalization helpers used by the trainer and supervised step logic."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -19,6 +20,7 @@ def to_device(obj: Any, device: str):
 
 
 def is_mapping_batch(batch: Any) -> bool:
+    """Return whether ``batch`` uses mapping/HuggingFace-style semantics."""
     return isinstance(batch, Mapping)
 
 

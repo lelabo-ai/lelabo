@@ -1,3 +1,5 @@
+"""Replay helpers for capsules that embed runnable commands and artifacts."""
+
 from __future__ import annotations
 
 import json

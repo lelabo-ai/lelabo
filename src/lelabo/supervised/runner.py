@@ -1,3 +1,5 @@
+"""Top-level runner for supervised experiments."""
+
 # lab/runners/supervised_runner.py
 from __future__ import annotations
 
@@ -286,3 +288,4 @@ def run_supervised(args, logger: RunLogger) -> Dict[str, Any]:
         print("Summary:", summary)
 
     return summary
+"""Top-level runner for supervised experiments."""

@@ -1,3 +1,5 @@
+"""Public scheduler builders, controller, and registry exports."""
+
 from __future__ import annotations
 
 from .controller import SchedulerController
@@ -20,3 +22,4 @@ __all__ = [
     "get_scheduler_names",
     "make_scheduler",
 ]
+"""Public scheduler builders, controller, and registry exports."""

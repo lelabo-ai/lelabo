@@ -1,3 +1,5 @@
+"""Minimal registry utilities for built-ins and optional plugin discovery."""
+
 from __future__ import annotations
 
 import importlib
@@ -9,11 +11,13 @@ from typing import Callable, Dict
 
 
 def _strict_plugin_loading() -> bool:
+    """Return whether optional plugin import failures should raise immediately."""
     raw = os.getenv("LELABO_STRICT_PLUGINS", "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
 
 def _is_internal_missing_module(pkg_name: str, missing_name: str) -> bool:
+    """Detect whether an import error comes from the package itself, not an optional dep."""
     package_root = str(pkg_name).partition(".")[0]
     token = str(missing_name or "").strip()
     if not token:
@@ -28,6 +32,7 @@ def _warn_or_raise_optional_import(
     module_name: str,
     exc: ImportError,
 ) -> None:
+    """Warn or raise when discovery hits a missing optional dependency."""
     if not isinstance(exc, ModuleNotFoundError):
         raise exc
     missing_name = str(getattr(exc, "name", "") or "").strip()
@@ -44,12 +49,15 @@ def _warn_or_raise_optional_import(
 
 
 class Registry:
+    """Name-to-builder registry with discovery support for Python packages."""
+
     def __init__(self, name: str, package: str | None = None):
         self.name = name
         self.package = package
         self._items: Dict[str, Callable[..., object]] = {}
 
     def register(self, name: str):
+        """Return a decorator that registers a builder under ``name``."""
         key = name.lower()
         def _decorator(obj):
             if key in self._items:
@@ -59,15 +67,18 @@ class Registry:
         return _decorator
 
     def get(self, name: str):
+        """Resolve a registered builder by name."""
         key = name.lower()
         if key not in self._items:
             raise ValueError(f"[{self.name}] Unknown '{name}'. Available: {sorted(self._items)}")
         return self._items[key]
 
     def names(self) -> list[str]:
+        """Return sorted registered names."""
         return sorted(self._items.keys())
 
     def discover(self, package: str | None = None, *, reload: bool = False):
+        """Import modules from a package tree so decorators can register builders."""
         pkg_name = package or self.package
         if not pkg_name:
             raise ValueError("discover() needs a package name")
@@ -95,6 +106,7 @@ class Registry:
                 )
 
     def snapshot_discovered_items(self, package: str | None = None) -> Dict[str, Callable[..., object]]:
+        """Discover a package into a temporary registry snapshot without mutating the live registry."""
         original_items = dict(self._items)
         preloaded = set(sys.modules.keys())
         owner_modules: set[str] = set()

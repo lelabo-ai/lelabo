@@ -1,3 +1,5 @@
+"""Environment factory helpers for reinforcement learning runs."""
+
 # lab/core/envs.py
 from __future__ import annotations
 
@@ -38,3 +40,4 @@ def make_vec_env(env_id: str, seed: int, num_envs: int):
     gym = _require_gymnasium()
     thunks = [make_env_thunk(env_id, seed + i) for i in range(num_envs)]
     return gym.vector.SyncVectorEnv(thunks)
+"""Environment factory helpers for reinforcement learning runs."""

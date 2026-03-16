@@ -1,3 +1,5 @@
+"""Shared helper functions used by update rule implementations."""
+
 from __future__ import annotations
 
 import torch
@@ -134,3 +136,4 @@ def assign_conv2d_grads_from_activations_(
     assign_param_grad_(layer.weight, d_weight)
     if layer.bias is not None and d_bias is not None:
         assign_param_grad_(layer.bias, d_bias)
+"""Shared helper functions used by update rule implementations."""

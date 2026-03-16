@@ -1,3 +1,5 @@
+"""Template smoke test for the minimal paper-pack path."""
+
 from __future__ import annotations
 
 import json
@@ -73,3 +75,4 @@ def test_paper_pack_smoke(tmp_path: Path) -> None:
         str(tmp_path / "paper_pack_smoke"),
     )
     assert trained.returncode == 0, trained.stderr or trained.stdout
+"""Template smoke test for the minimal paper-pack path."""

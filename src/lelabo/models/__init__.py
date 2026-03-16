@@ -1,3 +1,5 @@
+"""Public model exports, cache contracts, and registry helpers."""
+
 from __future__ import annotations
 
 from ..core.activations import register_cache_pair_activation

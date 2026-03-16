@@ -1,3 +1,5 @@
+"""Built-in parameter initializers and their registration logic."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

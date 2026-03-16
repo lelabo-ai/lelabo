@@ -1,3 +1,5 @@
+"""Scheduler registry and builder context helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -119,3 +121,4 @@ def make_scheduler(
         params=dict(kwargs),
     )
     return build_scheduler(raw_name, ctx)
+"""Scheduler registry and builder context helpers."""

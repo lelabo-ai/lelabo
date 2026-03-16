@@ -1,3 +1,5 @@
+"""Built-in supervised losses and target-normalization helpers."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

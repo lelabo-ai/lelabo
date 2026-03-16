@@ -1,3 +1,5 @@
+"""Common payload keys passed from the trainer into metrics."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -55,4 +57,3 @@ def extract_metric_payload(stats: Mapping[str, Any]) -> MetricPayload | None:
     if kind not in {"classification", "regression"}:
         return None
     return MetricPayload(y_true=y_true, y_pred=y_pred, kind=kind)
-

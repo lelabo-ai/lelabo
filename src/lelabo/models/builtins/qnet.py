@@ -1,4 +1,6 @@
 # lab/models/qnet.py
+"""Q-network baselines for value-based RL algorithms."""
+
 from __future__ import annotations
 
 import torch

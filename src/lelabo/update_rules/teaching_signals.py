@@ -1,3 +1,5 @@
+"""Teaching-signal helpers used by feedback-based update rules."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -157,3 +159,4 @@ def best_effort_stats(loss_or_objective: Any, outputs_or_logits: Any, y: Any) ->
         except Exception:
             pass
     return stats
+"""Teaching-signal helpers used by feedback-based update rules."""

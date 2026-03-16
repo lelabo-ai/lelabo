@@ -1,3 +1,5 @@
+"""Backpropagation update rule implementation."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,3 +27,4 @@ class Backpropagation(OptimizerUpdateRule):
 
 # Backward-compatible alias.
 Backprop = Backpropagation
+"""Backpropagation update rule implementation."""

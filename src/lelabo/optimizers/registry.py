@@ -1,3 +1,5 @@
+"""Optimizer registry and builder context helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

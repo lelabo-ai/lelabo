@@ -1,3 +1,5 @@
+"""Update rule registry and builder helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -62,3 +64,4 @@ def get_update_rule_names(
     extra_capsule_roots: Sequence[Path] | None = None,
 ):
     return _update_rule_snapshot(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots).names()
+"""Update rule registry and builder helpers."""

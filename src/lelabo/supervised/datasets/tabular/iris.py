@@ -1,3 +1,5 @@
+"""Iris tabular dataset builder."""
+
 from __future__ import annotations
 
 from ..base import DataBundle
@@ -30,3 +32,4 @@ def make_iris_dataset(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
+"""Iris tabular dataset builder."""

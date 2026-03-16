@@ -1,3 +1,5 @@
+"""CIFAR dataset builders and augmentation helpers."""
+
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -153,3 +155,4 @@ def make_cifar10_dataset(**kwargs) -> DataBundle:
 
 def make_cifar100_dataset(**kwargs) -> DataBundle:
     return _make_cifar_dataset(dataset="cifar100", **kwargs)
+"""CIFAR dataset builders and augmentation helpers."""

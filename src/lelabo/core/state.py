@@ -1,3 +1,5 @@
+"""Mutable state shared across trainer, callbacks, metrics, and update rules."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +9,8 @@ from .train_types import EpochRecord, SplitSummary
 
 @dataclass
 class TrainState:
+    """Runtime state for the current fit/eval session."""
+
     phase: str = "idle"
     split: str | None = None
     epoch: int = 0
@@ -23,13 +27,16 @@ class TrainState:
     last_epoch: EpochRecord | None = None
 
     def set_step(self, value: int) -> None:
+        """Synchronize ``global_step`` and legacy ``step`` counters."""
         v = int(value)
         self.global_step = v
         self.step = v
 
     def bump_step(self, n: int = 1) -> None:
+        """Advance the global step counters by ``n``."""
         self.set_step(self.global_step + int(n))
 
     def request_stop(self, reason: str | None = None) -> None:
+        """Request an early stop that the trainer loop will honor after the current hook."""
         self.stop_requested = True
         self.stop_reason = None if reason is None else str(reason)

@@ -1,3 +1,5 @@
+"""Soft Actor-Critic algorithm implementation."""
+
 # lab/rl/algorithms/sac.py
 from __future__ import annotations
 
@@ -363,3 +365,4 @@ class SAC:
             "mean_length": float(np.mean(lens)) if lens else 0.0,
             "n": int(len(rets)),
         }
+"""Soft Actor-Critic algorithm implementation."""

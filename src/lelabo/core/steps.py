@@ -1,4 +1,5 @@
-# lab/core/steps.py
+"""Generic supervised-step helpers shared by trainer evaluation and utilities."""
+
 from __future__ import annotations
 
 import math
@@ -12,6 +13,7 @@ from .batch import to_device, extract_loss_and_stats
 
 
 def resolve_loss_parts(loss_or_objective: Any) -> tuple[Any, str, Any | None]:
+    """Normalize a loss/objective object into ``(callable, display_name, module)``."""
     if callable(loss_or_objective):
         loss_fn = loss_or_objective
         loss_name = getattr(loss_or_objective, "__lelabo_loss_name__", None)
@@ -48,16 +50,19 @@ def resolve_loss_parts(loss_or_objective: Any) -> tuple[Any, str, Any | None]:
 
 
 def resolve_loss_callable(loss_or_objective: Any):
+    """Resolve only the callable component of a loss/objective object."""
     loss_fn, _loss_name, _module = resolve_loss_parts(loss_or_objective)
     return loss_fn
 
 
 def loss_display_name(loss_or_objective: Any) -> str:
+    """Resolve the human-facing display name of a loss/objective object."""
     _loss_fn, loss_name, _module = resolve_loss_parts(loss_or_objective)
     return str(loss_name)
 
 
 def _labels_as_class_indices(logits: torch.Tensor, labels: Any) -> torch.Tensor | None:
+    """Best-effort conversion of label tensors to class indices for classification metrics."""
     if not torch.is_tensor(labels):
         return None
     if labels.dim() == 2 and int(labels.size(1)) == 1 and not torch.is_floating_point(labels):
@@ -84,6 +89,7 @@ def _labels_as_class_indices(logits: torch.Tensor, labels: Any) -> torch.Tensor 
 
 
 def maybe_accuracy_from_logits(logits: torch.Tensor, labels: Any) -> float:
+    """Compute accuracy when outputs and labels look like a classification problem."""
     if not torch.is_tensor(logits):
         return float("nan")
     if logits.dim() < 2:
@@ -97,6 +103,7 @@ def maybe_accuracy_from_logits(logits: torch.Tensor, labels: Any) -> float:
 
 
 def _merge_metric_stats(dst: Dict[str, Any], src: Mapping[str, Any]) -> None:
+    """Merge scalar stats and metric-payload keys into a mutable stats mapping."""
     for key, value in src.items():
         if isinstance(value, (int, float)):
             dst[str(key)] = float(value)
@@ -106,6 +113,7 @@ def _merge_metric_stats(dst: Dict[str, Any], src: Mapping[str, Any]) -> None:
 
 
 def metric_payload_from_outputs(outputs_or_logits: Any, labels: Any) -> dict[str, Any]:
+    """Build a structured metric payload from model outputs and labels when possible."""
     logits = outputs_or_logits.logits if hasattr(outputs_or_logits, "logits") else outputs_or_logits
     if not torch.is_tensor(logits):
         return {}
@@ -125,6 +133,7 @@ def metric_payload_from_outputs(outputs_or_logits: Any, labels: Any) -> dict[str
 
 
 def generic_supervised_stats(outputs_or_logits: Any, labels: Any) -> dict[str, Any]:
+    """Compute generic supervised stats such as accuracy and metric payloads."""
     stats: dict[str, Any] = {}
     logits = outputs_or_logits.logits if hasattr(outputs_or_logits, "logits") else outputs_or_logits
     if torch.is_tensor(logits):
@@ -136,6 +145,7 @@ def generic_supervised_stats(outputs_or_logits: Any, labels: Any) -> dict[str, A
 
 
 def compute_loss_and_stats(model, loss_or_objective, batch, device: str, *, hf_outputs_to_stats: bool = True):
+    """Run one forward/loss computation and return ``(loss_tensor, stats_dict)``."""
     loss_fn = resolve_loss_callable(loss_or_objective)
 
     if isinstance(batch, Mapping):

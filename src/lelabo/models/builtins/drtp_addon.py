@@ -1,3 +1,5 @@
+"""Direct random target projection addon modules."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence

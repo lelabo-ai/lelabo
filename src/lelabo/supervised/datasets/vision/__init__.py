@@ -1,3 +1,5 @@
+"""Vision dataset builders bundled with LeLabo."""
+
 from __future__ import annotations
 
 
@@ -38,3 +40,4 @@ __all__ = [
     "make_ssdd_dataset",
     "make_hrsid_dataset",
 ]
+"""Vision dataset builders bundled with LeLabo."""

@@ -1,3 +1,5 @@
+"""Public configuration loading, schema, and resolution helpers."""
+
 from .defaults import DEFAULT_RL_CONFIG, DEFAULT_SUPERVISED_CONFIG
 from .resolve import (
     parse_set_overrides,

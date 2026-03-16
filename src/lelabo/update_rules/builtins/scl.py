@@ -1,3 +1,5 @@
+"""Supervised contrastive local learning update rule implementation."""
+
 from __future__ import annotations
 
 import inspect
@@ -979,3 +981,4 @@ class SoftContrastiveLearning(OptimizerUpdateRule):
         out_stats["supcon_loss"] = float(sum(local_losses) / len(local_losses)) if local_losses else 0.0
         self._mark_step_done()
         return out_stats
+"""Supervised contrastive local learning update rule implementation."""

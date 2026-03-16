@@ -1,3 +1,5 @@
+"""Manifest schema validation and normalization for capsules."""
+
 from __future__ import annotations
 
 import re

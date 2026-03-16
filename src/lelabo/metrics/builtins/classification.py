@@ -1,3 +1,5 @@
+"""Classification metrics used by supervised tasks."""
+
 from __future__ import annotations
 
 from ..common import (

@@ -1,3 +1,5 @@
+"""Structured runtime result types returned by the training loop."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,6 +8,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SplitSummary:
+    """Aggregated metrics for one split over one evaluation window."""
+
     split: str | None
     loss: float
     metric: float | None
@@ -15,6 +19,7 @@ class SplitSummary:
     duration_sec: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the summary to plain JSON-friendly primitives."""
         return {
             "split": self.split,
             "loss": float(self.loss),
@@ -26,6 +31,7 @@ class SplitSummary:
         }
 
     def to_prefixed_scalars(self) -> dict[str, float]:
+        """Flatten the summary into monitor/log scalar keys such as ``train.loss``."""
         prefix = str(self.split or "").strip()
         out: dict[str, float] = {}
         if prefix:
@@ -45,6 +51,8 @@ class SplitSummary:
 
 @dataclass(frozen=True)
 class MonitorStatus:
+    """Status block describing the currently tracked monitor and best value."""
+
     name: str
     mode: str
     best_value: float | None
@@ -54,6 +62,7 @@ class MonitorStatus:
     patience: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the monitor status to plain JSON-friendly primitives."""
         return {
             "name": str(self.name),
             "mode": str(self.mode),
@@ -67,6 +76,8 @@ class MonitorStatus:
 
 @dataclass(frozen=True)
 class EpochRecord:
+    """One completed training epoch, including optional validation data."""
+
     epoch: int
     train: SplitSummary
     val: SplitSummary | None
@@ -75,6 +86,7 @@ class EpochRecord:
     duration_sec: float
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the epoch record to plain JSON-friendly primitives."""
         return {
             "epoch": int(self.epoch),
             "train": self.train.to_dict(),
@@ -85,6 +97,7 @@ class EpochRecord:
         }
 
     def to_log_values(self) -> dict[str, float]:
+        """Flatten epoch summaries into scalar monitor/log values."""
         out = self.train.to_prefixed_scalars()
         if self.val is not None:
             out.update(self.val.to_prefixed_scalars())
@@ -95,12 +108,15 @@ class EpochRecord:
 
 @dataclass(frozen=True)
 class RestorationStatus:
+    """Whether best-state restoration was configured and actually executed."""
+
     enabled: bool
     best_epoch: int | None
     best_checkpoint_available: bool
     restored_on_train_end: bool
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the restoration status to plain JSON-friendly primitives."""
         return {
             "enabled": bool(self.enabled),
             "best_epoch": None if self.best_epoch is None else int(self.best_epoch),
@@ -111,12 +127,15 @@ class RestorationStatus:
 
 @dataclass(frozen=True)
 class FitRuntime:
+    """High-level runtime metadata for a completed fit call."""
+
     epochs_completed: int
     total_train_time_sec: float
     stopped_early: bool
     stop_reason: str | None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert runtime metadata to plain JSON-friendly primitives."""
         return {
             "epochs_completed": int(self.epochs_completed),
             "total_train_time_sec": float(self.total_train_time_sec),
@@ -127,6 +146,8 @@ class FitRuntime:
 
 @dataclass(frozen=True)
 class BestSummary:
+    """Resolved best epoch according to the trainer's monitor-selection rules."""
+
     source: str
     monitor_name: str
     monitor_mode: str
@@ -136,6 +157,7 @@ class BestSummary:
     val: SplitSummary | None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the best-summary block to plain JSON-friendly primitives."""
         return {
             "source": str(self.source),
             "monitor_name": str(self.monitor_name),
@@ -149,6 +171,8 @@ class BestSummary:
 
 @dataclass(frozen=True)
 class FitResult:
+    """Structured return value produced by ``Trainer.fit``."""
+
     history: list[EpochRecord]
     final_epoch: EpochRecord
     best: BestSummary
@@ -157,6 +181,7 @@ class FitResult:
     run_metrics: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the fit result to plain JSON-friendly primitives."""
         out = {
             "history": [record.to_dict() for record in self.history],
             "final_epoch": self.final_epoch.to_dict(),

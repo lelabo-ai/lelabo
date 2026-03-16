@@ -1,3 +1,5 @@
+"""Callback contracts and built-in callback implementations for the trainer."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -9,6 +11,8 @@ from .train_types import EpochRecord, FitResult, MonitorStatus, RestorationStatu
 
 
 class Callback:
+    """Base callback interface for trainer lifecycle hooks."""
+
     def on_train_start(self, trainer: Any, state: Any | None = None) -> None:
         pass
 
@@ -33,6 +37,8 @@ class Callback:
 
 @dataclass
 class EarlyStoppingConfig:
+    """Configuration for the built-in early-stopping callback."""
+
     monitor: str = "val.acc"          # e.g., "val.acc" or "val.loss"
     mode: str = "auto"                # "auto" | "max" | "min"
     patience: int = 5
@@ -48,6 +54,8 @@ class EarlyStoppingConfig:
 
 
 class EarlyStopping(Callback):
+    """Stop training when a monitored scalar stops improving."""
+
     def __init__(self, cfg: EarlyStoppingConfig):
         normalized_mode = self._normalize_mode(cfg.mode, cfg.monitor)
         self.cfg = replace(cfg, mode=normalized_mode)
@@ -60,6 +68,7 @@ class EarlyStopping(Callback):
         self._restored_on_train_end: bool = False
 
     def on_train_start(self, trainer: Any, state: Any | None = None) -> None:
+        """Reset internal best-state tracking at the beginning of a fit call."""
         _ = (trainer, state)
         self.best = -math.inf if self.cfg.mode == "max" else math.inf
         self.best_epoch = 0
@@ -71,6 +80,7 @@ class EarlyStopping(Callback):
 
     @staticmethod
     def _normalize_mode(raw_mode: Any, monitor: str) -> str:
+        """Resolve ``auto`` monitor mode into ``min`` or ``max``."""
         mode = str(raw_mode if raw_mode is not None else "auto").strip().lower()
         if mode == "auto":
             key = str(monitor).strip().lower()
@@ -82,6 +92,7 @@ class EarlyStopping(Callback):
         return mode
 
     def _is_improvement(self, value: float) -> bool:
+        """Return whether ``value`` improves on the current best according to config."""
         if not self._has_best:
             return True
         delta = float(self.cfg.min_delta)
@@ -93,6 +104,7 @@ class EarlyStopping(Callback):
 
     @staticmethod
     def _to_cpu_state(raw: Any) -> Any:
+        """Detach tensors recursively so a checkpoint snapshot is device-agnostic."""
         if torch.is_tensor(raw):
             return raw.detach().cpu().clone()
         if isinstance(raw, dict):
@@ -105,6 +117,7 @@ class EarlyStopping(Callback):
 
     @staticmethod
     def _capture_state(trainer: Any, cfg: EarlyStoppingConfig) -> Dict[str, Any]:
+        """Capture the subset of trainer state needed for best-state restoration."""
         payload: Dict[str, Any] = {
             "model": {k: v.detach().cpu().clone() for k, v in trainer.model.state_dict().items()},
         }
@@ -143,6 +156,7 @@ class EarlyStopping(Callback):
 
     @staticmethod
     def _restore_state(trainer: Any, payload: Dict[str, Any]) -> None:
+        """Restore a previously captured best-state payload into the trainer."""
         model_state = payload.get("model")
         if isinstance(model_state, dict):
             trainer.model.load_state_dict(model_state, strict=True)
@@ -178,9 +192,11 @@ class EarlyStopping(Callback):
                     setattr(state, key, int(train_state_payload[key]))
 
     def _logs_from_epoch_record(self, epoch_record: EpochRecord) -> dict[str, float]:
+        """Expose epoch scalars through the same naming scheme used by logging/monitoring."""
         return epoch_record.to_log_values()
 
     def status(self) -> MonitorStatus:
+        """Return a snapshot of the current monitor/best-value state."""
         return MonitorStatus(
             name=str(self.cfg.monitor),
             mode=str(self.cfg.mode),
@@ -192,6 +208,7 @@ class EarlyStopping(Callback):
         )
 
     def restoration_status(self) -> RestorationStatus:
+        """Return whether best-state restoration is enabled and/or has happened."""
         best_epoch = int(self.best_epoch) if self._has_best and self.best_epoch > 0 else None
         return RestorationStatus(
             enabled=bool(self.cfg.restore_best),
@@ -201,6 +218,7 @@ class EarlyStopping(Callback):
         )
 
     def on_epoch_end(self, trainer: Any, epoch_record: EpochRecord, state: Any | None = None) -> None:
+        """Inspect the monitored scalar and request training stop when patience is exceeded."""
         epoch = int(epoch_record.epoch)
         self._improved_this_epoch = False
         if self.cfg.check_every_n_epochs > 1 and (epoch % int(self.cfg.check_every_n_epochs)) != 0:
@@ -238,6 +256,7 @@ class EarlyStopping(Callback):
                     state.request_stop(reason)
 
     def on_train_end(self, trainer: Any, fit_result: FitResult, state: Any | None = None) -> None:
+        """Restore the best captured state at the end of training when configured."""
         _ = (fit_result, state)
         if self.cfg.restore_best and self.best_state is not None:
             self._restore_state(trainer, self.best_state)

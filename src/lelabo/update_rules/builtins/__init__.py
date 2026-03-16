@@ -1,3 +1,5 @@
+"""Builtin update rule registrations."""
+
 from __future__ import annotations
 
 from .backprop import Backprop, Backpropagation
@@ -68,3 +70,4 @@ __all__ = [
     "build_scl",
     "build_softhebb",
 ]
+"""Builtin update rule registrations."""

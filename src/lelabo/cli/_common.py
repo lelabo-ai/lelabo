@@ -1,3 +1,5 @@
+"""Shared helpers for CLI help handling and user-facing exit codes."""
+
 from __future__ import annotations
 
 import sys

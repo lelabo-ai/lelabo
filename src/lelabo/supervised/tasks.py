@@ -1,3 +1,5 @@
+"""Task metadata and defaults for supervised learning problems."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -86,3 +88,4 @@ class GLUETask:
 
 
 __all__ = ["ClassificationTask", "GLUETask"]
+"""Task metadata and defaults for supervised learning problems."""

@@ -1,3 +1,5 @@
+"""Robustness evaluation helpers for noisy supervised inputs."""
+
 # lab/core/robustness.py
 import numpy as np
 import torch
@@ -100,3 +102,4 @@ def test_with_noise(
     std_acc = float(accs.std(ddof=1)) if trials > 1 else 0.0
     ci95 = 1.96 * std_acc / np.sqrt(trials) if trials > 1 else 0.0
     return mean_acc, float(ci95)
+"""Robustness evaluation helpers for noisy supervised inputs."""

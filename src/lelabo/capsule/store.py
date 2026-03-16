@@ -1,3 +1,5 @@
+"""Stash helpers that move local capsules into the capsule store."""
+
 from __future__ import annotations
 
 import json

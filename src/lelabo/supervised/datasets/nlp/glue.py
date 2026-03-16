@@ -1,3 +1,5 @@
+"""GLUE dataset builders and tokenization helpers."""
+
 from __future__ import annotations
 
 import torch
@@ -127,3 +129,4 @@ def make_glue_dataset(
             "is_regression": is_regression,
         },
     )
+"""GLUE dataset builders and tokenization helpers."""

@@ -1,3 +1,5 @@
+"""RL-specific config parsing and contract resolution helpers."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -36,3 +38,4 @@ def build_dqn_config(overrides: dict[str, str]) -> Any:
 
 def build_ppo_config(overrides: dict[str, str]) -> Any:
     return build_rl_algo_config("ppo", overrides)
+"""RL-specific config parsing and contract resolution helpers."""

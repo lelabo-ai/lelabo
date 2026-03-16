@@ -1,3 +1,5 @@
+"""Contracts shared by RL algorithm implementations."""
+
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
@@ -116,4 +118,4 @@ def resolve_dataclass_overrides(
         setattr(obj, attr, coerced)
 
     return cfg
-
+"""Contracts shared by RL algorithm implementations."""

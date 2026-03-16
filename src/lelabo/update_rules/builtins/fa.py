@@ -1,3 +1,5 @@
+"""Feedback Alignment update rule implementation."""
+
 from __future__ import annotations
 
 import math
@@ -370,3 +372,4 @@ class FeedbackAlignment(OptimizerUpdateRule):
         stats = best_effort_stats(objective, out, y)
         self._mark_step_done()
         return stats
+"""Feedback Alignment update rule implementation."""

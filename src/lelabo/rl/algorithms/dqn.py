@@ -1,3 +1,5 @@
+"""Deep Q-Network algorithm implementation."""
+
 # lab/rl/algorithms/dqn.py
 from __future__ import annotations
 
@@ -238,3 +240,4 @@ class DQN:
             ci95 = float(1.96 * se)
 
         return {"mean_return": mean_ret, "ci95": float(ci95), "n": int(len(returns))}
+"""Deep Q-Network algorithm implementation."""

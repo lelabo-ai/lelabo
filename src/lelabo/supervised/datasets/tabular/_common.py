@@ -1,3 +1,5 @@
+"""Shared helpers for tabular classification datasets."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -144,3 +146,4 @@ def build_tabular_classification_bundle(
             "scaler_scale": scaler.scale_.tolist(),
         },
     )
+"""Shared helpers for tabular classification datasets."""

@@ -1,3 +1,5 @@
+"""Adapters that wrap models with the standard cache provider contract."""
+
 from __future__ import annotations
 
 from collections import defaultdict

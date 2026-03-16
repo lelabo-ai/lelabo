@@ -1,3 +1,5 @@
+"""Checkout helpers that move stored capsules back into a workspace."""
+
 from __future__ import annotations
 
 import shutil

@@ -1,3 +1,5 @@
+"""NLP dataset builders used by supervised experiments."""
+
 from __future__ import annotations
 
 
@@ -8,3 +10,4 @@ def make_glue_dataset(*args, **kwargs):
 
 
 __all__ = ["make_glue_dataset"]
+"""NLP dataset builders used by supervised experiments."""

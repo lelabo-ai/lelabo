@@ -1,3 +1,5 @@
+"""Plugin discovery and snapshot helpers for capsule exports."""
+
 from __future__ import annotations
 
 from .discovery import (

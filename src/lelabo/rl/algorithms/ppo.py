@@ -1,3 +1,5 @@
+"""Proximal Policy Optimization algorithm implementation."""
+
 # lab/rl/algorithms/ppo.py
 from __future__ import annotations
 
@@ -439,3 +441,4 @@ class PPO:
             ci95 = float(1.96 * se)
 
         return {"mean_return": mean_ret, "ci95": float(ci95), "n": int(len(returns))}
+"""Proximal Policy Optimization algorithm implementation."""

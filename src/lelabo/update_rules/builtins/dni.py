@@ -1,3 +1,5 @@
+"""Decoupled Neural Interfaces update rule implementation."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -429,3 +431,4 @@ class DNI(OptimizerUpdateRule):
 
         self._mark_step_done()
         return stats
+"""Decoupled Neural Interfaces update rule implementation."""

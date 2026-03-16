@@ -1,3 +1,5 @@
+"""Direct Random Target Projection update rule implementation."""
+
 from __future__ import annotations
 
 import math
@@ -285,3 +287,4 @@ class DirectRandomTargetProjection(OptimizerUpdateRule):
         stats = best_effort_stats(objective, out, y)
         self._mark_step_done()
         return stats
+"""Direct Random Target Projection update rule implementation."""

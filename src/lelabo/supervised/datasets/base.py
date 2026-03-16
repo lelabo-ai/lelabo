@@ -1,3 +1,5 @@
+"""Shared dataset bundle types used by supervised runners."""
+
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -114,3 +116,4 @@ def make_loader(
         pin_memory=pin_memory,
         **loader_kwargs,
     )
+"""Shared dataset bundle types used by supervised runners."""

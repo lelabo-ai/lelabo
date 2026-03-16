@@ -1,3 +1,5 @@
+"""Dataset registry and construction helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,3 +50,4 @@ def get_dataset_names(
     extra_capsule_roots: Sequence[Path] | None = None,
 ):
     return _dataset_snapshot(capsules_dir=capsules_dir, extra_capsule_roots=extra_capsule_roots).names()
+"""Dataset registry and construction helpers."""

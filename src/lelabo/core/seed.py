@@ -1,3 +1,5 @@
+"""Reproducibility helpers for RNG seeding and determinism policy."""
+
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +17,7 @@ _VALID_MODES: set[str] = {"off", "relaxed", "strict"}
 
 
 def _require_torch():
+    """Import torch lazily so non-torch helpers stay lightweight."""
     import torch  # local import: keeps non-torch utilities usable in lightweight environments.
 
     return torch
@@ -22,6 +25,8 @@ def _require_torch():
 
 @dataclass(frozen=True)
 class SeedState:
+    """Summary of the effective seeding and deterministic-backend configuration."""
+
     seed: int
     mode: DeterminismMode
     deterministic_algorithms: bool
@@ -31,6 +36,7 @@ class SeedState:
 
 
 def normalize_determinism(mode: str | None, *, deterministic: bool | None = None) -> DeterminismMode:
+    """Normalize legacy and modern determinism flags to one supported mode."""
     if mode is None:
         if deterministic is None:
             return "relaxed"
@@ -66,6 +72,7 @@ def derive_seed(seed: int, *parts: Any) -> int:
 
 
 def make_torch_generator(seed: int) -> torch.Generator:
+    """Create a ``torch.Generator`` seeded with ``seed``."""
     torch = _require_torch()
     g = torch.Generator()
     g.manual_seed(int(seed))
@@ -73,10 +80,12 @@ def make_torch_generator(seed: int) -> torch.Generator:
 
 
 def make_worker_init_fn(seed: int) -> Callable[[int], None]:
+    """Build a DataLoader worker-init function derived from ``seed``."""
     return partial(_seed_worker_init_impl, base_seed=int(seed))
 
 
 def _seed_worker_init_impl(worker_id: int, *, base_seed: int) -> None:
+    """Seed Python, NumPy, and torch RNGs inside one DataLoader worker."""
     torch = _require_torch()
     worker_seed = derive_seed(base_seed, "worker", int(worker_id))
     random.seed(worker_seed)
@@ -85,6 +94,7 @@ def _seed_worker_init_impl(worker_id: int, *, base_seed: int) -> None:
 
 
 def make_dataloader_seeding(seed: int, *, scope: str) -> tuple[torch.Generator, Callable[[int], None], int]:
+    """Derive a namespaced DataLoader seed triple for one loader scope."""
     loader_seed = derive_seed(seed, "dataloader", scope)
     generator = make_torch_generator(loader_seed)
     worker_init_fn = make_worker_init_fn(loader_seed)
@@ -92,6 +102,7 @@ def make_dataloader_seeding(seed: int, *, scope: str) -> tuple[torch.Generator, 
 
 
 def _set_deterministic_algorithms(enabled: bool) -> bool:
+    """Enable or disable torch deterministic algorithms and report the effective state."""
     torch = _require_torch()
     try:
         torch.use_deterministic_algorithms(enabled)
@@ -106,6 +117,7 @@ def _set_deterministic_algorithms(enabled: bool) -> bool:
 
 
 def _configure_torch_backend(mode: DeterminismMode) -> SeedState:
+    """Apply backend-level deterministic settings for one determinism mode."""
     torch = _require_torch()
     if mode == "strict":
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -158,9 +170,7 @@ def seed_everything(
     """
     Seed Python/NumPy/PyTorch and configure deterministic behavior.
 
-    Backward-compat:
-      - deterministic=True  -> strict
-      - deterministic=False -> relaxed
+    The returned ``SeedState`` captures the effective backend configuration.
     """
     root = int(seed)
     resolved_mode = normalize_determinism(mode, deterministic=deterministic)

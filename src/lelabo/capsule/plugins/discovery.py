@@ -1,3 +1,5 @@
+"""Discover, index, and load exported builders from capsule roots."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

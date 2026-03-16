@@ -1,3 +1,5 @@
+"""Console reporter implementations used by the trainer display layer."""
+
 from __future__ import annotations
 
 import math
@@ -36,6 +38,8 @@ except ImportError:
 
 
 class Reporter(ABC):
+    """Abstract display sink for trainer lifecycle events."""
+
     def on_run_start(
         self,
         *,
@@ -96,10 +100,14 @@ class Reporter(ABC):
 
 
 class NullReporter(Reporter):
+    """Reporter that intentionally emits nothing."""
+
     pass
 
 
 class _BaseTextReporter(Reporter):
+    """Shared formatting utilities for text-based reporters."""
+
     def __init__(self) -> None:
         self._console = Console() if (Console is not None and Table is not None) else None
         self._metric_keys: list[str] = []
@@ -281,6 +289,8 @@ class _BaseTextReporter(Reporter):
 
 
 class CompactReporter(_BaseTextReporter):
+    """Default terminal reporter using plain text and tqdm progress bars when available."""
+
     def on_run_start(
         self,
         *,
@@ -406,6 +416,8 @@ class CompactReporter(_BaseTextReporter):
 
 
 class RichReporter(_BaseTextReporter):
+    """Rich-based reporter with tables and nested progress bars."""
+
     def __init__(self) -> None:
         super().__init__()
         if self._console is None or Table is None:
@@ -650,6 +662,7 @@ class RichReporter(_BaseTextReporter):
 
 
 def make_reporter(display_mode: Any) -> tuple[str, Reporter]:
+    """Resolve a display mode and instantiate the corresponding reporter."""
     mode = normalize_display_mode(display_mode if display_mode is not None else "compact", where="display_mode")
     if mode == "none":
         return mode, NullReporter()

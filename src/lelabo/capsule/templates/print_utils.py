@@ -1,3 +1,5 @@
+"""Template utilities used by generated capsule smoke tests."""
+
 from __future__ import annotations
 
 import torch
@@ -138,3 +140,4 @@ def print_trainable_segments_table(trainable_segments) -> None:
 
 def print_trainable_segment_details(trainable_segments) -> None:
     print_executable_block_details(trainable_segments)
+"""Template utilities used by generated capsule smoke tests."""

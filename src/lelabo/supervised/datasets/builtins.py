@@ -1,3 +1,5 @@
+"""Builtin supervised dataset registrations."""
+
 from __future__ import annotations
 
 from .registry import register_dataset
@@ -43,3 +45,4 @@ def build_glue_dataset(**kwargs):
     from .nlp.glue import make_glue_dataset
 
     return make_glue_dataset(**kwargs)
+"""Builtin supervised dataset registrations."""
