@@ -6,7 +6,7 @@ repo_name: adrienkegreisz/lelabo
 theme:
   name: material
   logo: assets/logo-mark.svg
-  favicon: assets/favicon.png
+  favicon: assets/logo-mark.svg
   font:
     text: Inter
     code: JetBrains Mono
