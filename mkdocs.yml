@@ -58,6 +58,13 @@ nav:
       - Create an Update Rule: guides/create-update-rule.md
       - Create a Dataset: guides/create-dataset.md
       - Build a Paper Pack: guides/paper-pack.md
+  - Tutorials:
+      - tutorials/index.md
+      - Reproduce a Paper: tutorials/reproduce-paper.md
+      - Implement DFA from Scratch: tutorials/implement-dfa.md
+      - Compare Update Rules: tutorials/compare-rules.md
+      - Custom Training Logic: tutorials/custom-training.md
+      - AI-Assisted Implementation: tutorials/ai-assisted.md
   - Reference:
       - reference/index.md
       - CLI: reference/cli.md

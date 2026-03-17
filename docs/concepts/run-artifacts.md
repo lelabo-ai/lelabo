@@ -42,12 +42,25 @@ Run metadata written at the start and updated at the end.
 ```json
 {
   "schema_version": "run_meta/v1",
-  "run_id": "...",
+  "run_id": "run_20260317_143052_a7b3e1",
   "task": "supervised",
   "status": "succeeded",
-  "started_at": "2025-03-16T10:00:00+00:00",
-  "finished_at": "2025-03-16T10:02:14+00:00",
-  "args": { ... }
+  "started_at": "2026-03-17T14:30:52+00:00",
+  "finished_at": "2026-03-17T14:31:08+00:00",
+  "error": null,
+  "args": {
+    "dataset": "iris",
+    "model": "mlp",
+    "rule": "bp",
+    "optimizer": "adamw",
+    "epochs": 20,
+    "batch": 32,
+    "lr": 0.001,
+    "device": "cpu",
+    "seed": 2,
+    "determinism": "relaxed",
+    "run_dir": "outputs/iris_bp"
+  }
 }
 ```
 
@@ -95,9 +108,17 @@ The random seed state at the start of the run.
 One JSON line per logged event. Includes per-epoch train/val metrics and any other events emitted during training.
 
 ```json
-{"t": "epoch", "epoch": 1, "train.loss": 0.812, "val.loss": 0.743, "val.acc": 0.68}
-{"t": "epoch", "epoch": 2, "train.loss": 0.631, "val.loss": 0.598, "val.acc": 0.74}
-...
+{"t": "seed", "event": "seed", "seed": 2, "determinism": "relaxed", "deterministic_algorithms": false}
+{"t": "epoch", "epoch": 1, "train.loss": 1.098, "train.acc": 0.333, "val.loss": 1.054, "val.acc": 0.400, "lr": 0.001}
+{"t": "epoch", "epoch": 2, "train.loss": 0.912, "train.acc": 0.533, "val.loss": 0.874, "val.acc": 0.600, "lr": 0.001}
+{"t": "epoch", "epoch": 3, "train.loss": 0.743, "train.acc": 0.667, "val.loss": 0.698, "val.acc": 0.733, "lr": 0.001}
+{"t": "epoch", "epoch": 4, "train.loss": 0.601, "train.acc": 0.790, "val.loss": 0.562, "val.acc": 0.800, "lr": 0.001}
+{"t": "epoch", "epoch": 5, "train.loss": 0.487, "train.acc": 0.857, "val.loss": 0.451, "val.acc": 0.867, "lr": 0.001}
+{"t": "epoch", "epoch": 6, "train.loss": 0.398, "train.acc": 0.905, "val.loss": 0.369, "val.acc": 0.933, "lr": 0.001}
+{"t": "epoch", "epoch": 7, "train.loss": 0.331, "train.acc": 0.933, "val.loss": 0.308, "val.acc": 0.933, "lr": 0.001}
+{"t": "epoch", "epoch": 8, "train.loss": 0.281, "train.acc": 0.943, "val.loss": 0.263, "val.acc": 0.933, "lr": 0.001}
+{"t": "epoch", "epoch": 9, "train.loss": 0.243, "train.acc": 0.952, "val.loss": 0.229, "val.acc": 0.933, "lr": 0.001}
+{"t": "epoch", "epoch": 10, "train.loss": 0.213, "train.acc": 0.952, "val.loss": 0.203, "val.acc": 0.953, "lr": 0.001}
 ```
 
 ### `summary.json`
@@ -107,17 +128,34 @@ Final run summary written when training completes.
 ```json
 {
   "schema_version": "run_summary/v1",
-  "run_id": "...",
+  "run_id": "run_20260317_143052_a7b3e1",
   "status": "succeeded",
+  "artifacts": {
+    "meta": "meta.json",
+    "config": "resolved_config.yaml",
+    "seeds": "seeds.json",
+    "metrics": "metrics.jsonl"
+  },
   "best": {
-    "epoch": 12,
+    "source": "earlystopping",
     "monitor_name": "val.acc",
-    "best_value": 0.953
+    "monitor_mode": "max",
+    "best_value": 0.953,
+    "epoch": 10,
+    "train": { "split": "train", "loss": 0.213, "metric": 0.952, "scalars": {} },
+    "val": { "split": "val", "loss": 0.203, "metric": 0.953, "scalars": {} }
   },
   "runtime": {
     "epochs_completed": 15,
+    "total_train_time_sec": 16.4,
     "stopped_early": true,
-    "total_train_time_sec": 134.2
+    "stop_reason": "earlystopping: val.acc did not improve for 5 epochs"
+  },
+  "restoration": {
+    "enabled": true,
+    "best_epoch": 10,
+    "best_checkpoint_available": false,
+    "restored_on_train_end": true
   }
 }
 ```

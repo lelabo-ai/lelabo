@@ -85,6 +85,95 @@ restore_best = true
 name = "acc"
 ```
 
+## Annotated example
+
+Here is a real config file — `configs/train/supervised.quickstart.toml` — with every section explained.
+
+```toml
+config_version = "auto"                # (1)!
+lelabo_version = "auto"                # (2)!
+task = "supervised"                    # (3)!
+
+[dataset]
+name = "iris"                          # (4)!
+[dataset.params]                       # (5)!
+
+[model]
+name = "mlp"                           # (6)!
+[model.params]
+hidden = 128                           # (7)!
+layers = 2
+activation = "relu"
+
+[initializer]
+name = "torch_default"                 # (8)!
+[initializer.params]
+
+[loss]
+name = "ce"                            # (9)!
+[loss.params]
+
+[update_rule]
+name = "bp"                            # (10)!
+[update_rule.params]
+
+[optimizer]
+name = "adamw"                         # (11)!
+[optimizer.params]
+lr = 0.001                             # (12)!
+weight_decay = 0.0
+
+[scheduler]
+name = "none"                          # (13)!
+interval = "epoch"
+monitor = "val.loss"
+[scheduler.params]
+
+[runtime]
+device = "auto"                        # (14)!
+seed = 2                               # (15)!
+determinism = "relaxed"                # (16)!
+display = "compact"
+
+[train]
+epochs = 20                            # (17)!
+batch = 32
+val_frac = 0.1                         # (18)!
+
+[[callbacks]]                          # (19)!
+name = "earlystopping"
+enabled = true
+[callbacks.params]
+monitor = "val.acc"                    # (20)!
+patience = 5
+restore_best = true
+
+[[metrics]]                            # (21)!
+name = "acc"
+```
+
+1. Config format version — leave as `"auto"`, LeLabo handles it.
+2. LeLabo version constraint — `"auto"` means no constraint.
+3. Task type. `"supervised"` or `"rl"`.
+4. Dataset name — must match a registered dataset. See `lelabo list datasets`.
+5. Dataset-specific params passed as `**kwargs` to the dataset builder. Iris has none.
+6. Model name — must match a registered model. See `lelabo list models`.
+7. Model params — passed to the model builder as `args.model_params`. Each model defines its own params.
+8. Weight initialization strategy. `"torch_default"` uses PyTorch defaults.
+9. Loss function. `"ce"` = cross-entropy, `"mse"` = mean squared error, `"bce"` = binary cross-entropy.
+10. Learning rule. `"bp"` = standard backpropagation. See `lelabo list update-rules` for alternatives.
+11. Optimizer name. Standard choices: `"sgd"`, `"adam"`, `"adamw"`.
+12. Optimizer params — `lr` and `weight_decay` are common. Additional params are available via `ctx.optimizer_params()` in the builder.
+13. LR scheduler. `"none"` disables scheduling. Options: `"step"`, `"exponential"`, `"cosine"`, `"reduce_on_plateau"`.
+14. Device selection. `"auto"` picks CUDA if available, falls back to CPU.
+15. Random seed for reproducibility.
+16. Determinism level. `"relaxed"` = seed set but non-deterministic CUDA ops allowed. `"strict"` = fully deterministic, slower. `"off"` = no seed.
+17. Training epochs and batch size.
+18. If the dataset has no validation split, this fraction of training data is held out.
+19. Callbacks use TOML array syntax `[[callbacks]]` — you can have multiple.
+20. Which scalar to monitor for early stopping. Format: `{split}.{metric}`.
+21. Metrics also use array syntax. Each entry adds a metric computed every epoch.
+
 ## Component blocks
 
 Each extensible component follows the same pattern:
