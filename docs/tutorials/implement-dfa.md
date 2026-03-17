@@ -215,7 +215,7 @@ Let's break down the key parts:
 
 ## Step 4 — Configure and run
 
-Edit `configs/train.supervised.paper_pack.toml`:
+Edit `configs/train/supervised.paper_pack.toml`:
 
 ```toml
 config_version = "auto"
@@ -265,14 +265,14 @@ name = "acc"
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
 ## Step 5 — Compare with BP baseline
 
 ```bash
 lelabo train supervised \
-  --config configs/train.supervised.paper_pack.toml \
+  --config configs/train/supervised.paper_pack.toml \
   --model mlp \
   --rule bp \
   --optimizer adamw \

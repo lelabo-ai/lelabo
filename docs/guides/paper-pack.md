@@ -22,7 +22,7 @@ lelabo capsule init my_paper
 cd my_paper
 ```
 
-The scaffold includes a `configs/train.supervised.paper_pack.toml` that is already set up as a starting point for paper pack experiments.
+The scaffold includes a `configs/train/supervised.paper_pack.toml` that is already set up as a starting point for paper pack experiments.
 
 ## Structure your method
 
@@ -35,7 +35,7 @@ my_paper/
 ├── update_rules/
 │   └── my_rule.py          ← the paper's learning rule
 ├── configs/
-│   └── train.supervised.paper_pack.toml
+│   └── train/supervised.paper_pack.toml
 ├── tests/
 │   └── test_paper_pack_smoke.py
 └── resources/
@@ -91,7 +91,7 @@ lelabo list models       # paper_model should appear
 lelabo list update-rules # paper_rule should appear
 
 lelabo train supervised \
-  --config configs/train.supervised.paper_pack.toml \
+  --config configs/train/supervised.paper_pack.toml \
   --run-dir outputs/paper_run
 ```
 

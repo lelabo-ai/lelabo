@@ -148,7 +148,7 @@ def build_nsfa(ctx: UpdateRuleContext):
 lelabo list update-rules
 
 # Run
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 
 # Run the smoke test
 pytest -q tests/

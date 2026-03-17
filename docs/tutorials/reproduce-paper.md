@@ -104,7 +104,7 @@ lelabo list optimizers
 
 ## Step 4 — Configure the experiment
 
-Edit `configs/train.supervised.paper_pack.toml`:
+Edit `configs/train/supervised.paper_pack.toml`:
 
 ```toml
 config_version = "auto"
@@ -163,7 +163,7 @@ Notice: `model`, `dataset`, `loss`, `update_rule` are all builtins. Only `optimi
 ## Step 5 — Run
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
 ## Step 6 — Run the baseline
@@ -172,7 +172,7 @@ To compare fairly, run the exact same setup with AdamW:
 
 ```bash
 lelabo train supervised \
-  --config configs/train.supervised.paper_pack.toml \
+  --config configs/train/supervised.paper_pack.toml \
   --optimizer adamw \
   --lr 0.001 \
   --run-dir outputs/adamw_mnist

@@ -10,7 +10,7 @@ LeLabo ships with five reference configurations. They are the right starting poi
 | BP vision | `--config configs/train/supervised.detailed.toml` | cifar10 + cnn + bp |
 | BP NLP | `--config configs/train/supervised.glue.toml` | glue/sst2 + bert + bp |
 | Local rule | `--config configs/train/supervised.local_rule.toml` | mnist + mlp + dfa |
-| Capsule optimizer | `--config configs/train.supervised.capsule_optimizer.toml` | mnist + cnn + bp + capsule_sgd |
+| Capsule optimizer | `--config configs/train/supervised.capsule_optimizer.toml` | mnist + cnn + bp + capsule_sgd |
 
 Start with the tabular path — it has no GPU requirement and finishes in seconds.
 

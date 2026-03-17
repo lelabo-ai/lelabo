@@ -56,11 +56,11 @@ _EXAMPLE_TEMPLATE_MAP = {
     "schedulers/example.py": "schedulers_example.py",
     "callbacks/example.py": "callbacks_example.py",
     "configs/README.md": "configs_readme.md",
-    "configs/train.supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
-    "configs/train.supervised.detailed.toml": "configs_train_supervised_detailed.toml",
-    "configs/train.supervised.capsule_optimizer.toml": "configs_train_supervised_capsule_optimizer.toml",
-    "configs/train.supervised.paper_pack.toml": "configs_train_supervised_paper_pack.toml",
-    "configs/train.rl.detailed.toml": "configs_train_rl_detailed.toml",
+    "configs/train/supervised.quickstart.toml": "configs_train_supervised_quickstart.toml",
+    "configs/train/supervised.detailed.toml": "configs_train_supervised_detailed.toml",
+    "configs/train/supervised.capsule_optimizer.toml": "configs_train_supervised_capsule_optimizer.toml",
+    "configs/train/supervised.paper_pack.toml": "configs_train_supervised_paper_pack.toml",
+    "configs/train/rl.detailed.toml": "configs_train_rl_detailed.toml",
     "runs/example.py": "runs_example.py",
     "tests/test_capsule_optimizer_smoke.py": "tests_capsule_optimizer_smoke.py",
     "tests/test_paper_pack_smoke.py": "tests_paper_pack_smoke.py",
@@ -88,7 +88,7 @@ def _readme_template(name: str) -> str:
         "## Fastest official path\n\n"
         "1. Uncomment `@register_optimizer(\"capsule_sgd\")` in `optimizers/example.py`.\n"
         "2. Run `lelabo list optimizers`.\n"
-        "3. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`.\n\n"
+        "3. Run `lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml`.\n\n"
         "## Where to go next\n\n"
         "Open `AGENTS.md` for the task map, decision guide, and the right local reference file for your extension.\n\n"
         "## Basic validation\n\n"

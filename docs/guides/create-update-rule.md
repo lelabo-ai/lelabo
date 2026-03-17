@@ -87,7 +87,7 @@ lelabo list update-rules
 # my_rule should appear
 
 lelabo train supervised \
-  --config configs/train.supervised.paper_pack.toml \
+  --config configs/train/supervised.paper_pack.toml \
   --rule my_rule
 ```
 

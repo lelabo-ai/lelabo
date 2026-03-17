@@ -28,7 +28,7 @@ my_capsule/
 ├── callbacks/
 │   └── example.py
 ├── configs/
-│   └── train.supervised.quickstart.toml
+│   └── train/supervised.quickstart.toml
 ├── tests/
 └── resources/
     ├── EXTENSION_RECIPES.md
@@ -75,7 +75,7 @@ Then verify and run:
 
 ```bash
 lelabo list optimizers       # capsule_sgd should appear
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 ```
 
 Your custom optimizer is now part of the runtime — no core code touched.

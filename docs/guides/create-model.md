@@ -63,7 +63,7 @@ lelabo list models
 # my_model should appear
 
 lelabo train supervised \
-  --config configs/train.supervised.quickstart.toml \
+  --config configs/train/supervised.quickstart.toml \
   --model my_model
 ```
 

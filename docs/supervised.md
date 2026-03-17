@@ -40,7 +40,7 @@ lelabo list optimizers
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 ```
 
 Reference setup:

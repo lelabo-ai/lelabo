@@ -60,7 +60,7 @@ If `--config` is omitted, LeLabo looks for a config file in this order:
 ```
 ./train.supervised.toml
 ./train.toml
-./configs/train.supervised.toml
+./configs/train/supervised.toml
 ./configs/train.toml
 ```
 

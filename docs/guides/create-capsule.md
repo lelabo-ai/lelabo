@@ -40,7 +40,7 @@ lelabo list optimizers
 **Step 3.** Run the capsule optimizer config:
 
 ```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 ```
 
 That runs `mnist + cnn + bp + capsule_sgd`. Your custom optimizer is now part of the runtime — no core code touched.
@@ -61,9 +61,9 @@ my_capsule/
 ├── schedulers/example.py
 ├── callbacks/example.py
 ├── configs/
-│   ├── train.supervised.quickstart.toml
-│   ├── train.supervised.capsule_optimizer.toml
-│   └── train.supervised.paper_pack.toml
+│   ├── train/supervised.quickstart.toml
+│   ├── train/supervised.capsule_optimizer.toml
+│   └── train/supervised.paper_pack.toml
 ├── tests/
 └── resources/
     ├── EXTENSION_RECIPES.md         ← step-by-step recipes

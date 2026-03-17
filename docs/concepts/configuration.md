@@ -250,7 +250,7 @@ If you don't pass `--config`, LeLabo looks for a config file automatically in th
 ```
 train.supervised.toml
 train.toml
-configs/train.supervised.toml
+configs/train/supervised.toml
 configs/train.toml
 ```
 
@@ -262,10 +262,10 @@ Capsules come with their own config files in `configs/`. These are the entry poi
 
 ```
 configs/
-├── train.supervised.quickstart.toml
-├── train.supervised.capsule_optimizer.toml
-├── train.supervised.detailed.toml
-└── train.supervised.paper_pack.toml
+├── train/supervised.quickstart.toml
+├── train/supervised.capsule_optimizer.toml
+├── train/supervised.detailed.toml
+└── train/supervised.paper_pack.toml
 ```
 
 The capsule configs reference the same component names as the global registry — plus any names registered by the capsule itself.
