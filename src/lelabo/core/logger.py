@@ -80,9 +80,23 @@ class RunLogger:
     run_dir: Optional[Path] = None
     save_checkpoints: bool = False
     run_id: str = field(default_factory=lambda: uuid4().hex[:12])
+    wandb_project: Optional[str] = None
+    wandb_entity: Optional[str] = None
+    wandb_tags: list[str] = field(default_factory=list)
+    wandb_group: Optional[str] = None
+    wandb_notes: str = ""
+    wandb_enabled: bool = True
 
     def __post_init__(self) -> None:
         """Materialize artifact paths for the configured run directory."""
+        self._wandb_run: Any = None
+        self._wandb_available = False
+        if self.wandb_enabled and self.wandb_project:
+            try:
+                import wandb as _wandb  # noqa: F401
+                self._wandb_available = True
+            except ImportError:
+                self._wandb_available = False
         if self.run_dir is not None:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             self.metrics_path = self.run_dir / "metrics.jsonl"
@@ -104,13 +118,51 @@ class RunLogger:
         self._best_monitor_value: float | None = None
         self._best_checkpoint_payload: dict[str, Any] | None = None
 
+    def _init_wandb(self, *, config: dict[str, Any] | None = None, name: str | None = None) -> None:
+        """Lazily initialize a W&B run. No-op if already initialized or unavailable."""
+        if not self._wandb_available or self._wandb_run is not None:
+            return
+        try:
+            import wandb
+            self._wandb_run = wandb.init(
+                project=self.wandb_project,
+                entity=self.wandb_entity,
+                name=name or self.run_id,
+                group=self.wandb_group,
+                tags=self.wandb_tags or None,
+                notes=self.wandb_notes or None,
+                config=config,
+                id=self.run_id,
+                resume="allow",
+            )
+        except Exception:
+            self._wandb_run = None
+
+    def _finish_wandb(self, exit_code: int = 0) -> None:
+        """Finish the W&B run if one is active."""
+        if self._wandb_run is None:
+            return
+        try:
+            self._wandb_run.finish(exit_code=exit_code)
+        except Exception:
+            pass
+        self._wandb_run = None
+
     def log(self, record: Mapping[str, Any]) -> None:
         """Append one metrics/event record to ``metrics.jsonl`` when enabled."""
-        if self.metrics_path is None:
+        if self.metrics_path is None and self._wandb_run is None:
             return
         payload = {str(k): json_like(v) for k, v in dict(record).items()}
         payload.setdefault("timestamp", utc_now_iso())
-        append_jsonl(self.metrics_path, payload)
+        if self.metrics_path is not None:
+            append_jsonl(self.metrics_path, payload)
+        if self._wandb_run is not None:
+            try:
+                wandb_payload = {k: v for k, v in payload.items() if isinstance(v, (int, float))}
+                if wandb_payload:
+                    self._wandb_run.log(wandb_payload)
+            except Exception:
+                pass
 
     def write_meta(self, args: Mapping[str, Any] | Any, *, task: str) -> None:
         """Write the initial ``meta.json`` lifecycle record for a run."""
@@ -144,6 +196,7 @@ class RunLogger:
         }
         self._meta_payload = payload
         write_json(self.meta_path, payload)
+        self._init_wandb(config=public_args, name=self.run_id)
 
     def finalize_meta(self, status: str, *, error: str | None = None) -> None:
         """Finalize ``meta.json`` with a terminal status and optional error string."""
@@ -166,6 +219,7 @@ class RunLogger:
             payload["error"] = str(error)
         self._meta_payload = payload
         write_json(self.meta_path, payload)
+        self._finish_wandb(exit_code=0 if status == "succeeded" else 1)
 
     def write_resolved_config(self, resolved_config: Mapping[str, Any] | Any) -> None:
         """Persist the fully resolved runtime config as ``resolved_config.yaml``."""
@@ -204,6 +258,13 @@ class RunLogger:
             checkpoints_dir=(None if self.checkpoints_path is None else "checkpoints"),
         )
         write_json(self.summary_path, payload)
+        if self._wandb_run is not None:
+            try:
+                self._wandb_run.summary.update(
+                    {k: json_like(v) for k, v in dict(summary).items() if k != "args"}
+                )
+            except Exception:
+                pass
 
     def build_checkpoint_payload(
         self,

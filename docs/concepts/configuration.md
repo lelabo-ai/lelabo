@@ -229,6 +229,20 @@ lelabo train supervised \
 | `runtime.run_dir` | `""` | Path to write run artifacts (empty = disabled) |
 | `runtime.save_checkpoints` | `false` | Write `checkpoints/last.pt` and `checkpoints/best.pt` |
 
+## W&B configuration
+
+Weights & Biases logging is configured via the `[wandb]` section:
+
+```toml
+[wandb]
+project = "my-research"
+entity = "my-team"
+tags = ["dfa", "baseline"]
+group = "experiment-v1"
+```
+
+Environment variables `WANDB_PROJECT` and `WANDB_ENTITY` serve as fallbacks. Config file values take precedence over environment variables. See the [W&B guide](../guides/wandb.md) and the [config schema reference](../reference/config-schema.md#wandb) for all options.
+
 ## Auto-detection
 
 If you don't pass `--config`, LeLabo looks for a config file automatically in the current directory:

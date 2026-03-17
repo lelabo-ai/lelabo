@@ -146,6 +146,36 @@ Built-in metrics: `acc`, `f1`, `precision`, `recall`, `mse`, `mae`, `r2`
 
 ---
 
+## `[wandb]`
+
+Optional [Weights & Biases](https://wandb.ai) integration. See the [W&B guide](../guides/wandb.md) for setup and usage.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `project` | str | `None` | W&B project name. **Required to enable logging.** Falls back to `WANDB_PROJECT` env var. |
+| `entity` | str | `None` | W&B team or user. Falls back to `WANDB_ENTITY` env var. |
+| `tags` | list | `[]` | Tags for filtering runs in the W&B dashboard |
+| `group` | str | `None` | Group name for organizing related runs (auto-set by sweeps) |
+| `notes` | str | `""` | Free-text notes attached to the run |
+| `enabled` | bool | `true` | Set to `false` to disable W&B even when project is set |
+
+Example:
+
+```toml
+[wandb]
+project = "local-learning-rules"
+entity = "my-team"
+tags = ["dfa", "mnist"]
+group = "experiment-v2"
+notes = "Comparing DFA variants on MNIST"
+enabled = true
+```
+
+!!! note "W&B is optional"
+    If the `wandb` package is not installed or `project` is not set, training proceeds normally without logging to W&B.
+
+---
+
 ## `[robustness]`
 
 Optional robustness evaluation settings.

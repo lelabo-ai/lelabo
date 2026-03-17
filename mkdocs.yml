@@ -53,6 +53,8 @@ nav:
   - Guides:
       - guides/index.md
       - Run Supervised Experiments: guides/run-supervised.md
+      - Run Parameter Sweeps: guides/sweeps.md
+      - Weights & Biases Integration: guides/wandb.md
       - Create a Capsule: guides/create-capsule.md
       - Create a Model: guides/create-model.md
       - Create an Update Rule: guides/create-update-rule.md

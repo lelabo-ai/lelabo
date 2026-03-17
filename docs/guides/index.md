@@ -6,7 +6,9 @@ Step-by-step instructions for common tasks. Each guide assumes you have LeLabo i
 
 | | |
 |---|---|
-| [Run supervised experiments](run-supervised.md) | Config-driven training, overrides, sweeps |
+| [Run supervised experiments](run-supervised.md) | Config-driven training, overrides, and reproducibility |
+| [Run parameter sweeps](sweeps.md) | Grid search across hyperparameters with parallel execution |
+| [Weights & Biases integration](wandb.md) | Experiment tracking, metric visualization, and run comparison |
 
 ## Extending LeLabo
 

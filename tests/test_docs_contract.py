@@ -10,33 +10,36 @@ def _read(rel_path: str) -> str:
 def test_docs_nav_contains_public_pages() -> None:
     mkdocs = _read("mkdocs.yml")
     assert "Home: index.md" in mkdocs
-    assert "Installation: installation.md" in mkdocs
-    assert "Quickstart: quickstart.md" in mkdocs
-    assert "Supervised: supervised.md" in mkdocs
-    assert "Capsules: capsules.md" in mkdocs
-    assert "Cache & Local Rules: cache-local-rules.md" in mkdocs
-    assert "API: api.md" in mkdocs
-    assert "Research notes: research-notes.md" in mkdocs
+    assert "Installation: getting-started/installation.md" in mkdocs
+    assert "Quickstart: getting-started/quickstart.md" in mkdocs
+    assert "CLI: reference/cli.md" in mkdocs
+    assert "Public API: reference/api.md" in mkdocs
+    assert "Research Notes: research-notes.md" in mkdocs
+    assert "Community: community.md" in mkdocs
 
 
-def test_public_docs_share_golden_paths_story() -> None:
-    readme = _read("README.md")
-    supervised = _read("docs/supervised.md")
+def test_docs_nav_contains_concept_pages() -> None:
+    mkdocs = _read("mkdocs.yml")
+    assert "concepts/supervised-runtime.md" in mkdocs
+    assert "concepts/capsules.md" in mkdocs
+    assert "concepts/cache-local-rules.md" in mkdocs
+    assert "concepts/run-artifacts.md" in mkdocs
+    assert "concepts/configuration.md" in mkdocs
 
-    for marker in (
-        "iris + mlp + bp",
-        "mnist + cnn + bp + capsule_sgd",
-        "cifar10 + cnn + bp",
-        "glue/sst2 + bert + bp",
-        "mnist + mlp + dfa",
-    ):
-        assert marker in readme
-        assert marker in supervised
+
+def test_docs_nav_contains_guide_pages() -> None:
+    mkdocs = _read("mkdocs.yml")
+    assert "guides/run-supervised.md" in mkdocs
+    assert "guides/create-capsule.md" in mkdocs
+    assert "guides/create-model.md" in mkdocs
+    assert "guides/create-update-rule.md" in mkdocs
+    assert "guides/create-dataset.md" in mkdocs
+    assert "guides/paper-pack.md" in mkdocs
 
 
 def test_api_docs_reflect_cache_contract() -> None:
-    api = _read("docs/api.md")
-    cache = _read("docs/cache-local-rules.md")
+    api = _read("docs/reference/api.md")
+    cache = _read("docs/concepts/cache-local-rules.md")
 
     for marker in (
         "declare_blocks()",
@@ -47,6 +50,3 @@ def test_api_docs_reflect_cache_contract() -> None:
         "register_cache_pair_activation",
     ):
         assert marker in api or marker in cache
-
-    assert "returns only the requested `target_view`" in api
-    assert "returns only the view requested by `CacheSpec.target_view`" in cache

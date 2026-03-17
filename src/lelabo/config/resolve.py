@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
 from argparse import Namespace
 from pathlib import Path
@@ -22,6 +23,7 @@ from .schema import (
     SchedulerSpec,
     SupervisedConfig,
     SupervisedTrainSpec,
+    WandbSpec,
 )
 from .versioning import (
     TRAIN_CONFIG_SCHEMA_VERSION,
@@ -465,6 +467,16 @@ def resolve_supervised_config(
     metrics = _normalize_metrics(merged.get("metrics", []))
     callbacks = _normalize_callbacks(merged.get("callbacks", []))
 
+    wandb_raw = _as_dict(merged.get("wandb", {}), where="wandb")
+    wandb = WandbSpec(
+        project=wandb_raw.get("project") or os.environ.get("WANDB_PROJECT") or None,
+        entity=wandb_raw.get("entity") or os.environ.get("WANDB_ENTITY") or None,
+        tags=tuple(wandb_raw.get("tags", ())),
+        group=wandb_raw.get("group"),
+        notes=str(wandb_raw.get("notes", "")),
+        enabled=bool(wandb_raw.get("enabled", True)),
+    )
+
     cfg = SupervisedConfig(
         config_version=config_version,
         lelabo_version=lelabo_version,
@@ -482,6 +494,7 @@ def resolve_supervised_config(
         hf=hf,
         metrics=metrics,
         callbacks=callbacks,
+        wandb=wandb,
     )
     _validate_supervised(cfg)
     return cfg
@@ -528,6 +541,16 @@ def resolve_rl_config(
         params=_as_dict(rl_raw.get("params", {}), where="rl.params"),
     )
 
+    wandb_raw = _as_dict(merged.get("wandb", {}), where="wandb")
+    wandb = WandbSpec(
+        project=wandb_raw.get("project") or os.environ.get("WANDB_PROJECT") or None,
+        entity=wandb_raw.get("entity") or os.environ.get("WANDB_ENTITY") or None,
+        tags=tuple(wandb_raw.get("tags", ())),
+        group=wandb_raw.get("group"),
+        notes=str(wandb_raw.get("notes", "")),
+        enabled=bool(wandb_raw.get("enabled", True)),
+    )
+
     cfg = RLConfig(
         config_version=config_version,
         lelabo_version=lelabo_version,
@@ -538,6 +561,7 @@ def resolve_rl_config(
         optimizer=optimizer,
         runtime=runtime,
         rl=rl,
+        wandb=wandb,
     )
     _validate_rl(cfg)
     return cfg
@@ -617,6 +641,12 @@ def to_supervised_namespace(
         "optimizer_params": optimizer_params,
         "scheduler_params": scheduler_params,
         "robustness_params": dict(cfg.robustness.params),
+        "wandb_project": cfg.wandb.project,
+        "wandb_entity": cfg.wandb.entity,
+        "wandb_tags": list(cfg.wandb.tags),
+        "wandb_group": cfg.wandb.group,
+        "wandb_notes": cfg.wandb.notes,
+        "wandb_enabled": cfg.wandb.enabled,
     }
 
     return Namespace(**raw)
@@ -662,5 +692,11 @@ def to_rl_namespace(
         "update_rule_params": update_rule_params,
         "optimizer_params": optimizer_params,
         "rl_params": rl_params,
+        "wandb_project": cfg.wandb.project,
+        "wandb_entity": cfg.wandb.entity,
+        "wandb_tags": list(cfg.wandb.tags),
+        "wandb_group": cfg.wandb.group,
+        "wandb_notes": cfg.wandb.notes,
+        "wandb_enabled": cfg.wandb.enabled,
     }
     return Namespace(**raw)

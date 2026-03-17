@@ -107,6 +107,36 @@ for i in range(max_epochs):
 
 **Stability** — some local rules are more sensitive to learning rate and initialization. If DFA or FA diverge, try reducing `--lr` or adjusting `feedback_scale`.
 
+## Using a sweep instead
+
+The manual approach above works, but a [sweep config](../guides/sweeps.md) is more concise for larger comparisons:
+
+```yaml
+# sweeps/compare_rules.yaml
+name: rule_comparison
+display_keys: [rule, seed]
+
+base:
+  dataset: mnist
+  model: mlp
+  epochs: 20
+  batch: 64
+  optimizer: sgd
+  lr: 0.01
+
+grid:
+  rule: [bp, dfa, fa]
+  seed: [42]
+```
+
+```bash
+lelabo sweep run --config sweeps/compare_rules.yaml
+```
+
+This produces the same three runs. Add more rules or seeds to the grid lists to scale the comparison without writing more shell commands.
+
+To track results in [W&B](../guides/wandb.md), set `WANDB_PROJECT` before running — all sweep runs are automatically grouped.
+
 ## Extending the comparison
 
 Add more rules:

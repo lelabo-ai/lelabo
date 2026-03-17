@@ -28,6 +28,7 @@ Usage:
 
 Subcommands:
   init       Create a local work capsule in the current workspace
+  sweep      List or run sweep configs from the active capsule
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
   install    Import an external capsule bundle into the local capsule store
@@ -444,6 +445,59 @@ def _cmd_remove(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_sweep(argv: list[str]) -> int:
+    """List or run sweep configs from the active capsule."""
+    if not argv or argv[0] in {"-h", "--help", "help"}:
+        print("Usage:")
+        print("  lelabo capsule sweep              List available sweep configs")
+        print("  lelabo capsule sweep run <name>    Run a sweep from the active capsule")
+        print()
+        return 0
+
+    capsule_root = find_active_capsule_root()
+    if capsule_root is None:
+        raise SystemExit("No active capsule found. Run from inside a capsule directory.")
+
+    if argv[0] == "run":
+        if len(argv) < 2:
+            raise SystemExit("Usage: lelabo capsule sweep run <name> [--dry-run] [--max-parallel N] [--gpus G]")
+
+        sweep_name = argv[1]
+        candidates = [
+            capsule_root / "sweeps" / f"{sweep_name}.yaml",
+            capsule_root / "sweeps" / f"{sweep_name}.yml",
+            capsule_root / "configs" / f"{sweep_name}.yaml",
+            capsule_root / "configs" / f"{sweep_name}.yml",
+        ]
+        config_path = next((p for p in candidates if p.exists()), None)
+        if config_path is None:
+            raise SystemExit(
+                f"Sweep config '{sweep_name}' not found in capsule. "
+                f"Searched: {[str(p) for p in candidates]}"
+            )
+
+        from .sweep import _cmd_run
+        return _cmd_run(["--config", str(config_path)] + argv[2:])
+
+    # Default: list available sweep configs
+    sweep_dirs = [capsule_root / "sweeps", capsule_root / "configs"]
+    found: list[tuple[str, str]] = []
+    for d in sweep_dirs:
+        if d.is_dir():
+            for f in sorted(d.iterdir()):
+                if f.suffix in {".yaml", ".yml"} and f.is_file():
+                    found.append((f.stem, str(f.relative_to(capsule_root))))
+
+    if not found:
+        print("No sweep configs found in active capsule.")
+        return 0
+
+    print("Available sweep configs:")
+    for name, rel_path in found:
+        print(f"  {name}  ({rel_path})")
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     args = list(argv)
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -453,6 +507,8 @@ def main(argv: Sequence[str]) -> int:
     cmd = args[0]
     rest = args[1:]
 
+    if cmd == "sweep":
+        return _cmd_sweep(rest)
     if cmd == "init":
         return _cmd_init(rest)
     if cmd == "pack":
@@ -472,6 +528,6 @@ def main(argv: Sequence[str]) -> int:
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: init, stash, checkout, install, pack, list, show, remove.\n"
+        "Use one of: init, sweep, stash, checkout, install, pack, list, show, remove.\n"
         "Run `lelabo capsule -h` for usage."
     )

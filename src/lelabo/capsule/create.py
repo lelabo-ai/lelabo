@@ -30,6 +30,7 @@ _SCAFFOLD_DIRS = (
     "schedulers",
     "callbacks",
     "configs",
+    "sweeps",
     "runs",
     "resources",
     "tests",
@@ -63,6 +64,7 @@ _EXAMPLE_TEMPLATE_MAP = {
     "runs/example.py": "runs_example.py",
     "tests/test_capsule_optimizer_smoke.py": "tests_capsule_optimizer_smoke.py",
     "tests/test_paper_pack_smoke.py": "tests_paper_pack_smoke.py",
+    "sweeps/example.yaml": "sweeps_example.yaml",
 }
 
 

@@ -125,6 +125,51 @@ lelabo train supervised \
   --run-dir outputs/exp_001_repro
 ```
 
+## Logging to Weights & Biases
+
+Enable [W&B](https://wandb.ai) tracking by setting a project name:
+
+```bash
+export WANDB_PROJECT=my-research
+
+lelabo train supervised \
+  --config configs/train/supervised.quickstart.toml \
+  --run-dir outputs/exp_001
+```
+
+Or configure it in the config file:
+
+```toml
+[wandb]
+project = "my-research"
+tags = ["baseline", "iris"]
+```
+
+Metrics are logged every epoch. The full resolved config is attached to the W&B run. See the [W&B integration guide](wandb.md) for all options.
+
+## Running parameter sweeps
+
+To run the same experiment across a grid of hyperparameters:
+
+```yaml
+# sweep.yaml
+name: lr_search
+base:
+  dataset: iris
+  model: mlp
+  epochs: 20
+  optimizer: adamw
+grid:
+  lr: [1e-2, 1e-3, 1e-4]
+  seed: [0, 1, 2]
+```
+
+```bash
+lelabo sweep run --config sweep.yaml
+```
+
+This generates 9 runs (3 lr × 3 seeds), each with its own run directory and artifacts. See the [sweep guide](sweeps.md) for parallel execution, multi-GPU, and W&B grouping.
+
 ## Forcing a device
 
 ```bash

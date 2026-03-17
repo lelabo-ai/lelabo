@@ -9,6 +9,7 @@ from ._common import CLI_USER_ERROR_TYPES, coerce_system_exit_code, is_help_toke
 from .commands.audit import main as run_audit_command
 from .commands.capsule import main as run_capsule_command
 from .commands.list import main as run_list_command
+from .commands.sweep import main as run_sweep_command
 from .commands.train import main as run_train_command
 
 
@@ -36,6 +37,10 @@ def _run_list_cli(argv: Sequence[str]) -> int:
     return _run_command(run_list_command, argv)
 
 
+def _run_sweep_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_sweep_command, argv)
+
+
 ROOT_HELP = """\
 LeLabo command-line interface.
 
@@ -44,6 +49,7 @@ Usage:
 
 Commands:
   train      Run supervised or RL training (explicit mode)
+  sweep      Run parameter sweeps from YAML configs
   audit      Run update-rule audit tests
   list       List available update-rules/datasets/models/initializers/optimizers/losses/metrics/schedulers
   capsule    Manage experiment capsules (init/stash/checkout/install/pack/list/show/remove)
@@ -99,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
             return _run_list_cli(["--help"])
         return _run_list_cli(rest)
 
+    if cmd == "sweep":
+        if not rest or is_help_token(rest[0]):
+            return _run_sweep_cli(["--help"])
+        return _run_sweep_cli(rest)
+
     if cmd == "capsule":
         if not rest or is_help_token(rest[0]):
             return _run_capsule_cli(["--help"])
@@ -107,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, audit, list, capsule.\n"
+        "Use one of: train, sweep, audit, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2

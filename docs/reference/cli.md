@@ -213,6 +213,48 @@ Remove a capsule from the store.
 
 ---
 
+## `lelabo sweep`
+
+Run parameter sweeps.
+
+```bash
+lelabo sweep <subcommand> [args]
+```
+
+### `run`
+
+Execute a grid sweep from a YAML config file.
+
+```bash
+lelabo sweep run --config PATH [OPTIONS]
+```
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config PATH` | str | required | YAML config describing base args + grid |
+| `--outdir PATH` | str | `outputs/runs` | Parent directory for sweep outputs |
+| `--name NAME` | str | from config | Override experiment name (also used as W&B group) |
+| `--max-parallel N` | int | `1` | Number of concurrent jobs |
+| `--gpus IDS` | str | — | GPU IDs for round-robin assignment, e.g. `0,1,2` |
+| `--dry-run` | flag | — | Print commands without executing them |
+
+Each job runs as an independent `lelabo train` subprocess with its own run directory. See the [sweep guide](../guides/sweeps.md) for config format and usage.
+
+**Examples:**
+
+```bash
+# Preview commands
+lelabo sweep run --config sweep.yaml --dry-run
+
+# Run 4 jobs in parallel across 2 GPUs
+lelabo sweep run --config sweep.yaml --max-parallel 4 --gpus 0,1
+
+# Custom output directory and name
+lelabo sweep run --config sweep.yaml --outdir results/ --name my_experiment
+```
+
+---
+
 ## `lelabo audit`
 
 Run update rule audit tests.

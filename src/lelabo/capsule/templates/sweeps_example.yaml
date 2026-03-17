@@ -1,0 +1,19 @@
+# Example sweep config for capsule experiments.
+# Run with: lelabo capsule sweep run example
+# Or:       lelabo sweep run --config sweeps/example.yaml
+
+name: capsule_sweep_example
+display_keys: [rule, dataset, lr, seed]
+
+base:
+  dataset: iris
+  model: mlp
+  epochs: 20
+  batch: 64
+  device: auto
+  optimizer: adamw
+  lr: 1e-3
+
+grid:
+  rule: [bp]
+  seed: [0, 1, 2]

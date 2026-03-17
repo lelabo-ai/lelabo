@@ -71,6 +71,16 @@ class HFSpec:
 
 
 @dataclass(frozen=True)
+class WandbSpec:
+    project: str | None = None
+    entity: str | None = None
+    tags: tuple[str, ...] = ()
+    group: str | None = None
+    notes: str = ""
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class SupervisedConfig:
     config_version: str
     lelabo_version: str
@@ -88,6 +98,7 @@ class SupervisedConfig:
     hf: HFSpec
     metrics: tuple[MetricSpec, ...] = ()
     callbacks: tuple[CallbackSpec, ...] = ()
+    wandb: WandbSpec = field(default_factory=WandbSpec)
 
 
 @dataclass(frozen=True)
@@ -109,3 +120,4 @@ class RLConfig:
     optimizer: ComponentSpec
     runtime: RuntimeSpec
     rl: RLSpec
+    wandb: WandbSpec = field(default_factory=WandbSpec)

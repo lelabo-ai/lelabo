@@ -357,7 +357,16 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
     if save_checkpoints and run_dir is None:
         raise ValueError("runtime.save_checkpoints requires runtime.run_dir (or --run-dir).")
 
-    logger = RunLogger(run_dir=run_dir, save_checkpoints=save_checkpoints)
+    logger = RunLogger(
+        run_dir=run_dir,
+        save_checkpoints=save_checkpoints,
+        wandb_project=getattr(args, "wandb_project", None),
+        wandb_entity=getattr(args, "wandb_entity", None),
+        wandb_tags=list(getattr(args, "wandb_tags", []) or []),
+        wandb_group=getattr(args, "wandb_group", None),
+        wandb_notes=str(getattr(args, "wandb_notes", "") or ""),
+        wandb_enabled=bool(getattr(args, "wandb_enabled", True)),
+    )
     public_args = public_args_dict(args)
     task = str(getattr(args, "task", "")).strip().lower()
     logger.write_meta(public_args, task=task)
