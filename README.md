@@ -1,18 +1,28 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-mark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-mark-light.svg">
+  <img alt="LeLabo" src="docs/assets/logo-mark-light.svg" width="120">
+</picture>
+
 # LeLabo
 
-LeLabo is a modular research library for learning algorithms.
+**A modular research library for learning algorithms.**
 
-It is built for the point where toy scripts stop scaling, but full framework work starts getting in the way. The core idea is simple: keep the training runtime clean, make methods easy to swap, and treat reproducibility as a first-class output.
+[![version](https://img.shields.io/badge/version-0.1.0-7C5CFF?style=flat-square)](https://github.com/adrienkegreisz/LeLabo)
+[![python](https://img.shields.io/badge/python-3.11_|_3.12-4B8BBE?style=flat-square)](https://www.python.org)
+[![license](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
 
-What is solid today:
+[Documentation](docs/index.md) · [Quickstart](#quickstart) · [Install](#install)
 
-- config-driven supervised training from the CLI
-- alternative credit-assignment and local-learning rules
-- structured run artifacts for reproducibility
-- capsule-based extensions for custom research code
-- parameter sweeps and optional Weights & Biases tracking
+</div>
 
-LeLabo is still research-grade software. The public extension points are intentional, but some internal surfaces can still move.
+---
+
+LeLabo is built for the point where toy scripts stop scaling but full frameworks start getting in the way. The core idea: keep the training runtime clean, make methods easy to swap, and treat reproducibility as a first-class output.
+
+> **Status** — LeLabo is research-grade software. The public extension points are intentional, but some internal surfaces can still move. The strongest surface today is `supervised + capsules`.
 
 ## Why LeLabo
 
@@ -26,24 +36,25 @@ LeLabo separates the method from the infrastructure around it:
 
 In practice, this is useful in three situations that come up constantly in research:
 
-- **exploring a paper** — you want to test whether a method works on your own setup, not just on the dataset the authors used. If the method is a LeLabo component, you change the config and run it.
-- **building on a baseline** — you need a fair reference point. Instead of reimplementing a baseline or trusting someone else's script, you use the same runtime for both your method and the baseline.
-- **reviewing or evaluating a contribution** — you want to verify empirically, not just read the numbers. A method that lives in a capsule can be re-run, inspected, and compared in minutes.
+- **Exploring a paper** — you want to test whether a method works on your own setup, not just on the dataset the authors used. If the method is a LeLabo component, you change the config and run it.
+- **Building on a baseline** — you need a fair reference point. Instead of reimplementing a baseline or trusting someone else's script, you use the same runtime for both your method and the baseline.
+- **Reviewing a contribution** — you want to verify empirically, not just read the numbers. A method that lives in a capsule can be re-run, inspected, and compared in minutes.
 
 None of this is automatic — implementing a new method still requires work. What LeLabo removes is the surrounding plumbing: the training loop, the logging, the artifact writing, the sweep infrastructure. You focus on the method itself.
 
-## What You Can Do
+## Features
 
-- run a clean baseline in seconds with `iris + mlp + bp`
-- switch between rules such as `bp`, `dfa`, `fa`, `drtp`, `dni`, `scl`, and `softhebb`
-- use built-in models such as `mlp`, `cnn`, `resnet18`, `bert`, and `deephebb`
-- launch grid sweeps from YAML configs
-- track runs locally or send them to W&B
-- scaffold a capsule and add your own optimizer, model, dataset, metric, scheduler, callback, or update rule
+| | |
+|---|---|
+| **Config-driven training** | TOML configs with CLI overrides. Every run writes a `resolved_config.yaml` so you know exactly what ran. |
+| **Update rules** | `bp`, `dfa`, `fa`, `drtp`, `dni`, `scl`, `softhebb` — swap from the config. |
+| **Built-in models** | `mlp`, `cnn`, `resnet18`, `bert`, `deephebb` |
+| **Parameter sweeps** | YAML grid configs, parallel execution, multi-GPU round-robin, `--dry-run` preview. |
+| **W&B integration** | Optional. Metrics, configs, and summaries logged automatically. Sweep runs grouped in the dashboard. |
+| **Capsules** | Local workspaces for custom models, rules, optimizers, datasets. Pack, share, reinstall. |
+| **Run artifacts** | `meta.json`, `seeds.json`, `metrics.jsonl`, `summary.json` — reproducible by default. |
 
 ## Install
-
-From source:
 
 ```bash
 git clone https://github.com/adrienkegreisz/LeLabo.git
@@ -51,168 +62,95 @@ cd LeLabo
 pip install -e "."
 ```
 
-Development tools:
+Optional extras:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"     # development tools
+pip install -e ".[wandb]"   # Weights & Biases support
 ```
 
-Optional W&B support:
-
-```bash
-pip install -e ".[wandb]"
-```
-
-Requirements:
-
-- Python 3.11 or 3.12
-- `pip`
-
-If you need GPU support, install the CUDA-enabled PyTorch build appropriate for your machine.
+Requires Python 3.11 or 3.12. For GPU support, install the CUDA-enabled PyTorch build for your machine.
 
 ## Quickstart
 
-Inspect the built-in registries:
-
 ```bash
+# See what's available
 lelabo list models
 lelabo list update-rules
 lelabo list datasets
-```
 
-Run the smallest official baseline:
-
-```bash
+# Run the smallest baseline (iris + mlp + bp, CPU, ~5 seconds)
 lelabo train supervised --config configs/train/supervised.quickstart.toml
-```
 
-That launches `iris + mlp + bp`, which is the recommended first run because it is fast, CPU-friendly, and proves that the full stack is wired correctly.
-
-Override from the CLI without editing the config:
-
-```bash
+# Override without editing the config
 lelabo train supervised \
   --config configs/train/supervised.quickstart.toml \
-  --epochs 50 \
-  --lr 0.0005 \
+  --epochs 50 --lr 0.0005 \
   --set model.params.hidden=256
-```
 
-Persist a run directory:
-
-```bash
+# Persist a run directory
 lelabo train supervised \
   --config configs/train/supervised.quickstart.toml \
   --run-dir outputs/my_first_run
 ```
 
-LeLabo then writes:
-
-- `meta.json`
-- `resolved_config.yaml`
-- `seeds.json`
-- `metrics.jsonl`
-- `summary.json`
-- optional `checkpoints/` with `--save-checkpoints`
-
-## Official Supervised Paths
-
-The current first-class supervised paths are:
-
-1. `iris + mlp + bp`
-2. `mnist + cnn + bp + capsule_sgd`
-3. `cifar10 + cnn + bp`
-4. `glue/sst2 + bert + bp`
-5. `mnist + mlp + dfa`
-
-Reference configs live in `configs/train/`.
-
 ## Sweeps
 
-LeLabo includes a sweep runner that expands a YAML grid into multiple `lelabo train` jobs.
+```yaml
+# sweep.yaml
+name: lr_search
+display_keys: [rule, lr, seed]
 
-```bash
-lelabo sweep run --config experiments/sweeps/demo.yaml
+base:
+  dataset: mnist
+  model: mlp
+  epochs: 30
+  optimizer: adamw
+
+grid:
+  rule: [bp, dfa]
+  lr: [1e-2, 1e-3, 1e-4]
+  seed: [0, 1, 2]
 ```
 
-Useful flags:
+```bash
+lelabo sweep run --config sweep.yaml --dry-run        # preview
+lelabo sweep run --config sweep.yaml --max-parallel 4  # run
+```
 
-- `--dry-run` to preview generated commands
-- `--max-parallel N` to run several jobs at once
-- `--gpus 0,1,2` for round-robin GPU assignment
-
-Sweep outputs are written under `outputs/runs/<sweep_name>/`, with one folder per run plus a `plan.json` for the full sweep plan.
-
-## Weights & Biases
-
-W&B support is optional. If `wandb` is installed and a project is configured, LeLabo logs run metrics and groups sweep jobs automatically.
+With W&B enabled, all sweep runs are grouped automatically in the dashboard:
 
 ```bash
-wandb login
 export WANDB_PROJECT=my-project
-
-lelabo train supervised \
-  --config configs/train/supervised.quickstart.toml \
-  --run-dir outputs/run_001
+lelabo sweep run --config sweep.yaml --max-parallel 4
 ```
-
-You can also configure it directly in TOML:
-
-```toml
-[wandb]
-project = "my-project"
-entity = "my-team"
-tags = ["baseline", "iris"]
-group = "quick-tests"
-enabled = true
-```
-
-Without W&B, everything still works locally from the run artifacts on disk.
 
 ## Capsules
-
-A capsule is a local workspace for custom research extensions. It lets you add new components without editing the core package.
-
-Create one with:
 
 ```bash
 lelabo capsule init my_capsule
 cd my_capsule
 ```
 
-Capsules can hold configs, sweeps, custom builders, tests, and reusable method implementations. They can also be packed, installed, stashed, and restored through the CLI.
+A capsule is a local workspace for custom research code — models, update rules, optimizers, datasets, configs, sweeps, and tests. It can be packed, shared, and reinstalled through the CLI.
 
-## CLI Surface
+## CLI
 
-```bash
-lelabo --help
 ```
-
-Main commands:
-
-- `lelabo train supervised`
-- `lelabo train rl`
-- `lelabo sweep run`
-- `lelabo list`
-- `lelabo capsule`
-- `lelabo audit`
+lelabo train supervised    Train a supervised model
+lelabo train rl            Train an RL agent
+lelabo sweep run           Run a parameter sweep
+lelabo list                List registered components
+lelabo capsule             Create, pack, install capsules
+lelabo audit               Audit a run directory
+```
 
 ## Documentation
 
-- [Docs Home](docs/index.md)
-- [Installation](docs/getting-started/installation.md)
-- [Quickstart](docs/getting-started/quickstart.md)
-- [Configuration](docs/concepts/configuration.md)
-- [Supervised Runtime](docs/concepts/supervised-runtime.md)
-- [Run Artifacts](docs/concepts/run-artifacts.md)
-- [Run Supervised Experiments](docs/guides/run-supervised.md)
-- [Run Parameter Sweeps](docs/guides/sweeps.md)
-- [Weights & Biases Integration](docs/guides/wandb.md)
-- [Create a Capsule](docs/guides/create-capsule.md)
-- [CLI Reference](docs/reference/cli.md)
-
-## Status
-
-The strongest surface today is `supervised + capsules`.
-
-RL support exists, but it is not yet the primary stable surface. Sweeps and experiment-management workflows are available and usable, but the most mature documentation and conventions still center on the supervised runtime and capsule workflow.
+| Section | |
+|---|---|
+| [Getting Started](docs/getting-started/index.md) | Install and first experiment |
+| [Concepts](docs/concepts/index.md) | Runtime, capsules, cache contract, artifacts |
+| [Guides](docs/guides/index.md) | Sweeps, W&B, creating components |
+| [Tutorials](docs/tutorials/index.md) | Reproduce a paper, compare rules, implement DFA |
+| [Reference](docs/reference/index.md) | CLI flags, config schema, public API |
