@@ -1,0 +1,6 @@
+<svg width="180" height="140" viewBox="0 0 180 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Primary L — uses currentColor so it adapts to dark nav (white) and light hero (dark) -->
+  <path d="M28 16V102H90" stroke="currentColor" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Accent L — fixed violet -->
+  <path d="M82 38V124H146" stroke="#7C5CFF" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
