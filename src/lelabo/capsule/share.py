@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
-from .github import normalize_github_repo_url, parse_owner_repo_from_url
+from .github import parse_owner_repo_from_url
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None) -> str:
@@ -43,6 +44,26 @@ def _git_current_branch(path: Path) -> str:
     return str(out).strip()
 
 
+def _git_subtree_split(path: Path, *, prefix: str) -> str:
+    out = _run(["git", "-C", str(path), "subtree", "split", "--prefix", prefix, "HEAD"])
+    token = str(out).strip()
+    if not token:
+        raise RuntimeError(f"Could not compute subtree split for prefix '{prefix}'.")
+    return token
+
+
+def _init_git_repo(path: Path) -> None:
+    _run(["git", "-C", str(path), "init", "-b", "main"])
+    _run(["git", "-C", str(path), "add", "-A"])
+    try:
+        _run(["git", "-C", str(path), "commit", "-m", "Initialize capsule for GitHub share"])
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Git repository initialized but initial commit failed. "
+            "Configure git identity (`git config user.name/user.email`) and commit once, then retry share."
+        ) from exc
+
+
 def _git_origin_url(path: Path) -> str | None:
     try:
         out = _run(["git", "-C", str(path), "remote", "get-url", "origin"])
@@ -71,25 +92,39 @@ def _repo_exists(owner: str, repo: str) -> bool:
     return proc.returncode == 0
 
 
+def _gh_current_login() -> str | None:
+    proc = subprocess.run(
+        ["gh", "api", "user", "--jq", ".login"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    token = (proc.stdout or "").strip()
+    return token or None
+
+
 def _create_repo(owner: str, repo: str, visibility: str) -> None:
     vis = str(visibility).strip().lower()
     if vis not in {"public", "private"}:
         raise ValueError("visibility must be 'public' or 'private'.")
     flag = "--public" if vis == "public" else "--private"
-    _run(["gh", "repo", "create", f"{owner}/{repo}", flag, "--confirm"])
-
-
-def _ensure_origin_remote(path: Path, remote_url: str) -> bool:
-    existing = _git_origin_url(path)
-    if existing is None:
-        _run(["git", "-C", str(path), "remote", "add", "origin", remote_url])
-        return True
-    if normalize_github_repo_url(existing) != normalize_github_repo_url(remote_url):
-        raise RuntimeError(
-            "Git remote 'origin' points to a different repository. "
-            "Refusing to overwrite remote configuration."
+    try:
+        _run(["gh", "repo", "create", f"{owner}/{repo}", flag])
+    except RuntimeError as exc:
+        login = _gh_current_login()
+        who = f"Authenticated GitHub user: {login}. " if login else ""
+        hint = (
+            f"{who}If you do not have permission on this owner, pass `--owner <your-github-login>` "
+            "or update `lelabo config set github.owner <your-github-login>`."
         )
-    return False
+        raise RuntimeError(f"{exc}\n{hint}") from exc
+
+
+def _push_refspec(path: Path, *, remote_url: str, refspec: str, branch: str) -> None:
+    _run(["git", "-C", str(path), "push", "-u", remote_url, refspec])
+    _run(["git", "-C", str(path), "fetch", remote_url, branch])
 
 
 def share_capsule_github(
@@ -100,6 +135,8 @@ def share_capsule_github(
     branch: str,
     visibility: str,
     create_repo_if_missing: bool,
+    auto_init_git: bool = False,
+    assume_yes: bool = False,
 ) -> dict[str, Any]:
     """Push a clean local capsule git repository to GitHub."""
     root = capsule_root.resolve()
@@ -108,15 +145,36 @@ def share_capsule_github(
     if shutil.which("git") is None:
         raise RuntimeError("`git` is required for `lelabo capsule share github`.")
 
-    repo_root = _git_repo_root(root)
-    if repo_root != root:
+    initialized_repo = False
+    try:
+        repo_root = _git_repo_root(root)
+    except RuntimeError as exc:
+        if not auto_init_git:
+            raise RuntimeError(
+                "GitHub share requires a git repository. "
+                "Initialize git in your workspace (e.g. `git init`) or use `lelabo capsule share --mode local`."
+            ) from exc
+        if not assume_yes:
+            if not sys.stdin.isatty():
+                raise RuntimeError(
+                    "No git repository found for this capsule. "
+                    "Run in interactive mode to confirm auto-init, or pass `--yes`."
+                ) from exc
+            answer = input(
+                f"No git repository found for '{root}'. Initialize it and create an initial commit now? [y/N]: "
+            ).strip().lower()
+            if answer not in {"y", "yes"}:
+                raise RuntimeError("Git initialization canceled by user.") from exc
+        _init_git_repo(root)
+        repo_root = root
+        initialized_repo = True
+    if repo_root != root and repo_root not in root.parents:
         raise RuntimeError(
-            f"Capsule root '{root}' is inside git repo '{repo_root}'. "
-            "Run share from the git repository root to avoid partial pushes."
+            f"Capsule root '{root}' is not inside git repo root '{repo_root}'."
         )
 
-    _git_head_exists(root)
-    if not _git_is_clean(root):
+    _git_head_exists(repo_root)
+    if not _git_is_clean(repo_root):
         raise RuntimeError("Git worktree is dirty. Commit or stash changes before sharing.")
 
     _ensure_gh_auth()
@@ -133,19 +191,25 @@ def share_capsule_github(
         _create_repo(owner, repo, visibility)
         created_repo = True
 
-    added_origin = _ensure_origin_remote(root, remote_url)
-
     target_branch = str(branch).strip() or _git_current_branch(root) or "main"
-    _run(["git", "-C", str(root), "push", "-u", "origin", f"HEAD:{target_branch}"])
+    if repo_root == root:
+        refspec = f"HEAD:{target_branch}"
+    else:
+        prefix = root.relative_to(repo_root).as_posix()
+        split_sha = _git_subtree_split(repo_root, prefix=prefix)
+        refspec = f"{split_sha}:{target_branch}"
+    _push_refspec(repo_root, remote_url=remote_url, refspec=refspec, branch=target_branch)
 
     return {
         "capsule_path": str(root),
+        "workspace_path": str(repo_root),
         "owner": owner,
         "repo": repo,
         "remote_url": remote_url,
         "branch": target_branch,
         "created_repo": bool(created_repo),
-        "created_origin_remote": bool(added_origin),
+        "created_origin_remote": False,
+        "initialized_git_repo": bool(initialized_repo),
         "pushed": True,
     }
 
@@ -159,4 +223,3 @@ def parse_owner_repo_from_origin(path: Path) -> tuple[str, str] | None:
         return parse_owner_repo_from_url(url)
     except Exception:
         return None
-

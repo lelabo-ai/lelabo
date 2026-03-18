@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any, Sequence
@@ -20,7 +21,7 @@ from ...capsule import (
     share_capsule_github,
     stash_capsule,
 )
-from ...capsule.github import clone_github_repo, is_github_repo_url, parse_owner_repo_spec
+from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ...capsule.share import parse_owner_repo_from_origin
 from ...config.user_settings import load_effective_settings
@@ -38,7 +39,7 @@ Subcommands:
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
   install    Import an external capsule bundle or GitHub repo into the local store
-  share      Share the active capsule workspace to GitHub
+    share      Share a capsule (GitHub by default, local bundle with --mode local)
   pack       Build a shareable capsule bundle from a run/sweep/config
   list       List stored capsules
   show       Show one stored capsule entry
@@ -155,6 +156,52 @@ def _install_checkout_enabled(settings: dict[str, Any]) -> bool:
 def _looks_like_remote_source(raw: str) -> bool:
     token = str(raw).strip()
     return "://" in token or token.startswith("git@")
+
+
+def _resolve_share_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
+    if not capsule_ref:
+        active = find_active_capsule_root()
+        if active is None:
+            raise SystemExit("No active capsule found. Pass a capsule path/id or run inside a capsule directory.")
+        return active.resolve()
+
+    ref_path = Path(capsule_ref).expanduser()
+    if ref_path.exists():
+        start = ref_path.resolve()
+        if start.is_file():
+            start = start.parent
+        root = find_active_capsule_root(start=start)
+        if root is None:
+            raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
+        return root.resolve()
+
+    row = get_capsule(capsule_ref, caps_dir)
+    if row is None:
+        raise SystemExit(f"Unknown capsule '{capsule_ref}' (not found as path nor stored id/alias).")
+    root = Path(str(row.get("path", ""))).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise SystemExit(f"Capsule path does not exist on disk: {root}")
+    return root
+
+
+def _export_capsule_local_bundle(capsule_root: Path, *, out_path: Path | None) -> Path:
+    root = capsule_root.resolve()
+    if out_path is None:
+        out = (Path.cwd() / f"{root.name}.tar.gz").resolve()
+    else:
+        out = out_path.resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(out, mode="w:gz") as tf:
+        for p in sorted(root.rglob("*")):
+            rel = p.relative_to(root)
+            if ".git" in rel.parts:
+                continue
+            if "__pycache__" in rel.parts:
+                continue
+            if p.suffix in {".pyc", ".pyo"}:
+                continue
+            tf.add(p, arcname=f"{root.name}/{rel.as_posix()}")
+    return out
 
 
 def _cmd_init(argv: list[str]) -> int:
@@ -595,51 +642,69 @@ def _cmd_remove(argv: list[str]) -> int:
 def _cmd_share(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule share",
-        description="Share the active capsule workspace to GitHub.",
+        description="Share a capsule to GitHub (default) or export a local bundle.",
         epilog=(
             "Examples:\n"
-            "  lelabo capsule share github\n"
-            "  lelabo capsule share github owner/repo\n"
-            "  lelabo capsule share github --owner owner --repo repo --public"
+            "  lelabo capsule share\n"
+            "  lelabo capsule share my_capsule_alias --owner owner --repo repo\n"
+            "  lelabo capsule share --mode local --out ./my_capsule.tar.gz"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("target", choices=["github"], help="Share target backend")
-    parser.add_argument("repo_spec", nargs="?", default=None, help="Optional owner/repo target")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
+    parser.add_argument("--mode", choices=["github", "local"], default="github", help="Share mode backend")
     parser.add_argument("--owner", default=None, help="GitHub owner override")
     parser.add_argument("--repo", default=None, help="GitHub repository override")
     parser.add_argument("--branch", default=None, help="Target branch override")
     vis = parser.add_mutually_exclusive_group()
     vis.add_argument("--public", action="store_true", help="Create/share as a public repo")
     vis.add_argument("--private", action="store_true", help="Create/share as a private repo")
+    parser.add_argument("--out", default=None, help="Output bundle path for --mode local")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Non-interactive confirmation for automatic git initialization when missing.",
+    )
+    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path (for capsule id/alias refs)")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
-    if args.target != "github":
-        raise SystemExit(f"Unsupported share target '{args.target}'.")
-
-    capsule_root = find_active_capsule_root()
-    if capsule_root is None:
-        raise SystemExit("No active capsule found. Run share from inside a capsule directory.")
-
     settings = _effective_settings()
-    github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    capsule_root = _resolve_share_capsule_root(args.capsule_ref, caps_dir=caps_dir)
 
-    spec_owner = spec_repo = None
-    if args.repo_spec:
-        try:
-            spec_owner, spec_repo = parse_owner_repo_spec(args.repo_spec)
-        except ValueError as exc:
-            raise SystemExit(str(exc))
+    if args.mode == "local":
+        out = _export_capsule_local_bundle(
+            capsule_root,
+            out_path=Path(args.out).expanduser() if args.out else None,
+        )
+        payload = {
+            "schema_version": CAPSULE_JSON_SCHEMA,
+            "command": "share",
+            "target": "local",
+            "result": {
+                "capsule_path": str(capsule_root),
+                "bundle_path": str(out),
+                "mode": "local",
+            },
+        }
+        if bool(args.json):
+            _print_json(payload)
+        else:
+            print("shared capsule locally:")
+            print(f"capsule_path: {capsule_root}")
+            print(f"bundle_path: {out}")
+        return 0
+
+    github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
 
     origin_spec = parse_owner_repo_from_origin(capsule_root)
     origin_owner, origin_repo = origin_spec if origin_spec is not None else (None, None)
 
-    owner = str(args.owner or spec_owner or origin_owner or github_cfg.get("owner", "")).strip()
+    owner = str(args.owner or origin_owner or github_cfg.get("owner", "")).strip()
     if not owner:
         raise SystemExit("GitHub owner is required. Set --owner or `lelabo config set github.owner <owner>`.")
-    default_repo = origin_repo or capsule_root.name
-    repo = str(args.repo or spec_repo or default_repo).strip()
+    repo = str(args.repo or origin_repo or capsule_root.name).strip()
     if not repo:
         raise SystemExit("GitHub repo is required.")
 
@@ -663,6 +728,8 @@ def _cmd_share(argv: list[str]) -> int:
             branch=branch,
             visibility=visibility,
             create_repo_if_missing=create_repo_if_missing,
+            auto_init_git=True,
+            assume_yes=bool(args.yes),
         )
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc))

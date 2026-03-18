@@ -90,12 +90,14 @@ def test_capsule_install_help_mentions_github_and_checkout() -> None:
     assert "--checkout" in proc.stdout
 
 
-def test_capsule_share_help_mentions_github() -> None:
+def test_capsule_share_help_mentions_mode_and_local_export() -> None:
     proc = _run_cli_help("capsule", "share", "-h")
     assert proc.returncode == 0
-    assert "Share the active capsule workspace to GitHub" in proc.stdout
+    assert "Share a capsule to GitHub (default) or export a local bundle." in proc.stdout
+    assert "--mode {github,local}" in proc.stdout
     assert "--owner" in proc.stdout
     assert "--repo" in proc.stdout
+    assert "--out" in proc.stdout
 
 
 def test_capsule_show_help_documents_positionals_and_examples() -> None:

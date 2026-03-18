@@ -224,13 +224,17 @@ Install is store-first. Use `--checkout` to move the installed capsule into a wo
 | `--ref REF` | Branch / tag / commit for GitHub installs |
 | `--checkout [DEST]` | Checkout after install (`DEST` optional, defaults to config checkout dir) |
 
-### `share github`
+### `share`
 
 ```bash
-lelabo capsule share github [owner/repo] [--owner OWNER] [--repo REPO] [--branch BRANCH] [--public|--private] [--json]
+lelabo capsule share [capsule_ref] [--mode github|local] [--owner OWNER] [--repo REPO] [--branch BRANCH] [--public|--private] [--out PATH] [--yes] [--json]
 ```
 
-Push the active capsule workspace to GitHub.
+Share a capsule with mode-based backends.
+
+- Default: `--mode github`
+- Local export: `--mode local`
+- `capsule_ref` can be a local path or a stored capsule id/alias (so you can share from a multi-capsule workspace)
 
 Preconditions:
 - run from an active capsule root
@@ -241,6 +245,8 @@ Preconditions:
 Behavior:
 - no auto-commit
 - optional repo auto-creation (configurable via `github.create_repo_if_missing`)
+- with `--mode local`, exports a `.tar.gz` bundle in the current directory by default (or `--out PATH`) and does not require git/gh
+- with `--mode github`, if no git repo is found, LeLabo can initialize git + first commit after confirmation (`--yes` for non-interactive mode)
 
 ### `list`
 
