@@ -115,19 +115,15 @@ That is still a direction, not a promise. The supervised runtime and capsule wor
 
 ---
 
-## Reinforcement learning
-
-RL support exists but is not the primary stable surface yet. See the [RL page](rl.md) for the current status.
-
----
-
 ## Documentation map
 
 | Section | What you will find |
 |---|---|
 | [Getting Started](getting-started/index.md) | Install LeLabo and run your first experiment |
 | [Concepts](concepts/index.md) | The runtime model, capsules, cache contract, run artifacts |
-| [Guides](guides/index.md) | How to create models, update rules, datasets, capsules |
+| [Guides](guides/index.md) | How to create models, update rules, datasets, capsules, sweeps, W&B |
+| [Tutorials](tutorials/index.md) | Reproduce a paper, compare rules, implement DFA |
 | [Reference](reference/index.md) | Exact CLI flags, config schema, public API |
+| [RL](rl.md) | Reinforcement learning — under active development |
 | [Research Notes](research-notes.md) | Design choices, limitations, future direction |
-| [Community](community.md) | Contributing, sharing capsules |
+| [Contributing](community.md) | How to contribute, sharing capsules |

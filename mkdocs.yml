@@ -74,9 +74,9 @@ nav:
       - Config Schema: reference/config-schema.md
       - Run Artifacts Contract: reference/run-artifacts.md
       - Built-in Components: reference/built-ins.md
-  - Research Notes: research-notes.md
-  - Community: community.md
   - RL: rl.md
+  - Research Notes: research-notes.md
+  - Contributing: community.md
 
 markdown_extensions:
   - admonition

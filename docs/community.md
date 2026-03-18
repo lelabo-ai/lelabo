@@ -1,4 +1,4 @@
-# Community
+# Contributing
 
 LeLabo is designed to grow as a shared research ecosystem, not just as a personal tool.
 
