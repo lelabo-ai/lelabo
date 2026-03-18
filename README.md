@@ -14,7 +14,7 @@
 [![python](https://img.shields.io/badge/python-3.11_|_3.12-4B8BBE?style=flat-square)](https://www.python.org)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
 
-[Documentation](docs/index.md) · [Quickstart](#quickstart) · [Install](#install)
+[Documentation](https://adrienkegreisz.github.io/lelabo-docs/) · [Quickstart](#quickstart) · [Install](#install)
 
 </div>
 
@@ -149,8 +149,8 @@ lelabo audit               Audit a run directory
 
 | Section | |
 |---|---|
-| [Getting Started](docs/getting-started/index.md) | Install and first experiment |
-| [Concepts](docs/concepts/index.md) | Runtime, capsules, cache contract, artifacts |
-| [Guides](docs/guides/index.md) | Sweeps, W&B, creating components |
-| [Tutorials](docs/tutorials/index.md) | Reproduce a paper, compare rules, implement DFA |
-| [Reference](docs/reference/index.md) | CLI flags, config schema, public API |
+| [Getting Started](https://adrienkegreisz.github.io/lelabo-docs/getting-started/) | Install and first experiment |
+| [Concepts](https://adrienkegreisz.github.io/lelabo-docs/concepts/) | Runtime, capsules, cache contract, artifacts |
+| [Guides](https://adrienkegreisz.github.io/lelabo-docs/guides/) | Sweeps, W&B, creating components |
+| [Tutorials](https://adrienkegreisz.github.io/lelabo-docs/tutorials/) | Reproduce a paper, compare rules, implement DFA |
+| [Reference](https://adrienkegreisz.github.io/lelabo-docs/reference/) | CLI flags, config schema, public API |
