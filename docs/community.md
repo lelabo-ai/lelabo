@@ -26,7 +26,7 @@ Contributions are welcome across the full project:
 - **Documentation** — corrections, examples, new guides
 - **Paper packs** — capsule implementations of published methods
 
-To contribute, open an issue or pull request on [GitHub](https://github.com/adrienkegreisz/LeLabo).
+To contribute, open an issue or pull request on [GitHub](https://github.com/lelabo-ai/lelabo).
 
 For significant changes, open an issue first to discuss the direction before writing code.
 
@@ -44,7 +44,7 @@ Be honest about what is implemented and what is not. A partial implementation th
 
 ## Reporting issues
 
-Open an issue on [GitHub](https://github.com/adrienkegreisz/LeLabo/issues). Include:
+Open an issue on [GitHub](https://github.com/lelabo-ai/lelabo/issues). Include:
 
 - LeLabo version (`pip show lelabo`)
 - Python version

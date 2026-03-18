@@ -13,7 +13,7 @@ hide:
 
 <p class="lelabo-hero__tagline">A modular research library for learning algorithms.</p>
 
-[![version](https://img.shields.io/badge/version-0.1.0-7C5CFF?style=flat-square)](https://github.com/adrienkegreisz/LeLabo) [![python](https://img.shields.io/badge/python-3.11_|_3.12-4B8BBE?style=flat-square)](https://www.python.org) [![downloads](https://img.shields.io/badge/downloads-1.2k%2Fmonth-2ea44f?style=flat-square)](https://github.com/adrienkegreisz/LeLabo) [![license](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](https://github.com/adrienkegreisz/LeLabo/blob/main/LICENSE)
+[![version](https://img.shields.io/badge/version-0.1.0-7C5CFF?style=flat-square)](https://github.com/lelabo-ai/LeLabo) [![python](https://img.shields.io/badge/python-3.11_|_3.12-4B8BBE?style=flat-square)](https://www.python.org) [![downloads](https://img.shields.io/badge/downloads-1.2k%2Fmonth-2ea44f?style=flat-square)](https://github.com/lelabo-ai/LeLabo) [![license](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](https://github.com/lelabo-ai/LeLabo/blob/main/LICENSE)
 {: .lelabo-hero__badges }
 
 [Get started](getting-started/installation.md){ .md-button .lelabo-btn-primary }

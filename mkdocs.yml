@@ -1,7 +1,7 @@
 site_name: LeLabo
 site_description: Modular research library for reusable learning methods and capsule-based experimentation
-repo_url: https://github.com/adrienkegreisz/LeLabo
-repo_name: adrienkegreisz/lelabo
+repo_url: https://github.com/lelabo-ai/lelabo
+repo_name: lelabo-ai/lelabo
 
 theme:
   name: material

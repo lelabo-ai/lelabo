@@ -185,7 +185,7 @@ If you use an AI agent with LeLabo and find that:
 - The agent consistently makes the same mistake
 - A contract is underspecified and the agent guesses wrong
 
-**[Open an issue](https://github.com/adrienkegreisz/LeLabo/issues)** and describe what happened. This feedback directly improves the local documentation for everyone — including future agents working on other capsules.
+**[Open an issue](https://github.com/lelabo-ai/lelabo/issues)** and describe what happened. This feedback directly improves the local documentation for everyone — including future agents working on other capsules.
 
 ## Next steps
 

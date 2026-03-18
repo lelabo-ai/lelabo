@@ -20,7 +20,7 @@ Only the optimizer changes. Everything else stays builtin.
 !!! tip "Use builtins whenever possible"
     LeLabo ships with well-tested models, datasets, and rules. If a builtin covers your need, use it. This keeps experiments comparable across the community and avoids duplicating tested code.
 
-    If a builtin is close but not quite right, [open an issue](https://github.com/adrienkegreisz/LeLabo/issues) — it's better to improve the shared component than to reimplement it locally.
+    If a builtin is close but not quite right, [open an issue](https://github.com/lelabo-ai/lelabo/issues) — it's better to improve the shared component than to reimplement it locally.
 
 ## Step 1 — Create the capsule
 
@@ -272,6 +272,6 @@ A paper pack is most useful when it is honest:
 
 ## Something missing in the builtins?
 
-If you find that a builtin model, dataset, or loss doesn't quite support what the paper needs — don't silently reimplement it. [Open an issue](https://github.com/adrienkegreisz/LeLabo/issues) so we can improve the shared component for everyone.
+If you find that a builtin model, dataset, or loss doesn't quite support what the paper needs — don't silently reimplement it. [Open an issue](https://github.com/lelabo-ai/lelabo/issues) so we can improve the shared component for everyone.
 
 The goal is that the community shares the same reference environment. The more people use the same builtins, the more comparable experiments become.

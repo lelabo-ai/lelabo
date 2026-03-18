@@ -34,9 +34,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://adrienkegreisz.github.io/lelabo/"
-Repository = "https://github.com/adrienkegreisz/lelabo"
-Issues = "https://github.com/adrienkegreisz/lelabo/issues"
+Homepage = "https://lelabo-ai.github.io/"
+Repository = "https://github.com/lelabo-ai/lelabo"
+Issues = "https://github.com/lelabo-ai/lelabo/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

@@ -10,11 +10,11 @@
 
 **A modular research library for learning algorithms.**
 
-[![version](https://img.shields.io/badge/version-0.1.0-7C5CFF?style=flat-square)](https://github.com/adrienkegreisz/LeLabo)
+[![version](https://img.shields.io/badge/version-0.1.0-7C5CFF?style=flat-square)](https://github.com/lelabo-ai/lelabo)
 [![python](https://img.shields.io/badge/python-3.11_|_3.12-4B8BBE?style=flat-square)](https://www.python.org)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
 
-[Documentation](https://adrienkegreisz.github.io/lelabo-docs/) · [Quickstart](#quickstart) · [Install](#install)
+[Documentation](https://lelabo-ai.github.io/) · [Quickstart](#quickstart) · [Install](#install)
 
 </div>
 
@@ -57,7 +57,7 @@ None of this is automatic — implementing a new method still requires work. Wha
 ## Install
 
 ```bash
-git clone https://github.com/adrienkegreisz/LeLabo.git
+git clone https://github.com/lelabo-ai/lelabo.git
 cd LeLabo
 pip install -e "."
 ```
@@ -149,8 +149,8 @@ lelabo audit               Audit a run directory
 
 | Section | |
 |---|---|
-| [Getting Started](https://adrienkegreisz.github.io/lelabo-docs/getting-started/) | Install and first experiment |
-| [Concepts](https://adrienkegreisz.github.io/lelabo-docs/concepts/) | Runtime, capsules, cache contract, artifacts |
-| [Guides](https://adrienkegreisz.github.io/lelabo-docs/guides/) | Sweeps, W&B, creating components |
-| [Tutorials](https://adrienkegreisz.github.io/lelabo-docs/tutorials/) | Reproduce a paper, compare rules, implement DFA |
-| [Reference](https://adrienkegreisz.github.io/lelabo-docs/reference/) | CLI flags, config schema, public API |
+| [Getting Started](https://lelabo-ai.github.io/getting-started/) | Install and first experiment |
+| [Concepts](https://lelabo-ai.github.io/concepts/) | Runtime, capsules, cache contract, artifacts |
+| [Guides](https://lelabo-ai.github.io/guides/) | Sweeps, W&B, creating components |
+| [Tutorials](https://lelabo-ai.github.io/tutorials/) | Reproduce a paper, compare rules, implement DFA |
+| [Reference](https://lelabo-ai.github.io/reference/) | CLI flags, config schema, public API |

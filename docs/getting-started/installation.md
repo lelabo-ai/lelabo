@@ -18,7 +18,7 @@ That's it. All dependencies â€” PyTorch, scikit-learn, Hugging Face, Gymnasium â
 If you want the latest development version:
 
 ```bash
-git clone https://github.com/adrienkegreisz/LeLabo.git
+git clone https://github.com/lelabo-ai/lelabo.git
 cd LeLabo
 pip install -e "."
 ```
