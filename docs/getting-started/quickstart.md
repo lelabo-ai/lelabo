@@ -117,6 +117,8 @@ This runs **MNIST + MLP + DFA** (Direct Feedback Alignment) — the first non-BP
 
 ## Next steps
 
-- **Extend LeLabo** with your own components → [Create a capsule](create-capsule.md)
+- **Compare variants across seeds** → [Run parameter sweeps](../guides/sweeps.md)
+- **Track and visualize results** → [Weights & Biases integration](../guides/wandb.md)
+- **Extend LeLabo** with your own components → [Create a capsule](../guides/create-capsule.md)
 - **Understand the runtime** → [Supervised runtime](../concepts/supervised-runtime.md)
 - **See all CLI options** → [CLI reference](../reference/cli.md)

@@ -160,52 +160,81 @@ name = "acc"
 
 Notice: `model`, `dataset`, `loss`, `update_rule` are all builtins. Only `optimizer` is custom.
 
-## Step 5 — Run
+## Step 5 — Quick sanity check
+
+Run once to make sure the optimizer works:
 
 ```bash
 lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
-## Step 6 — Run the baseline
+Check the output — if training converges and accuracy is reasonable, the implementation is wired correctly. This is not the real experiment yet, just a smoke test.
 
-To compare fairly, run the exact same setup with AdamW:
+## Step 6 — Run the real comparison as a sweep
 
-```bash
-lelabo train supervised \
-  --config configs/train/supervised.paper_pack.toml \
-  --optimizer adamw \
-  --lr 0.001 \
-  --run-dir outputs/adamw_mnist
+A single run on a single seed does not tell you much. To actually compare Muon against AdamW, you need multiple seeds and both optimizers under the same conditions.
+
+Create a sweep config in `sweeps/muon_vs_adamw.yaml`:
+
+```yaml
+name: muon_vs_adamw
+display_keys: [optimizer, lr, seed]
+
+base:
+  dataset: mnist
+  model: mlp
+  rule: bp
+  epochs: 20
+  batch: 64
+
+grid:
+  optimizer: [muon, adamw]
+  lr: [0.02, 0.01, 0.001]
+  seed: [0, 1, 2, 3, 4]
 ```
 
-Same model, same dataset, same seed, same epochs — only the optimizer changes.
+That gives you `2 optimizers × 3 learning rates × 5 seeds = 30` runs. Each optimizer gets a fair shot at its best learning rate, and you have enough seeds to see variance.
 
-## Step 7 — Compare results
-
-Look at the summary files:
+Preview first:
 
 ```bash
-cat outputs/muon_mnist/summary.json | python -m json.tool
-cat outputs/adamw_mnist/summary.json | python -m json.tool
+lelabo sweep run --config sweeps/muon_vs_adamw.yaml --dry-run
 ```
 
-Compare `best.best_value` (best validation accuracy) and `runtime.total_train_time_sec` between the two runs.
+Then run:
 
-For a more detailed comparison, load the `metrics.jsonl` files:
+```bash
+lelabo sweep run --config sweeps/muon_vs_adamw.yaml --max-parallel 4
+```
 
-```python
+## Step 7 — Track results in W&B
+
+If you have W&B set up (see the [W&B guide](../guides/wandb.md) for installation and login), enable it before launching the sweep:
+
+```bash
+export WANDB_PROJECT=muon-paper
+
+lelabo sweep run --config sweeps/muon_vs_adamw.yaml --max-parallel 4
+```
+
+All 30 runs are automatically grouped under `muon_vs_adamw` in the W&B dashboard. From there:
+
+- filter by `config.optimizer` to overlay Muon runs against AdamW runs
+- use the parallel coordinates view to see which learning rate works best for each optimizer
+- sort by `summary.best.best_value` to find the best configuration overall
+
+If you don't use W&B, the same information is available locally. Every run writes `summary.json` and `metrics.jsonl` in its output directory. A quick shell loop can extract what you need:
+
+```bash
+for dir in outputs/runs/muon_vs_adamw/*/; do
+  name=$(basename "$dir")
+  acc=$(python -c "
 import json
-
-def load_metrics(path):
-    with open(path) as f:
-        return [json.loads(line) for line in f if '"t": "epoch"' in line]
-
-muon = load_metrics("outputs/muon_mnist/metrics.jsonl")
-adamw = load_metrics("outputs/adamw_mnist/metrics.jsonl")
-
-for epoch in range(min(len(muon), len(adamw))):
-    m, a = muon[epoch], adamw[epoch]
-    print(f"Epoch {m['epoch']:2d}  |  Muon val.acc={m['val.acc']:.3f}  |  AdamW val.acc={a['val.acc']:.3f}")
+s = json.load(open('${dir}summary.json'))
+print(f\"{s['best']['best_value']:.4f}\")
+" 2>/dev/null || echo "N/A")
+  echo "$name → $acc"
+done
 ```
 
 ## Step 8 — Document and pack

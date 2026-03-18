@@ -25,11 +25,11 @@ hide:
 
 ## Why LeLabo exists
 
-Research code is often tied to a single paper setup: one dataset, one model family, one training script, one opaque repository.
+Research code is usually written to reproduce one specific result. The method, the training loop, the data loading, the evaluation — everything is coupled in one script or one repository. It works for the original setup, but trying the same method on a different dataset, comparing it to another approach, or just checking that the numbers hold means rewriting a good part of the pipeline.
 
-That makes methods harder to reuse, compare fairly, or integrate into another workflow.
+LeLabo separates the method from the infrastructure. The training runtime, the logging, the seed management, the artifact writing — that part is shared. Methods are named components that you swap from a config. A capsule lets you add your own without touching the core.
 
-LeLabo is built to reduce that friction. Instead of rebuilding the same experimental infrastructure for every project, you focus on the method itself — the runtime, the extension points, and the reproducibility are already there.
+The result is that three things researchers do constantly become easier: testing a method from a paper on your own data, building on an honest baseline without reimplementing it, and verifying a result empirically instead of just reading the reported numbers.
 
 ---
 
@@ -69,6 +69,14 @@ LeLabo is built to reduce that friction. Instead of rebuilding the same experime
 
     [:octicons-arrow-right-24: Run artifacts](concepts/run-artifacts.md)
 
+-   **Sweeps & tracking**
+
+    ---
+
+    A YAML grid config expands into parallel `lelabo train` jobs across seeds, learning rates, or methods. W&B integration is optional — when enabled, sweep runs are grouped automatically for live comparison.
+
+    [:octicons-arrow-right-24: Run parameter sweeps](guides/sweeps.md)
+
 </div>
 
 ---
@@ -97,11 +105,11 @@ lelabo list datasets
 
 LeLabo is designed toward a workflow where methods travel beyond their original paper setup.
 
-A capsule can hold a full method implementation — model, update rule, config, tests. It can be stashed, packed, shared, and reinstalled. The goal is to make it easier to:
+A capsule can hold a full method implementation — model, update rule, config, tests. It can be stashed, packed, shared, and reinstalled. Concretely, that means:
 
-- reuse a baseline without rebuilding it
-- compare methods under the same runtime conditions
-- audit a result outside its original repository
+- a baseline you implemented once can be reused across projects without copy-pasting training scripts
+- two methods compared in the same capsule share the exact same runtime, so the comparison is fair by construction
+- someone reviewing a paper can pull the capsule, re-run it on their own data, and see whether the result holds — instead of trusting a table in a PDF
 
 That is still a direction, not a promise. The supervised runtime and capsule workflow are stable today. The ecosystem around sharing and reuse is being built.
 

@@ -107,12 +107,13 @@ for i in range(max_epochs):
 
 **Stability** — some local rules are more sensitive to learning rate and initialization. If DFA or FA diverge, try reducing `--lr` or adjusting `feedback_scale`.
 
-## Using a sweep instead
+## Run the comparison properly with a sweep
 
-The manual approach above works, but a [sweep config](../guides/sweeps.md) is more concise for larger comparisons:
+The manual commands above are useful to understand what happens, but a single seed is not a real comparison. To get actual results, use a sweep with multiple seeds.
+
+Create `sweeps/compare_rules.yaml`:
 
 ```yaml
-# sweeps/compare_rules.yaml
 name: rule_comparison
 display_keys: [rule, seed]
 
@@ -126,47 +127,79 @@ base:
 
 grid:
   rule: [bp, dfa, fa]
-  seed: [42]
+  seed: [0, 1, 2, 3, 4]
 ```
+
+That gives you `3 rules × 5 seeds = 15` runs — enough to see whether the differences are real or just seed noise.
+
+Preview the jobs:
 
 ```bash
-lelabo sweep run --config sweeps/compare_rules.yaml
+lelabo sweep run --config sweeps/compare_rules.yaml --dry-run
 ```
 
-This produces the same three runs. Add more rules or seeds to the grid lists to scale the comparison without writing more shell commands.
+Run them:
 
-To track results in [W&B](../guides/wandb.md), set `WANDB_PROJECT` before running — all sweep runs are automatically grouped.
+```bash
+lelabo sweep run --config sweeps/compare_rules.yaml --max-parallel 3
+```
+
+### Track results in W&B
+
+If you have W&B set up (see the [W&B guide](../guides/wandb.md) for installation and login), enable it before launching:
+
+```bash
+export WANDB_PROJECT=rule-comparison
+
+lelabo sweep run --config sweeps/compare_rules.yaml --max-parallel 3
+```
+
+All 15 runs are grouped under `rule_comparison` in the W&B dashboard. From there:
+
+- group by `config.rule` to see each rule's training curves overlaid with their seed variance
+- sort the run table by `summary.best.best_value` to compare final accuracy
+- use the "Diff" tab to confirm that only `rule` and `seed` vary between runs
+
+Without W&B, you can extract the same numbers from the local artifacts:
+
+```bash
+for dir in outputs/runs/rule_comparison/*/; do
+  name=$(basename "$dir")
+  acc=$(python -c "
+import json
+s = json.load(open('${dir}summary.json'))
+print(f\"{s['best']['best_value']:.4f}\")
+" 2>/dev/null || echo "N/A")
+  echo "$name → $acc"
+done
+```
 
 ## Extending the comparison
 
-Add more rules:
+Add more rules or a harder dataset by editing the grid:
 
-```bash
-# DRTP
-lelabo train supervised \
-  --dataset mnist --model mlp --rule drtp \
-  --optimizer sgd --lr 0.01 \
-  --epochs 20 --batch 64 --seed 42 \
-  --run-dir outputs/compare/drtp
+```yaml
+name: rule_comparison_extended
+display_keys: [rule, dataset, seed]
 
-# SoftHebb (uses deephebb model)
-lelabo train supervised \
-  --dataset mnist --model deephebb --rule softhebb \
-  --optimizer sgd --lr 0.01 \
-  --epochs 20 --batch 64 --seed 42 \
-  --run-dir outputs/compare/softhebb
+base:
+  model: mlp
+  epochs: 30
+  batch: 64
+  optimizer: sgd
+  lr: 0.01
+
+grid:
+  dataset: [mnist, cifar10]
+  rule: [bp, dfa, fa, drtp]
+  seed: [0, 1, 2, 3, 4]
 ```
 
-Try a harder dataset:
+That produces 40 runs. Use `--max-parallel` and `--gpus` to match your hardware:
 
 ```bash
-for rule in bp dfa fa; do
-  lelabo train supervised \
-    --dataset cifar10 --model cnn --rule $rule \
-    --optimizer sgd --lr 0.01 \
-    --epochs 50 --batch 64 --seed 42 \
-    --run-dir outputs/compare_cifar/$rule
-done
+lelabo sweep run --config sweeps/compare_rules_extended.yaml \
+  --max-parallel 4 --gpus 0,1
 ```
 
 ## What makes a fair comparison

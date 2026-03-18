@@ -1,6 +1,8 @@
 # Run Parameter Sweeps
 
-A sweep runs the same experiment across a grid of hyperparameters. LeLabo generates all combinations, executes them as independent `lelabo train` subprocesses, and writes structured artifacts for each run.
+You have an experiment that runs. Now you want to know if the result holds — across seeds, learning rates, or alternative methods. That is what sweeps are for.
+
+A sweep runs the same experiment across a grid of parameters. LeLabo generates all combinations, executes them as independent `lelabo train` subprocesses, and writes structured artifacts for each run.
 
 ## Sweep config file
 
