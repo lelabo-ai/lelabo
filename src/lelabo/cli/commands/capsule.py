@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -12,12 +13,17 @@ from ...capsule import (
     create_capsule_scaffold,
     get_capsule,
     install_capsule,
+    install_capsule_from_directory,
     list_capsules,
     pack_capsule,
     remove_capsule,
+    share_capsule_github,
     stash_capsule,
 )
+from ...capsule.github import clone_github_repo, is_github_repo_url, parse_owner_repo_spec
 from ...capsule.plugins.discovery import find_active_capsule_root
+from ...capsule.share import parse_owner_repo_from_origin
+from ...config.user_settings import load_effective_settings
 
 
 CAPSULE_HELP = """\
@@ -31,7 +37,8 @@ Subcommands:
   sweep      List or run sweep configs from the active capsule
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
-  install    Import an external capsule bundle into the local capsule store
+  install    Import an external capsule bundle or GitHub repo into the local store
+  share      Share the active capsule workspace to GitHub
   pack       Build a shareable capsule bundle from a run/sweep/config
   list       List stored capsules
   show       Show one stored capsule entry
@@ -114,6 +121,42 @@ def _collect_child_capsule_roots(container: Path) -> list[Path]:
     return roots
 
 
+def _effective_settings() -> dict[str, Any]:
+    return load_effective_settings()
+
+
+def _resolved_capsules_dir(raw_capsules_dir: str | None, settings: dict[str, Any]) -> Path | None:
+    if raw_capsules_dir:
+        return Path(raw_capsules_dir).expanduser().resolve()
+    cfg = settings.get("capsules", {})
+    if not isinstance(cfg, dict):
+        return None
+    store_dir = str(cfg.get("store_dir", "") or "").strip()
+    if not store_dir:
+        return None
+    return Path(store_dir).expanduser().resolve()
+
+
+def _default_checkout_dir(settings: dict[str, Any]) -> Path:
+    cfg = settings.get("capsules", {})
+    if not isinstance(cfg, dict):
+        return Path(".").resolve()
+    raw = str(cfg.get("default_checkout_dir", ".") or ".").strip() or "."
+    return Path(raw).expanduser().resolve()
+
+
+def _install_checkout_enabled(settings: dict[str, Any]) -> bool:
+    cfg = settings.get("capsules", {})
+    if not isinstance(cfg, dict):
+        return False
+    return bool(cfg.get("install_checkout", False))
+
+
+def _looks_like_remote_source(raw: str) -> bool:
+    token = str(raw).strip()
+    return "://" in token or token.startswith("git@")
+
+
 def _cmd_init(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule init",
@@ -179,31 +222,127 @@ def _cmd_pack(argv: list[str]) -> int:
 def _cmd_install(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule install",
-        description="Import an external capsule bundle into the local capsule store.",
-        epilog="Examples:\n  lelabo capsule install demo_capsule.tar.gz\n  lelabo capsule install demo_capsule.tar.gz --alias demo",
+        description="Import an external capsule bundle or GitHub repo into the local capsule store.",
+        epilog=(
+            "Examples:\n"
+            "  lelabo capsule install demo_capsule.tar.gz\n"
+            "  lelabo capsule install https://github.com/owner/repo --alias demo\n"
+            "  lelabo capsule install https://github.com/owner/repo --ref v1.0.0 --checkout ."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("bundle", help="Path to capsule bundle (.tar.gz/.tar.zst)")
+    parser.add_argument("source", help="Capsule bundle path or GitHub repo URL")
     parser.add_argument("--alias", default=None, help="Optional alias inside the capsule store")
+    parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/commit) for GitHub installs")
+    parser.add_argument(
+        "--checkout",
+        nargs="?",
+        const="__DEFAULT__",
+        default=None,
+        metavar="DEST",
+        help="After install, checkout into DEST. If omitted, uses config default checkout directory.",
+    )
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
-    entry = install_capsule(
-        bundle_path=Path(args.bundle),
-        alias=args.alias,
-        capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
-    )
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    source = str(args.source).strip()
+    if not source:
+        raise SystemExit("Install source cannot be empty.")
+
+    try:
+        if is_github_repo_url(source):
+            with tempfile.TemporaryDirectory(prefix="lelabo_capsule_git_install_") as td:
+                clone_info = clone_github_repo(
+                    repo_url=source,
+                    destination=Path(td) / "repo",
+                    ref=args.ref,
+                )
+                source_meta = {
+                    "type": "github",
+                    "path": clone_info["repo_url"],
+                    "requested_ref": clone_info["requested_ref"],
+                    "ref": clone_info["resolved_ref"],
+                }
+                entry = install_capsule_from_directory(
+                    source_dir=Path(td) / "repo",
+                    alias=args.alias,
+                    capsules_dir=caps_dir,
+                    source_bundle=f"github:{clone_info['repo_url']}@{clone_info['resolved_ref']}",
+                    source_meta=source_meta,
+                )
+                entry["source_kind"] = "github"
+                entry["source_url"] = clone_info["repo_url"]
+                entry["source_ref"] = clone_info["resolved_ref"]
+                entry["requested_ref"] = clone_info["requested_ref"]
+        else:
+            if _looks_like_remote_source(source):
+                raise ValueError(
+                    f"Unsupported remote source '{source}'. "
+                    "V1 install supports GitHub repo URLs only."
+                )
+            entry = install_capsule(
+                bundle_path=Path(source),
+                alias=args.alias,
+                capsules_dir=caps_dir,
+            )
+            entry["source_kind"] = "bundle"
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise SystemExit(str(exc))
+
+    checkout_target: Path | None = None
+    if args.checkout is not None:
+        checkout_target = _default_checkout_dir(settings) if args.checkout == "__DEFAULT__" else Path(args.checkout).expanduser().resolve()
+    elif _install_checkout_enabled(settings):
+        checkout_target = _default_checkout_dir(settings)
+
+    if checkout_target is not None:
+        checkout_result = checkout_capsule(
+            capsule_or_alias=args.alias or str(entry.get("capsule_id", "")),
+            destination_dir=checkout_target,
+            capsules_dir=caps_dir,
+        )
+        entry["checked_out"] = True
+        entry["checked_out_path"] = checkout_result.get("checked_out_path")
+        entry["removed_from_cache"] = checkout_result.get("removed_from_cache")
+    else:
+        entry["checked_out"] = False
+
     if bool(args.json):
         _print_json(
             _capsule_command_json(
                 "install",
                 entry,
-                result_fields=("installed_at", "source_bundle"),
+                result_fields=(
+                    "installed_at",
+                    "source_bundle",
+                    "source_kind",
+                    "source_url",
+                    "requested_ref",
+                    "source_ref",
+                    "checked_out",
+                    "checked_out_path",
+                    "removed_from_cache",
+                ),
             )
         )
     else:
-        _print_action_block("installed capsule into store:", entry, extra_fields=("installed_at", "source_bundle"))
+        _print_action_block(
+            "installed capsule into store:",
+            entry,
+            extra_fields=(
+                "installed_at",
+                "source_bundle",
+                "source_kind",
+                "source_url",
+                "requested_ref",
+                "source_ref",
+                "checked_out",
+                "checked_out_path",
+            ),
+        )
     return 0
 
 
@@ -226,7 +365,8 @@ def _cmd_stash(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
-    caps_dir = Path(args.capsules_dir) if args.capsules_dir else None
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
     source = Path(args.source).expanduser() if args.source else None
 
     try:
@@ -290,7 +430,8 @@ def _cmd_checkout(argv: list[str]) -> int:
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
-    caps_dir = Path(args.capsules_dir) if args.capsules_dir else None
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
 
     try:
         row = get_capsule(args.id_or_alias, caps_dir)
@@ -333,7 +474,9 @@ def _cmd_list(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
-    rows = list_capsules(Path(args.capsules_dir) if args.capsules_dir else None)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    rows = list_capsules(caps_dir)
     if bool(args.json):
         _print_json(
             {
@@ -367,9 +510,11 @@ def _cmd_show(argv: list[str]) -> int:
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
 
     try:
-        row = get_capsule(args.id_or_alias, Path(args.capsules_dir) if args.capsules_dir else None)
+        row = get_capsule(args.id_or_alias, caps_dir)
         if row is None:
             raise ValueError(f"Unknown capsule '{args.id_or_alias}'")
     except ValueError as exc:
@@ -414,6 +559,8 @@ def _cmd_remove(argv: list[str]) -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
     allow_external_delete = bool(args.force_external_delete or (args.rm_recursive and args.rm_force))
     if (args.rm_recursive or args.rm_force) and not allow_external_delete:
         raise SystemExit("Use '-rf' together to allow external capsule deletion.")
@@ -421,7 +568,7 @@ def _cmd_remove(argv: list[str]) -> int:
     try:
         removed = remove_capsule(
             capsule_or_alias=args.id_or_alias,
-            capsules_dir=Path(args.capsules_dir) if args.capsules_dir else None,
+            capsules_dir=caps_dir,
             delete_files=not bool(args.keep_files),
             allow_external_delete=allow_external_delete,
         )
@@ -442,6 +589,101 @@ def _cmd_remove(argv: list[str]) -> int:
             removed,
             extra_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
         )
+    return 0
+
+
+def _cmd_share(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule share",
+        description="Share the active capsule workspace to GitHub.",
+        epilog=(
+            "Examples:\n"
+            "  lelabo capsule share github\n"
+            "  lelabo capsule share github owner/repo\n"
+            "  lelabo capsule share github --owner owner --repo repo --public"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("target", choices=["github"], help="Share target backend")
+    parser.add_argument("repo_spec", nargs="?", default=None, help="Optional owner/repo target")
+    parser.add_argument("--owner", default=None, help="GitHub owner override")
+    parser.add_argument("--repo", default=None, help="GitHub repository override")
+    parser.add_argument("--branch", default=None, help="Target branch override")
+    vis = parser.add_mutually_exclusive_group()
+    vis.add_argument("--public", action="store_true", help="Create/share as a public repo")
+    vis.add_argument("--private", action="store_true", help="Create/share as a private repo")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+
+    if args.target != "github":
+        raise SystemExit(f"Unsupported share target '{args.target}'.")
+
+    capsule_root = find_active_capsule_root()
+    if capsule_root is None:
+        raise SystemExit("No active capsule found. Run share from inside a capsule directory.")
+
+    settings = _effective_settings()
+    github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
+
+    spec_owner = spec_repo = None
+    if args.repo_spec:
+        try:
+            spec_owner, spec_repo = parse_owner_repo_spec(args.repo_spec)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+
+    origin_spec = parse_owner_repo_from_origin(capsule_root)
+    origin_owner, origin_repo = origin_spec if origin_spec is not None else (None, None)
+
+    owner = str(args.owner or spec_owner or origin_owner or github_cfg.get("owner", "")).strip()
+    if not owner:
+        raise SystemExit("GitHub owner is required. Set --owner or `lelabo config set github.owner <owner>`.")
+    default_repo = origin_repo or capsule_root.name
+    repo = str(args.repo or spec_repo or default_repo).strip()
+    if not repo:
+        raise SystemExit("GitHub repo is required.")
+
+    if bool(args.public):
+        visibility = "public"
+    elif bool(args.private):
+        visibility = "private"
+    else:
+        visibility = str(github_cfg.get("default_visibility", "private")).strip().lower() or "private"
+    if visibility not in {"public", "private"}:
+        raise SystemExit("Visibility must be 'public' or 'private'.")
+
+    branch = str(args.branch or github_cfg.get("default_branch", "main")).strip() or "main"
+    create_repo_if_missing = bool(github_cfg.get("create_repo_if_missing", True))
+
+    try:
+        result = share_capsule_github(
+            capsule_root=capsule_root,
+            owner=owner,
+            repo=repo,
+            branch=branch,
+            visibility=visibility,
+            create_repo_if_missing=create_repo_if_missing,
+        )
+    except (RuntimeError, FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc))
+
+    if bool(args.json):
+        payload = {
+            "schema_version": CAPSULE_JSON_SCHEMA,
+            "command": "share",
+            "target": "github",
+            "result": result,
+        }
+        _print_json(payload)
+    else:
+        print("shared capsule to github:")
+        print(f"owner: {result.get('owner')}")
+        print(f"repo: {result.get('repo')}")
+        print(f"branch: {result.get('branch')}")
+        print(f"remote_url: {result.get('remote_url')}")
+        print(f"created_repo: {result.get('created_repo')}")
+        print(f"created_origin_remote: {result.get('created_origin_remote')}")
+        print(f"pushed: {result.get('pushed')}")
     return 0
 
 
@@ -515,6 +757,8 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_pack(rest)
     if cmd == "install":
         return _cmd_install(rest)
+    if cmd == "share":
+        return _cmd_share(rest)
     if cmd == "stash":
         return _cmd_stash(rest)
     if cmd == "checkout":
@@ -528,6 +772,6 @@ def main(argv: Sequence[str]) -> int:
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: init, sweep, stash, checkout, install, pack, list, show, remove.\n"
+        "Use one of: init, sweep, stash, checkout, install, share, pack, list, show, remove.\n"
         "Run `lelabo capsule -h` for usage."
     )

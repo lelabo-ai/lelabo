@@ -9,6 +9,7 @@ from typing import Any, Sequence
 
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ...capsule.registry import get_capsule
+from ...config.user_settings import load_effective_settings
 from ...callbacks.registry import _callback_snapshot
 from ...initializers.registry import _initializer_snapshot
 from ...metrics.registry import _metric_snapshot
@@ -92,6 +93,19 @@ _REGISTRY_SPECS: dict[str, Any] = {
     "schedulers": _scheduler_snapshot,
     "callbacks": _callback_snapshot,
 }
+
+
+def _resolved_capsules_dir(raw_capsules_dir: str | None) -> Path | None:
+    if raw_capsules_dir:
+        return Path(raw_capsules_dir).expanduser().resolve()
+    settings = load_effective_settings()
+    cfg = settings.get("capsules", {})
+    if not isinstance(cfg, dict):
+        return None
+    store_dir = str(cfg.get("store_dir", "") or "").strip()
+    if not store_dir:
+        return None
+    return Path(store_dir).expanduser().resolve()
 
 
 def _normalized_target(raw: str) -> str:
@@ -238,7 +252,7 @@ def main(argv: Sequence[str]) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc))
 
-    caps_dir = Path(parsed.capsules_dir) if parsed.capsules_dir else None
+    caps_dir = _resolved_capsules_dir(parsed.capsules_dir)
     try:
         explicit_roots = _resolve_explicit_capsule_roots(
             [str(x) for x in parsed.capsule],

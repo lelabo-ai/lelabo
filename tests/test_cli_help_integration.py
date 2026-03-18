@@ -68,6 +68,34 @@ def test_capsule_help_displays_lifecycle_subcommands() -> None:
     assert "stash" in proc.stdout
     assert "checkout" in proc.stdout
     assert "install" in proc.stdout
+    assert "share" in proc.stdout
+
+
+def test_config_help_displays_config_subcommands() -> None:
+    proc = _run_cli_help("config", "-h")
+    assert proc.returncode == 0
+    assert "Manage LeLabo user settings." in proc.stdout
+    assert "path" in proc.stdout
+    assert "show" in proc.stdout
+    assert "get" in proc.stdout
+    assert "set" in proc.stdout
+    assert "edit" in proc.stdout
+
+
+def test_capsule_install_help_mentions_github_and_checkout() -> None:
+    proc = _run_cli_help("capsule", "install", "-h")
+    assert proc.returncode == 0
+    assert "GitHub repo URL" in proc.stdout
+    assert "--ref" in proc.stdout
+    assert "--checkout" in proc.stdout
+
+
+def test_capsule_share_help_mentions_github() -> None:
+    proc = _run_cli_help("capsule", "share", "-h")
+    assert proc.returncode == 0
+    assert "Share the active capsule workspace to GitHub" in proc.stdout
+    assert "--owner" in proc.stdout
+    assert "--repo" in proc.stdout
 
 
 def test_capsule_show_help_documents_positionals_and_examples() -> None:

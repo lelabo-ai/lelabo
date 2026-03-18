@@ -157,6 +157,47 @@ def test_list_cli_can_include_capsule_datasets_from_alias(tmp_path, capsys) -> N
         plugins.reset_capsule_plugin_cache()
 
 
+def test_list_cli_uses_configured_store_dir_for_capsule_alias_resolution(tmp_path, monkeypatch, capsys) -> None:
+    capsule_root = tmp_path / "capsule_cfg_store"
+    (capsule_root / "datasets").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_cfg_store\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "datasets" / "cfg_dataset.py").write_text(
+        "from lelabo.supervised.datasets.registry import register_dataset\n\n"
+        "@register_dataset('cfg_store_dataset')\n"
+        "def build_cfg_store_dataset(**kwargs):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "manifest.json").write_text("{}", encoding="utf-8")
+
+    caps_dir = tmp_path / "configured_caps_store"
+    capsule_registry.add_capsule_entry(
+        capsule_id="cfg_caps_id",
+        capsule_path=capsule_root,
+        manifest={"kind": "config_only", "created_at": "2026-02-22T00:00:00Z", "source": {"path": str(capsule_root)}},
+        alias="cfg_caps_alias",
+        capsules_dir=caps_dir,
+    )
+
+    monkeypatch.setattr(
+        list_cli,
+        "load_effective_settings",
+        lambda: {"capsules": {"store_dir": str(caps_dir)}},
+    )
+
+    plugins.reset_capsule_plugin_cache()
+    try:
+        rc = list_cli.main(["datasets", "--capsule", "cfg_caps_alias", "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "cfg_store_dataset" in payload["sources"]["capsule"]
+    finally:
+        plugins.reset_capsule_plugin_cache()
+
+
 def test_list_cli_does_not_auto_include_stored_capsules(tmp_path, monkeypatch, capsys) -> None:
     capsule_root = tmp_path / "capsule_installed_models"
     (capsule_root / "models").mkdir(parents=True)

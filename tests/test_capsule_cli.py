@@ -397,3 +397,149 @@ def test_capsule_cli_stash_all_rejects_running_from_active_capsule(tmp_path, mon
         assert "expects a container directory" in str(exc)
     else:
         raise AssertionError("Expected SystemExit for stash --all inside an active capsule.")
+
+
+def test_capsule_cli_install_github_store_only(tmp_path, monkeypatch, capsys) -> None:
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="github_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    caps_dir = tmp_path / "caps_github"
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(source, destination)
+        return {
+            "repo_url": "https://github.com/acme/github_capsule.git",
+            "owner": "acme",
+            "repo": "github_capsule",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+
+    rc = capsule_cli.main(
+        [
+            "install",
+            "https://github.com/acme/github_capsule",
+            "--ref",
+            "main",
+            "--capsules-dir",
+            str(caps_dir),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert payload["command"] == "install"
+    assert payload["result"]["source_kind"] == "github"
+    assert payload["result"]["source_url"] == "https://github.com/acme/github_capsule.git"
+    assert payload["result"]["source_ref"] == "abc123"
+    assert payload["result"]["checked_out"] is False
+    assert (caps_dir / "github_capsule").exists()
+
+
+def test_capsule_cli_install_rejects_non_github_remote_source() -> None:
+    try:
+        capsule_cli.main(["install", "https://gitlab.com/acme/demo"])
+    except SystemExit as exc:
+        assert "GitHub repo URLs only" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit for unsupported non-GitHub remote install source.")
+
+
+def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, capsys) -> None:
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="share_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
+    monkeypatch.setattr(capsule_cli, "parse_owner_repo_from_origin", lambda _: ("origin_owner", "origin_repo"))
+    monkeypatch.setattr(
+        capsule_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+                "create_repo_if_missing": True,
+            },
+            "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
+        },
+    )
+
+    calls: list[dict[str, object]] = []
+
+    def _fake_share(**kwargs):
+        calls.append(kwargs)
+        return {
+            "capsule_path": str(capsule_root),
+            "owner": "acme",
+            "repo": "demo",
+            "remote_url": "https://github.com/acme/demo.git",
+            "branch": "main",
+            "created_repo": True,
+            "created_origin_remote": False,
+            "pushed": True,
+        }
+
+    monkeypatch.setattr(capsule_cli, "share_capsule_github", _fake_share)
+
+    rc = capsule_cli.main(
+        ["share", "github", "--owner", "acme", "--repo", "demo", "--branch", "main", "--public", "--json"]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert payload["command"] == "share"
+    assert payload["target"] == "github"
+    assert payload["result"]["owner"] == "acme"
+    assert calls, "share backend should be invoked"
+    assert calls[0]["owner"] == "acme"
+    assert calls[0]["repo"] == "demo"
+    assert calls[0]["visibility"] == "public"
+
+
+def test_capsule_cli_uses_store_dir_from_settings_when_capsules_dir_not_provided(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    run_dir = tmp_path / "run_store_cfg"
+    run_dir.mkdir()
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"acc": 0.4}), encoding="utf-8")
+    bundle = tmp_path / "store_cfg_capsule.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_dir), "--out", str(bundle), "--id", "cfg_store_cap"])
+    assert rc == 0
+    capsys.readouterr()
+
+    configured_store = tmp_path / "configured_store"
+    monkeypatch.setattr(
+        capsule_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+                "create_repo_if_missing": True,
+            },
+            "capsules": {
+                "store_dir": str(configured_store),
+                "default_checkout_dir": ".",
+                "install_checkout": False,
+            },
+        },
+    )
+
+    rc = capsule_cli.main(["install", str(bundle), "--alias", "cfg_store_alias"])
+    assert rc == 0
+    capsys.readouterr()
+    row = capsule_registry.get_capsule("cfg_store_alias", configured_store)
+    assert row is not None
+    assert row["capsule_id"] == "cfg_store_cap"

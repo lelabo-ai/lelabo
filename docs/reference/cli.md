@@ -115,6 +115,36 @@ With no category, lists all categories.
 
 ---
 
+## `lelabo config`
+
+Manage user-level settings for GitHub and capsule defaults.
+
+```bash
+lelabo config <subcommand> [args]
+```
+
+| Subcommand | Description |
+|---|---|
+| `path` | Show global config path and discovered local override |
+| `show` | Show effective merged settings (global + local) |
+| `get <key>` | Read one dotted key |
+| `set <key> <value>` | Write one dotted key |
+| `edit` | Open config file in `$EDITOR` |
+
+Examples:
+
+```bash
+lelabo config show
+lelabo config set github.owner your-org
+lelabo config set capsules.default_checkout_dir ./workbench
+lelabo config get capsules.install_checkout
+```
+
+!!! warning "Security"
+    Do not store GitHub tokens or secrets in `lelabo config`. Authentication is handled by `gh auth`.
+
+---
+
 ## `lelabo capsule`
 
 Manage capsules.
@@ -177,10 +207,40 @@ Build a shareable capsule bundle.
 ### `install`
 
 ```bash
-lelabo capsule install <bundle> [--alias NAME] [--json]
+lelabo capsule install <source> [--alias NAME] [--ref REF] [--checkout [DEST]] [--json]
 ```
 
-Import a capsule bundle into the local store.
+Import a capsule into the local store.
+
+`<source>` supports:
+- local bundle path (`.tar.gz` / `.tar.zst`)
+- GitHub repo URL (`https://github.com/<owner>/<repo>` or `.git`)
+
+Install is store-first. Use `--checkout` to move the installed capsule into a workspace after install.
+
+| Flag | Description |
+|---|---|
+| `--alias NAME` | Optional alias in the store |
+| `--ref REF` | Branch / tag / commit for GitHub installs |
+| `--checkout [DEST]` | Checkout after install (`DEST` optional, defaults to config checkout dir) |
+
+### `share github`
+
+```bash
+lelabo capsule share github [owner/repo] [--owner OWNER] [--repo REPO] [--branch BRANCH] [--public|--private] [--json]
+```
+
+Push the active capsule workspace to GitHub.
+
+Preconditions:
+- run from an active capsule root
+- local git repository exists
+- worktree is clean
+- `gh` is installed and authenticated (`gh auth status`)
+
+Behavior:
+- no auto-commit
+- optional repo auto-creation (configurable via `github.create_repo_if_missing`)
 
 ### `list`
 
