@@ -10,7 +10,7 @@ LeLabo internals.
 
 1. Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`
 2. Run `lelabo list optimizers`
-3. Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`
+3. Run `lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml`
 4. Run `pytest -q tests`
 
 ## Open these files in this order
@@ -79,7 +79,7 @@ lelabo list optimizers
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 ```
 
 Useful follow-up commands:
@@ -93,7 +93,7 @@ lelabo list update-rules
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
 ## Common failure modes

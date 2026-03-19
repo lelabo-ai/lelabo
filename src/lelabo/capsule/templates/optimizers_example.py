@@ -40,7 +40,7 @@ Uncomment `@register_optimizer("capsule_sgd")`.
 How to test
 -----------
 lelabo list optimizers
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 pytest -q tests
 
 Common errors

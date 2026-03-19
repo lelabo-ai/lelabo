@@ -4,21 +4,21 @@ This folder contains the capsule entry points you are expected to run first.
 
 If you are onboarding fast, use them in this order:
 
-1. `configs/train.supervised.quickstart.toml`
+1. `configs/train/supervised.quickstart.toml`
    `iris + mlp + bp`
-2. `configs/train.supervised.capsule_optimizer.toml`
+2. `configs/train/supervised.capsule_optimizer.toml`
    `mnist + cnn + bp + capsule_sgd`
-3. `configs/train.supervised.detailed.toml`
+3. `configs/train/supervised.detailed.toml`
    richer supervised baseline
-4. `configs/train.supervised.paper_pack.toml`
+4. `configs/train/supervised.paper_pack.toml`
    `example_mlp + local_head + bp-shaped runtime`
-5. `configs/train.rl.detailed.toml`
+5. `configs/train/rl.detailed.toml`
    RL example config
 
 For the capsule extension path, the official first run is:
 
 ```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 ```
 
 Before that, uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`.
@@ -34,11 +34,11 @@ lelabo list optimizers
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.quickstart.toml
+lelabo train supervised --config configs/train/supervised.quickstart.toml
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
 If a config sets `runtime.run_dir`, LeLabo writes:

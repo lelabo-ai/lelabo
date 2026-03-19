@@ -15,7 +15,7 @@ import pytest
 
 CAPSULE_ROOT = Path(__file__).resolve().parents[1]
 OPTIMIZER_FILE = CAPSULE_ROOT / "optimizers" / "example.py"
-CONFIG_PATH = CAPSULE_ROOT / "configs" / "train.supervised.capsule_optimizer.toml"
+CONFIG_PATH = CAPSULE_ROOT / "configs" / "train" / "supervised.capsule_optimizer.toml"
 
 
 def _lelabo_cmd() -> list[str]:

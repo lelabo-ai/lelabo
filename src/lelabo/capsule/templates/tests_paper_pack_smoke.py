@@ -16,7 +16,7 @@ import pytest
 CAPSULE_ROOT = Path(__file__).resolve().parents[1]
 MODEL_FILE = CAPSULE_ROOT / "models" / "example.py"
 RULE_FILE = CAPSULE_ROOT / "update_rules" / "example.py"
-CONFIG_PATH = CAPSULE_ROOT / "configs" / "train.supervised.paper_pack.toml"
+CONFIG_PATH = CAPSULE_ROOT / "configs" / "train" / "supervised.paper_pack.toml"
 
 
 def _lelabo_cmd() -> list[str]:

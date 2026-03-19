@@ -236,7 +236,7 @@ def test_capsule_optimizer_golden_path_creates_lists_and_trains(
 
         summary = _run_supervised_config(
             tmp_path,
-            capsule_root / "configs" / "train.supervised.capsule_optimizer.toml",
+            capsule_root / "configs" / "train" / "supervised.capsule_optimizer.toml",
         )
     finally:
         plugins.reset_capsule_plugin_cache()

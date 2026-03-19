@@ -19,6 +19,7 @@ from ...optimizers.registry import _optimizer_snapshot
 from ...schedulers.registry import _scheduler_snapshot
 from ...supervised.datasets.registry import _dataset_snapshot
 from ...update_rules.registry import _update_rule_snapshot
+from ..ui import print_list_block
 
 
 LIST_HELP = """\
@@ -193,13 +194,7 @@ def _print_grouped_text(rows: dict[str, dict[str, list[str]]]) -> None:
         print(f"{key}:")
         grouped = rows[key]
         for source in ("builtins", "capsule"):
-            print(f"{source}:")
-            values = list(grouped.get(source, []) or [])
-            if values:
-                for item in values:
-                    print(f"- {item}")
-            else:
-                print("- (none)")
+            print_list_block(f"{source}:", list(grouped.get(source, []) or []))
 
 
 def _list_json_payload(target: str, rows: dict[str, dict[str, list[str]]]) -> dict[str, Any]:

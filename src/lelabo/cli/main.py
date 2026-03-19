@@ -9,6 +9,7 @@ from ._common import CLI_USER_ERROR_TYPES, coerce_system_exit_code, is_help_toke
 from .commands.audit import main as run_audit_command
 from .commands.capsule import main as run_capsule_command
 from .commands.config import main as run_config_command
+from .commands.gitspace import main as run_gitspace_command
 from .commands.list import main as run_list_command
 from .commands.sweep import main as run_sweep_command
 from .commands.train import main as run_train_command
@@ -37,6 +38,9 @@ def _run_capsule_cli(argv: Sequence[str]) -> int:
 def _run_config_cli(argv: Sequence[str]) -> int:
     return _run_command(run_config_command, argv)
 
+def _run_gitspace_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_gitspace_command, argv)
+
 def _run_list_cli(argv: Sequence[str]) -> int:
     return _run_command(run_list_command, argv)
 
@@ -52,18 +56,20 @@ Usage:
   lelabo <command> [args]
 
 Commands:
-  train      Run supervised or RL training (explicit mode)
-  sweep      Run parameter sweeps from YAML configs
-  audit      Run update-rule audit tests
-  config     Manage user settings (GitHub + capsule defaults)
-  list       List available update-rules/datasets/models/initializers/optimizers/losses/metrics/schedulers
-  capsule    Manage experiment capsules (init/stash/checkout/install/share/pack/list/show/remove)
+  train      Run supervised or RL training
+  sweep      Discover and run workspace sweeps
+  audit      Run update-rule audit checks
+  config     Manage user settings and defaults
+  gitspace   Manage gitspace manifests for multi-capsule repos
+  list       List available registries and active-capsule exports
+  capsule    Create, install, store, inspect, and share capsules
 
 Help:
   lelabo -h
   lelabo train -h
   lelabo audit -h
   lelabo config -h
+  lelabo gitspace -h
   lelabo list -h
   lelabo capsule -h
 
@@ -72,6 +78,7 @@ Examples:
   lelabo train rl --env CartPole-v1 --algo ppo
   lelabo audit --all --modes supervised,rl
   lelabo config set github.owner your-org
+  lelabo gitspace init .
   lelabo capsule init my_capsule
   lelabo list update-rules
   lelabo capsule pack --from outputs/runs/demo/run1
@@ -112,13 +119,18 @@ def main(argv: list[str] | None = None) -> int:
             return _run_config_cli(["-h"])
         return _run_config_cli(rest)
 
+    if cmd == "gitspace":
+        if not rest or is_help_token(rest[0]):
+            return _run_gitspace_cli(["-h"])
+        return _run_gitspace_cli(rest)
+
     if cmd in {"list", "ls"}:
         if rest and is_help_token(rest[0]):
             return _run_list_cli(["--help"])
         return _run_list_cli(rest)
 
     if cmd == "sweep":
-        if not rest or is_help_token(rest[0]):
+        if rest and is_help_token(rest[0]):
             return _run_sweep_cli(["--help"])
         return _run_sweep_cli(rest)
 
@@ -130,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, sweep, audit, config, list, capsule.\n"
+        "Use one of: train, sweep, audit, config, gitspace, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2

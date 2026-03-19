@@ -4,26 +4,38 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
 from ...capsule import (
+    attach_capsule,
+    add_capsule_to_gitspace,
     checkout_capsule,
+    inspect_capsule_directory,
     create_capsule_scaffold,
+    current_github_login,
+    find_gitspace_root,
+    git_repo_root,
     get_capsule,
+    init_gitspace,
     install_capsule,
     install_capsule_from_directory,
     list_capsules,
+    load_gitspace,
     pack_capsule,
     remove_capsule,
-    share_capsule_github,
+    resolve_gitspace_capsule,
+    share_gitspace_github,
     stash_capsule,
 )
 from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ...capsule.share import parse_owner_repo_from_origin
+from ..interactive_picker import pick_many_with_checkboxes
+from ..ui import print_block, print_list_block, print_status
 from ...config.user_settings import load_effective_settings
 
 
@@ -35,11 +47,11 @@ Usage:
 
 Subcommands:
   init       Create a local work capsule in the current workspace
-  sweep      List or run sweep configs from the active capsule
+  attach     Link a local capsule into the LeLabo capsule registry (no move/copy)
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
-  install    Import an external capsule bundle or GitHub repo into the local store
-    share      Share a capsule (GitHub by default, local bundle with --mode local)
+  install    Import an external capsule bundle or GitHub gitspace into the local store
+  share      Share a capsule through its gitspace (or export a local bundle)
   pack       Build a shareable capsule bundle from a run/sweep/config
   list       List stored capsules
   show       Show one stored capsule entry
@@ -89,19 +101,26 @@ def _capsule_command_json(command: str, row: dict[str, Any], *, result_fields: S
 
 
 def _print_entry_block(title: str, row: dict[str, Any]) -> None:
-    print(title)
-    print(f"capsule_id: {row.get('capsule_id', '-')}")
-    print(f"aliases: {_render_aliases(row)}")
+    rows: list[tuple[str, Any]] = [
+        ("capsule_id", row.get("capsule_id", "-")),
+        ("aliases", _render_aliases(row)),
+    ]
     if str(row.get("path", "")).strip():
-        print(f"path: {row.get('path')}")
+        rows.append(("path", row.get("path")))
+    print_block(title, rows)
 
 
 def _print_action_block(title: str, row: dict[str, Any], *, extra_fields: Sequence[str]) -> None:
-    _print_entry_block(title, row)
+    rows: list[tuple[str, Any]] = [
+        ("capsule_id", row.get("capsule_id", "-")),
+        ("aliases", _render_aliases(row)),
+    ]
+    if str(row.get("path", "")).strip():
+        rows.append(("path", row.get("path")))
     for field in extra_fields:
-        if field not in row:
-            continue
-        print(f"{field}: {row[field]}")
+        if field in row:
+            rows.append((field, row[field]))
+    print_block(title, rows)
 
 
 def _is_capsule_root(path: Path) -> bool:
@@ -156,6 +175,176 @@ def _install_checkout_enabled(settings: dict[str, Any]) -> bool:
 def _looks_like_remote_source(raw: str) -> bool:
     token = str(raw).strip()
     return "://" in token or token.startswith("git@")
+
+
+def _is_interactive_tty() -> bool:
+    return bool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _confirm(question: str, *, default: bool = False) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = input(f"{question} {suffix}: ").strip().lower()
+    if not answer:
+        return bool(default)
+    return answer in {"y", "yes"}
+
+
+def _prompt_with_default(label: str, default: str) -> str:
+    token = str(default).strip()
+    answer = input(f"{label} [{token}]: ").strip()
+    return answer or token
+
+
+def _select_gitspace_capsules(
+    gitspace: dict[str, Any],
+    *,
+    requested_capsules: Sequence[str] | None,
+    install_all: bool,
+) -> list[dict[str, str]]:
+    capsules = list(gitspace.get("capsules", []) or [])
+    if not capsules:
+        raise SystemExit("This gitspace does not declare any capsules.")
+    if install_all:
+        return [{"id": str(item["id"]), "path": str(item["path"])} for item in capsules]
+    requested_tokens = [str(item).strip() for item in list(requested_capsules or []) if str(item).strip()]
+    if requested_tokens:
+        out: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for token in requested_tokens:
+            try:
+                resolved = resolve_gitspace_capsule(gitspace, token)
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            capsule_id = str(resolved["id"])
+            if capsule_id in seen:
+                continue
+            seen.add(capsule_id)
+            out.append(resolved)
+        return out
+    if len(capsules) == 1:
+        item = capsules[0]
+        return [{"id": str(item["id"]), "path": str(item["path"])}]
+    if not _is_interactive_tty():
+        raise SystemExit(
+            "This gitspace contains multiple capsules. "
+            "Use `--capsule <id>` (repeatable) or `--all`."
+        )
+
+    selected_ids = pick_many_with_checkboxes(
+        title="Select capsules to install",
+        text=(
+            f"Gitspace: {gitspace.get('name', '-')}\n"
+            "Use Space to toggle capsules, then press Enter to confirm."
+        ),
+        options=[(str(item["id"]), f"{item['id']}  |  path: {item['path']}") for item in capsules],
+    )
+    if selected_ids is None:
+        raise SystemExit("Install canceled by user.")
+    if not selected_ids:
+        raise SystemExit("Install canceled: no capsule selected.")
+
+    out: list[dict[str, str]] = []
+    for token in selected_ids:
+        try:
+            out.append(resolve_gitspace_capsule(gitspace, token))
+        except ValueError:
+            continue
+    if not out:
+        raise SystemExit("Install canceled: no valid capsule selection.")
+    return out
+
+
+def _default_gitspace_root_for_capsule(capsule_root: Path) -> Path:
+    try:
+        repo_root = git_repo_root(capsule_root)
+    except Exception:
+        return capsule_root.parent.resolve()
+    return repo_root.resolve()
+
+
+def _bootstrap_gitspace_for_share(
+    *,
+    capsule_root: Path,
+    owner: str | None,
+    repo: str | None,
+    branch: str | None,
+    visibility: str,
+    create_repo_if_missing: bool,
+    default_branch: str,
+    assume_yes: bool,
+    emit_messages: bool,
+) -> tuple[Path, str, str, str, dict[str, Any]]:
+    gitspace_root = _default_gitspace_root_for_capsule(capsule_root)
+    detected_login = current_github_login()
+    default_name = str(gitspace_root.name or capsule_root.parent.name or capsule_root.name).strip() or "gitspace"
+    resolved_owner = str(owner or "").strip() or str(detected_login or "").strip()
+    resolved_repo = str(repo or "").strip() or default_name
+    resolved_visibility = str(visibility).strip().lower() or "private"
+
+    if not assume_yes:
+        if not _is_interactive_tty():
+            raise SystemExit(
+                "This capsule does not belong to any gitspace. "
+                "Run interactively to bootstrap one, or pass `--yes` with enough GitHub defaults configured."
+            )
+        if emit_messages:
+            print_status("info", "This capsule does not belong to any gitspace yet.")
+            print_block(
+                "Bootstrap target",
+                (
+                    ("capsule_root", capsule_root),
+                    ("suggested_gitspace_root", gitspace_root),
+                    ("github_account", detected_login or "-"),
+                ),
+            )
+        if not _confirm("Create a gitspace for this capsule now?", default=True):
+            raise SystemExit("Gitspace bootstrap canceled by user.")
+        default_name = _prompt_with_default("Gitspace name", default_name)
+        resolved_owner = _prompt_with_default("GitHub owner", resolved_owner or (detected_login or ""))
+        resolved_repo = _prompt_with_default("GitHub repo", resolved_repo or default_name)
+        resolved_visibility = _prompt_with_default("Visibility (private/public)", resolved_visibility)
+        if emit_messages:
+            print_block(
+                "Review",
+                (
+                    ("gitspace_root", gitspace_root),
+                    ("gitspace_name", default_name),
+                    ("owner", resolved_owner),
+                    ("repo", resolved_repo),
+                    ("visibility", resolved_visibility),
+                ),
+            )
+        if not _confirm("Continue?", default=True):
+            raise SystemExit("Gitspace bootstrap canceled by user.")
+    else:
+        if not resolved_owner:
+            raise SystemExit(
+                "This capsule does not belong to any gitspace and GitHub owner could not be resolved. "
+                "Set --owner or `lelabo config set github.owner <owner>`."
+            )
+
+    if resolved_visibility not in {"public", "private"}:
+        raise SystemExit("Visibility must be 'public' or 'private'.")
+
+    if emit_messages:
+        print_status("info", "Creating gitspace manifest and publishing to GitHub...")
+    gitspace = init_gitspace(gitspace_root, name=default_name)
+    gitspace = add_capsule_to_gitspace(capsule_root, gitspace_root=gitspace_root)
+    result = share_gitspace_github(
+        gitspace_root=gitspace_root,
+        owner=resolved_owner,
+        repo=resolved_repo,
+        branch=branch,
+        visibility=resolved_visibility,
+        create_repo_if_missing=create_repo_if_missing,
+        default_branch=default_branch,
+        auto_init_git=True,
+        assume_yes=True,
+    )
+    result["bootstrapped_gitspace"] = True
+    result["gitspace_name"] = gitspace["name"]
+    result["shared_capsule_id"] = gitspace["capsule"]["id"]
+    return gitspace_root, resolved_owner, resolved_repo, resolved_visibility, result
 
 
 def _resolve_share_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
@@ -226,20 +415,9 @@ def _cmd_init(argv: list[str]) -> int:
     except (ValueError, FileExistsError) as exc:
         raise SystemExit(str(exc))
 
-    print(str(out))
-    print()
-    print("Next steps:")
-    print("  - Start with README.md")
-    print("  - If you use Codex/Claude, open AGENTS.md")
-    print("  - How to add X: resources/EXTENSION_RECIPES.md")
-    print("  - Exact contracts: resources/LELABO_REFERENCE.md")
-    print("  - Param mapping: resources/PARAM_FLOW.md")
-    print("  - Update-rule contract: resources/UPDATE_RULE_LIFECYCLE.md")
-    print("  - Paper-pack workflow: resources/PAPER_PACK_PLAYBOOK.md")
-    print('  - Official first path: uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`')
-    print("  - Run `lelabo list optimizers`")
-    print("  - Run `lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml`")
-    print("  - Run `pytest -q tests`")
+    print_status("success", "Capsule scaffold created.")
+    print_block("Capsule", (("path", out),))
+    print("Next: open README.md to start.")
     return 0
 
 
@@ -262,24 +440,42 @@ def _cmd_pack(argv: list[str]) -> int:
         capsule_id=args.capsule_id,
         include_code_snapshot=bool(args.with_code_snapshot),
     )
-    print(str(out))
+    print_status("success", "Capsule bundle created.")
+    print_block("Bundle", (("path", out),))
     return 0
 
 
 def _cmd_install(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule install",
-        description="Import an external capsule bundle or GitHub repo into the local capsule store.",
+        description="Import an external capsule bundle or GitHub gitspace into the local capsule store.",
         epilog=(
             "Examples:\n"
             "  lelabo capsule install demo_capsule.tar.gz\n"
-            "  lelabo capsule install https://github.com/owner/repo --alias demo\n"
-            "  lelabo capsule install https://github.com/owner/repo --ref v1.0.0 --checkout ."
+            "  lelabo capsule install https://github.com/owner/repo --capsule demo\n"
+            "  lelabo capsule install https://github.com/owner/repo --all --ref main"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("source", help="Capsule bundle path or GitHub repo URL")
+    parser.add_argument("source", help="Capsule bundle path or GitHub gitspace URL")
     parser.add_argument("--alias", default=None, help="Optional alias inside the capsule store")
+    parser.add_argument(
+        "--rename-to",
+        default=None,
+        help="Install under a different capsule id to avoid id conflicts in store.",
+    )
+    parser.add_argument(
+        "--force-replace",
+        action="store_true",
+        help="Replace an existing stored capsule with the same capsule id.",
+    )
+    parser.add_argument(
+        "--capsule",
+        action="append",
+        default=[],
+        help="Gitspace capsule id to install from a GitHub source (repeatable).",
+    )
+    parser.add_argument("--all", action="store_true", help="Install all capsules declared by a GitHub gitspace")
     parser.add_argument("--ref", default=None, help="Optional git ref (branch/tag/commit) for GitHub installs")
     parser.add_argument(
         "--checkout",
@@ -298,44 +494,136 @@ def _cmd_install(argv: list[str]) -> int:
     source = str(args.source).strip()
     if not source:
         raise SystemExit("Install source cannot be empty.")
+    selected_capsules_cli = [str(item).strip() for item in list(args.capsule or []) if str(item).strip()]
+    if bool(selected_capsules_cli) and bool(args.all):
+        raise SystemExit("`--capsule` and `--all` cannot be used together.")
+    if bool(args.all) and args.rename_to is not None:
+        raise SystemExit("`--rename-to` cannot be used with `lelabo capsule install --all`.")
+    if bool(args.all) and args.alias is not None:
+        raise SystemExit("`--alias` cannot be used with `lelabo capsule install --all`.")
 
     try:
         if is_github_repo_url(source):
             with tempfile.TemporaryDirectory(prefix="lelabo_capsule_git_install_") as td:
+                if not bool(args.json):
+                    print_status("info", "Cloning gitspace...")
                 clone_info = clone_github_repo(
                     repo_url=source,
                     destination=Path(td) / "repo",
                     ref=args.ref,
                 )
-                source_meta = {
-                    "type": "github",
-                    "path": clone_info["repo_url"],
-                    "requested_ref": clone_info["requested_ref"],
-                    "ref": clone_info["resolved_ref"],
-                }
-                entry = install_capsule_from_directory(
-                    source_dir=Path(td) / "repo",
-                    alias=args.alias,
-                    capsules_dir=caps_dir,
-                    source_bundle=f"github:{clone_info['repo_url']}@{clone_info['resolved_ref']}",
-                    source_meta=source_meta,
+                repo_root = Path(td) / "repo"
+                try:
+                    gitspace = load_gitspace(repo_root)
+                except FileNotFoundError as exc:
+                    raise ValueError(
+                        f"GitHub repo '{clone_info['repo_url']}' is not a LeLabo gitspace. "
+                        "Add `.lelabo/gitspace.toml` and declare at least one capsule."
+                    ) from exc
+                if not bool(args.json):
+                    print_status("info", "Resolving capsules...")
+                selected_capsules = _select_gitspace_capsules(
+                    gitspace,
+                    requested_capsules=selected_capsules_cli,
+                    install_all=bool(args.all),
                 )
-                entry["source_kind"] = "github"
-                entry["source_url"] = clone_info["repo_url"]
-                entry["source_ref"] = clone_info["resolved_ref"]
-                entry["requested_ref"] = clone_info["requested_ref"]
+                if not bool(args.json):
+                    print_status(
+                        "info",
+                        "Installing selected capsules..."
+                        if len(selected_capsules) > 1
+                        else "Installing selected capsule...",
+                    )
+                installed_rows: list[dict[str, Any]] = []
+                for selected in selected_capsules:
+                    source_dir = repo_root / selected["path"]
+                    source_meta = {
+                        "type": "github_gitspace",
+                        "path": clone_info["repo_url"],
+                        "requested_ref": clone_info["requested_ref"],
+                        "ref": clone_info["resolved_ref"],
+                        "gitspace": {
+                            "name": gitspace["name"],
+                            "capsule_id": selected["id"],
+                            "capsule_path": selected["path"],
+                        },
+                    }
+                    incoming_info = inspect_capsule_directory(
+                        source_dir,
+                        source_meta=source_meta,
+                        capsule_id_override=args.rename_to if len(selected_capsules) == 1 else None,
+                    )
+                    active_root = find_active_capsule_root()
+                    workspace_candidate = Path.cwd() / str(incoming_info.get("capsule_id", ""))
+                    if active_root is None and _is_capsule_root(workspace_candidate):
+                        active_root = workspace_candidate.resolve()
+                    if active_root is not None:
+                        active_info = inspect_capsule_directory(active_root)
+                        if (
+                            str(incoming_info.get("capsule_id", "")) == str(active_info.get("capsule_id", ""))
+                            and str(incoming_info.get("fingerprint", "")) == str(active_info.get("fingerprint", ""))
+                        ):
+                            entry = {
+                                "capsule_id": str(incoming_info.get("capsule_id", "")),
+                                "aliases": [],
+                                "path": str(active_root.resolve()),
+                                "kind": incoming_info.get("kind"),
+                                "source_kind": "github_gitspace",
+                                "source_url": clone_info["repo_url"],
+                                "source_repo": f"{clone_info['owner']}/{clone_info['repo']}",
+                                "source_gitspace": gitspace["name"],
+                                "source_capsule": selected["id"],
+                                "requested_ref": clone_info["requested_ref"],
+                                "source_ref": clone_info["resolved_ref"],
+                                "install_action": "already_present_workspace",
+                                "replaced_existing": False,
+                                "checked_out": False,
+                            }
+                            installed_rows.append(entry)
+                            continue
+                    entry = install_capsule_from_directory(
+                        source_dir=source_dir,
+                        alias=args.alias if len(selected_capsules) == 1 else None,
+                        capsules_dir=caps_dir,
+                        source_bundle=(
+                            f"github_gitspace:{clone_info['repo_url']}@{clone_info['resolved_ref']}#{selected['id']}"
+                        ),
+                        source_meta=source_meta,
+                        capsule_id_override=args.rename_to if len(selected_capsules) == 1 else None,
+                        force_replace=bool(args.force_replace),
+                    )
+                    entry["source_kind"] = "github_gitspace"
+                    entry["source_url"] = clone_info["repo_url"]
+                    entry["source_repo"] = f"{clone_info['owner']}/{clone_info['repo']}"
+                    entry["source_gitspace"] = gitspace["name"]
+                    entry["source_capsule"] = selected["id"]
+                    entry["source_ref"] = clone_info["resolved_ref"]
+                    entry["requested_ref"] = clone_info["requested_ref"]
+                    installed_rows.append(entry)
+                entries = installed_rows
         else:
             if _looks_like_remote_source(source):
                 raise ValueError(
                     f"Unsupported remote source '{source}'. "
-                    "V1 install supports GitHub repo URLs only."
+                    "V1 install supports GitHub gitspace URLs only."
                 )
-            entry = install_capsule(
-                bundle_path=Path(source),
-                alias=args.alias,
-                capsules_dir=caps_dir,
-            )
-            entry["source_kind"] = "bundle"
+            local_source = Path(source).expanduser().resolve()
+            if local_source.exists() and local_source.is_dir():
+                raise ValueError(
+                    f"Install source '{local_source}' is a local capsule directory. "
+                    "Use `lelabo capsule attach <capsule_dir>` to link local capsules."
+                )
+            else:
+                if not bool(args.json):
+                    print_status("info", "Installing capsule bundle...")
+                entries = [install_capsule(
+                    bundle_path=local_source,
+                    alias=args.alias,
+                    capsules_dir=caps_dir,
+                    capsule_id_override=args.rename_to,
+                    force_replace=bool(args.force_replace),
+                )]
+                entries[0]["source_kind"] = "bundle"
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise SystemExit(str(exc))
 
@@ -345,50 +633,166 @@ def _cmd_install(argv: list[str]) -> int:
     elif _install_checkout_enabled(settings):
         checkout_target = _default_checkout_dir(settings)
 
-    if checkout_target is not None:
-        checkout_result = checkout_capsule(
-            capsule_or_alias=args.alias or str(entry.get("capsule_id", "")),
-            destination_dir=checkout_target,
-            capsules_dir=caps_dir,
-        )
-        entry["checked_out"] = True
-        entry["checked_out_path"] = checkout_result.get("checked_out_path")
-        entry["removed_from_cache"] = checkout_result.get("removed_from_cache")
-    else:
-        entry["checked_out"] = False
+    for entry in entries:
+        if checkout_target is not None and entry.get("install_action") != "already_present_workspace":
+            checkout_result = checkout_capsule(
+                capsule_or_alias=args.alias or str(entry.get("capsule_id", "")),
+                destination_dir=checkout_target,
+                capsules_dir=caps_dir,
+            )
+            entry["checked_out"] = True
+            entry["checked_out_path"] = checkout_result.get("checked_out_path")
+            entry["removed_from_cache"] = checkout_result.get("removed_from_cache")
+        else:
+            entry["checked_out"] = False
 
-    if bool(args.json):
-        _print_json(
-            _capsule_command_json(
-                "install",
+    if len(entries) == 1 and not bool(args.all):
+        entry = entries[0]
+        if bool(args.json):
+            _print_json(
+                _capsule_command_json(
+                    "install",
+                    entry,
+                    result_fields=(
+                        "installed_at",
+                        "source_bundle",
+                        "source_kind",
+                        "source_url",
+                        "source_repo",
+                        "source_gitspace",
+                        "source_capsule",
+                        "requested_ref",
+                        "source_ref",
+                        "install_action",
+                        "replaced_existing",
+                        "checked_out",
+                        "checked_out_path",
+                        "removed_from_cache",
+                    ),
+                )
+            )
+        else:
+            title = "Capsule install"
+            if entry.get("install_action") == "already_present_workspace":
+                print_status("info", "This capsule is already present in the current workspace.")
+            else:
+                print_status("success", "Capsule install complete.")
+            _print_action_block(
+                title,
                 entry,
-                result_fields=(
+                extra_fields=(
                     "installed_at",
                     "source_bundle",
                     "source_kind",
                     "source_url",
+                    "source_repo",
+                    "source_gitspace",
+                    "source_capsule",
                     "requested_ref",
                     "source_ref",
+                    "install_action",
+                    "replaced_existing",
                     "checked_out",
                     "checked_out_path",
-                    "removed_from_cache",
                 ),
+            )
+        return 0
+
+    payload = {
+        "schema_version": CAPSULES_JSON_SCHEMA,
+        "command": "install",
+        "count": len(entries),
+        "capsules": [
+            {
+                **_capsule_json_entry(row),
+                "result": {
+                    field: row[field]
+                    for field in (
+                        "installed_at",
+                        "source_bundle",
+                        "source_kind",
+                        "source_url",
+                        "source_repo",
+                        "source_gitspace",
+                        "source_capsule",
+                        "requested_ref",
+                        "source_ref",
+                        "install_action",
+                        "replaced_existing",
+                        "checked_out",
+                        "checked_out_path",
+                    )
+                    if field in row
+                },
+            }
+            for row in entries
+        ],
+    }
+    if bool(args.json):
+        _print_json(payload)
+    else:
+        print_status("success", f"Installed {len(entries)} capsules from the gitspace.")
+        print_list_block(
+            "Install results",
+            [
+                f"{row.get('capsule_id')} | action: {row.get('install_action')} | path: {row.get('path')}"
+                for row in entries
+            ],
+        )
+    return 0
+
+
+def _cmd_attach(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo capsule attach",
+        description="Link a local capsule into the LeLabo capsule registry without moving files.",
+        epilog=(
+            "Examples:\n"
+            "  lelabo capsule attach ./my_capsule\n"
+            "  lelabo capsule attach --alias paper_demo\n"
+            "  lelabo capsule attach ./my_capsule --rename-to paper_v2"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("source", nargs="?", default=None, help="Local capsule root (defaults to active capsule from cwd)")
+    parser.add_argument("--alias", default=None, help="Optional alias in the capsule registry")
+    parser.add_argument("--rename-to", default=None, help="Register under a different capsule id")
+    parser.add_argument(
+        "--force-replace",
+        action="store_true",
+        help="Replace existing registry entry when capsule id already exists",
+    )
+    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    source = Path(args.source).expanduser() if args.source else None
+    try:
+        entry = attach_capsule(
+            alias=args.alias,
+            source_path=source,
+            capsules_dir=caps_dir,
+            capsule_id_override=args.rename_to,
+            force_replace=bool(args.force_replace),
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise SystemExit(str(exc))
+
+    if bool(args.json):
+        _print_json(
+            _capsule_command_json(
+                "attach",
+                entry,
+                result_fields=("attached_from", "moved", "attach_action", "replaced_existing"),
             )
         )
     else:
         _print_action_block(
-            "installed capsule into store:",
+            "attached capsule:",
             entry,
-            extra_fields=(
-                "installed_at",
-                "source_bundle",
-                "source_kind",
-                "source_url",
-                "requested_ref",
-                "source_ref",
-                "checked_out",
-                "checked_out_path",
-            ),
+            extra_fields=("attached_from", "moved", "attach_action", "replaced_existing"),
         )
     return 0
 
@@ -445,9 +849,11 @@ def _cmd_stash(argv: list[str]) -> int:
             if bool(args.json):
                 _print_json(payload)
             else:
-                print(f"stashed {len(stored)} capsules:")
-                for row in stored:
-                    print(f"- {row.get('capsule_id')} -> {row.get('path')}")
+                print_status("success", f"Stashed {len(stored)} capsules.")
+                print_list_block(
+                    "Stored capsules",
+                    [f"{row.get('capsule_id')} -> {row.get('path')}" for row in stored],
+                )
             return 0
 
         entry = stash_capsule(
@@ -504,11 +910,16 @@ def _cmd_checkout(argv: list[str]) -> int:
             )
         )
     else:
-        print("checked out capsule:")
-        print(f"capsule_id: {restored.get('capsule_id', '-')}")
-        print(f"source_path: {restored.get('source_path', '-')}")
-        print(f"checked_out_path: {restored.get('checked_out_path', '-')}")
-        print(f"removed_from_cache: {restored.get('removed_from_cache', False)}")
+        print_status("success", "Capsule checked out.")
+        print_block(
+            "Checkout",
+            (
+                ("capsule_id", restored.get("capsule_id", "-")),
+                ("source_path", restored.get("source_path", "-")),
+                ("checked_out_path", restored.get("checked_out_path", "-")),
+                ("removed_from_cache", restored.get("removed_from_cache", False)),
+            ),
+        )
     return 0
 
 
@@ -534,15 +945,16 @@ def _cmd_list(argv: list[str]) -> int:
         return 0
 
     if not rows:
-        print("(capsule store is empty)")
+        print_status("info", "The capsule store is empty.")
         return 0
 
-    print("stored capsules:")
-    for row in rows:
-        aliases = _render_aliases(row)
-        print(
-            f"- {row.get('capsule_id')} | aliases: {aliases} | path: {row.get('path')}"
-        )
+    print_list_block(
+        "Stored capsules",
+        [
+            f"{row.get('capsule_id')} | aliases: {_render_aliases(row)} | path: {row.get('path')}"
+            for row in rows
+        ],
+    )
     return 0
 
 
@@ -569,7 +981,7 @@ def _cmd_show(argv: list[str]) -> int:
     if bool(args.json):
         _print_json(_capsule_command_json("show", row))
     else:
-        _print_entry_block("stored capsule:", row)
+        _print_entry_block("Stored capsule", row)
     return 0
 
 
@@ -632,7 +1044,7 @@ def _cmd_remove(argv: list[str]) -> int:
         )
     else:
         _print_action_block(
-            "removed capsule from store:",
+            "Removed capsule",
             removed,
             extra_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
         )
@@ -642,7 +1054,7 @@ def _cmd_remove(argv: list[str]) -> int:
 def _cmd_share(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule share",
-        description="Share a capsule to GitHub (default) or export a local bundle.",
+        description="Share a capsule through its gitspace on GitHub, or export a local bundle.",
         epilog=(
             "Examples:\n"
             "  lelabo capsule share\n"
@@ -655,7 +1067,7 @@ def _cmd_share(argv: list[str]) -> int:
     parser.add_argument("--mode", choices=["github", "local"], default="github", help="Share mode backend")
     parser.add_argument("--owner", default=None, help="GitHub owner override")
     parser.add_argument("--repo", default=None, help="GitHub repository override")
-    parser.add_argument("--branch", default=None, help="Target branch override")
+    parser.add_argument("--branch", default=None, help="Target git branch override")
     vis = parser.add_mutually_exclusive_group()
     vis.add_argument("--public", action="store_true", help="Create/share as a public repo")
     vis.add_argument("--private", action="store_true", help="Create/share as a private repo")
@@ -663,7 +1075,7 @@ def _cmd_share(argv: list[str]) -> int:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Non-interactive confirmation for automatic git initialization when missing.",
+        help="Non-interactive confirmation for gitspace bootstrap and automatic git initialization.",
     )
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path (for capsule id/alias refs)")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
@@ -691,23 +1103,17 @@ def _cmd_share(argv: list[str]) -> int:
         if bool(args.json):
             _print_json(payload)
         else:
-            print("shared capsule locally:")
-            print(f"capsule_path: {capsule_root}")
-            print(f"bundle_path: {out}")
+            print_status("success", "Capsule exported locally.")
+            print_block(
+                "Local share",
+                (
+                    ("capsule_path", capsule_root),
+                    ("bundle_path", out),
+                ),
+            )
         return 0
 
     github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
-
-    origin_spec = parse_owner_repo_from_origin(capsule_root)
-    origin_owner, origin_repo = origin_spec if origin_spec is not None else (None, None)
-
-    owner = str(args.owner or origin_owner or github_cfg.get("owner", "")).strip()
-    if not owner:
-        raise SystemExit("GitHub owner is required. Set --owner or `lelabo config set github.owner <owner>`.")
-    repo = str(args.repo or origin_repo or capsule_root.name).strip()
-    if not repo:
-        raise SystemExit("GitHub repo is required.")
-
     if bool(args.public):
         visibility = "public"
     elif bool(args.private):
@@ -716,21 +1122,71 @@ def _cmd_share(argv: list[str]) -> int:
         visibility = str(github_cfg.get("default_visibility", "private")).strip().lower() or "private"
     if visibility not in {"public", "private"}:
         raise SystemExit("Visibility must be 'public' or 'private'.")
-
-    branch = str(args.branch or github_cfg.get("default_branch", "main")).strip() or "main"
+    default_branch = str(github_cfg.get("default_branch", "main")).strip() or "main"
     create_repo_if_missing = bool(github_cfg.get("create_repo_if_missing", True))
 
     try:
-        result = share_capsule_github(
-            capsule_root=capsule_root,
-            owner=owner,
-            repo=repo,
-            branch=branch,
-            visibility=visibility,
-            create_repo_if_missing=create_repo_if_missing,
-            auto_init_git=True,
-            assume_yes=bool(args.yes),
-        )
+        gitspace_root = find_gitspace_root(capsule_root)
+        if gitspace_root is None:
+            if bool(args.json) and not bool(args.yes):
+                raise SystemExit(
+                    "JSON mode requires non-interactive bootstrap. "
+                    "Re-run with `--yes` (and set owner/repo defaults if needed)."
+                )
+            gitspace_root, owner, repo, visibility, result = _bootstrap_gitspace_for_share(
+                capsule_root=capsule_root,
+                owner=args.owner or str(github_cfg.get("owner", "")).strip() or None,
+                repo=args.repo,
+                branch=args.branch,
+                visibility=visibility,
+                create_repo_if_missing=create_repo_if_missing,
+                default_branch=default_branch,
+                assume_yes=bool(args.yes),
+                emit_messages=not bool(args.json),
+            )
+        else:
+            gitspace = load_gitspace(gitspace_root)
+            try:
+                capsule_rel = capsule_root.resolve().relative_to(gitspace_root.resolve()).as_posix()
+            except ValueError:
+                capsule_rel = ""
+            declared = any(str(item.get("path", "")).strip() == capsule_rel for item in gitspace.get("capsules", []))
+            if not declared:
+                if not bool(args.yes):
+                    if not _is_interactive_tty():
+                        raise SystemExit(
+                            "This capsule lives inside a gitspace but is not declared in `.lelabo/gitspace.toml`. "
+                            "Run interactively to confirm adding it, or pass `--yes`."
+                        )
+                    if not _confirm("This capsule is not declared in the gitspace manifest. Add it now?", default=True):
+                        raise SystemExit("Gitspace update canceled by user.")
+                if not bool(args.json):
+                    print_status("info", "Adding capsule to the gitspace manifest...")
+                gitspace = add_capsule_to_gitspace(capsule_root, gitspace_root=gitspace_root)
+            origin_spec = parse_owner_repo_from_origin(gitspace_root)
+            origin_owner, origin_repo = origin_spec if origin_spec is not None else (None, None)
+            owner = str(args.owner or origin_owner or github_cfg.get("owner", "")).strip()
+            if not owner:
+                raise SystemExit("GitHub owner is required. Set --owner or `lelabo config set github.owner <owner>`.")
+            repo = str(args.repo or origin_repo or gitspace["name"]).strip()
+            if not repo:
+                raise SystemExit("GitHub repo is required.")
+            if not bool(args.json):
+                print_status("info", "Publishing gitspace to GitHub...")
+            result = share_gitspace_github(
+                gitspace_root=gitspace_root,
+                owner=owner,
+                repo=repo,
+                branch=args.branch,
+                visibility=visibility,
+                create_repo_if_missing=create_repo_if_missing,
+                default_branch=default_branch,
+                auto_init_git=True,
+                assume_yes=bool(args.yes),
+            )
+            result["bootstrapped_gitspace"] = False
+            result["gitspace_name"] = gitspace["name"]
+            result["shared_capsule_id"] = inspect_capsule_directory(capsule_root)["capsule_id"]
     except (RuntimeError, FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc))
 
@@ -743,69 +1199,26 @@ def _cmd_share(argv: list[str]) -> int:
         }
         _print_json(payload)
     else:
-        print("shared capsule to github:")
-        print(f"owner: {result.get('owner')}")
-        print(f"repo: {result.get('repo')}")
-        print(f"branch: {result.get('branch')}")
-        print(f"remote_url: {result.get('remote_url')}")
-        print(f"created_repo: {result.get('created_repo')}")
-        print(f"created_origin_remote: {result.get('created_origin_remote')}")
-        print(f"pushed: {result.get('pushed')}")
+        if result.get("bootstrapped_gitspace"):
+            print_status("success", "Gitspace bootstrapped and capsule shared to GitHub.")
+        else:
+            print_status("success", "Capsule shared through its gitspace.")
+        print_block(
+            "GitHub share",
+            (
+                ("gitspace_root", result.get("gitspace_root")),
+                ("gitspace_name", result.get("gitspace_name")),
+                ("shared_capsule_id", result.get("shared_capsule_id")),
+                ("owner", result.get("owner")),
+                ("repo", result.get("repo")),
+                ("branch", result.get("branch")),
+                ("remote_url", result.get("remote_url")),
+                ("created_repo", result.get("created_repo")),
+                ("created_origin_remote", result.get("created_origin_remote")),
+                ("pushed", result.get("pushed")),
+            ),
+        )
     return 0
-
-
-def _cmd_sweep(argv: list[str]) -> int:
-    """List or run sweep configs from the active capsule."""
-    if not argv or argv[0] in {"-h", "--help", "help"}:
-        print("Usage:")
-        print("  lelabo capsule sweep              List available sweep configs")
-        print("  lelabo capsule sweep run <name>    Run a sweep from the active capsule")
-        print()
-        return 0
-
-    capsule_root = find_active_capsule_root()
-    if capsule_root is None:
-        raise SystemExit("No active capsule found. Run from inside a capsule directory.")
-
-    if argv[0] == "run":
-        if len(argv) < 2:
-            raise SystemExit("Usage: lelabo capsule sweep run <name> [--dry-run] [--max-parallel N] [--gpus G]")
-
-        sweep_name = argv[1]
-        candidates = [
-            capsule_root / "sweeps" / f"{sweep_name}.yaml",
-            capsule_root / "sweeps" / f"{sweep_name}.yml",
-            capsule_root / "configs" / f"{sweep_name}.yaml",
-            capsule_root / "configs" / f"{sweep_name}.yml",
-        ]
-        config_path = next((p for p in candidates if p.exists()), None)
-        if config_path is None:
-            raise SystemExit(
-                f"Sweep config '{sweep_name}' not found in capsule. "
-                f"Searched: {[str(p) for p in candidates]}"
-            )
-
-        from .sweep import _cmd_run
-        return _cmd_run(["--config", str(config_path)] + argv[2:])
-
-    # Default: list available sweep configs
-    sweep_dirs = [capsule_root / "sweeps", capsule_root / "configs"]
-    found: list[tuple[str, str]] = []
-    for d in sweep_dirs:
-        if d.is_dir():
-            for f in sorted(d.iterdir()):
-                if f.suffix in {".yaml", ".yml"} and f.is_file():
-                    found.append((f.stem, str(f.relative_to(capsule_root))))
-
-    if not found:
-        print("No sweep configs found in active capsule.")
-        return 0
-
-    print("Available sweep configs:")
-    for name, rel_path in found:
-        print(f"  {name}  ({rel_path})")
-    return 0
-
 
 def main(argv: Sequence[str]) -> int:
     args = list(argv)
@@ -816,14 +1229,14 @@ def main(argv: Sequence[str]) -> int:
     cmd = args[0]
     rest = args[1:]
 
-    if cmd == "sweep":
-        return _cmd_sweep(rest)
     if cmd == "init":
         return _cmd_init(rest)
     if cmd == "pack":
         return _cmd_pack(rest)
     if cmd == "install":
         return _cmd_install(rest)
+    if cmd == "attach":
+        return _cmd_attach(rest)
     if cmd == "share":
         return _cmd_share(rest)
     if cmd == "stash":
@@ -839,6 +1252,6 @@ def main(argv: Sequence[str]) -> int:
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: init, sweep, stash, checkout, install, share, pack, list, show, remove.\n"
+        "Use one of: init, attach, stash, checkout, install, share, pack, list, show, remove.\n"
         "Run `lelabo capsule -h` for usage."
     )

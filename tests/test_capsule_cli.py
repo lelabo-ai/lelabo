@@ -11,6 +11,7 @@ from conftest import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 capsule_cli = importlib.import_module("lelabo.cli.commands.capsule")
 capsule_create = importlib.import_module("lelabo.capsule.create")
+gitspace_mod = importlib.import_module("lelabo.capsule.gitspace")
 capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
@@ -29,13 +30,14 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["install", str(bundle), "--alias", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "installed capsule into store:" in out
+    assert "Success: Capsule install complete." in out
+    assert "Capsule install" in out
     assert "capsule_id: cli_cap" in out
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "stored capsules:" in out
+    assert "Stored capsules" in out
     assert "cli_cap" in out
     assert "cli_alias" in out
     assert "kind:" not in out
@@ -44,7 +46,7 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["show", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "stored capsule:" in out
+    assert "Stored capsule" in out
     assert "capsule_id: cli_cap" in out
     assert "kind:" not in out
     assert "path:" in out
@@ -55,14 +57,115 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["remove", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "removed capsule from store:" in out
+    assert "Removed capsule" in out
     assert "capsule_id: cli_cap" in out
     assert "deleted_files: True" in out
     assert not installed_dir.exists()
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    assert "(capsule store is empty)" in capsys.readouterr().out
+    assert "Info: The capsule store is empty." in capsys.readouterr().out
+
+
+def test_capsule_attach_accepts_local_capsule_directory(tmp_path, capsys) -> None:
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="dir_attach_capsule",
+        base_dir=tmp_path,
+        register=False,
+    )
+    caps_dir = tmp_path / "caps_dir_attach"
+    rc = capsule_cli.main(["attach", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert payload["command"] == "attach"
+    assert payload["capsule"]["capsule_id"] == "dir_attach_capsule"
+    assert payload["result"]["attach_action"] == "attached"
+    assert payload["result"]["moved"] is False
+    row = capsule_registry.get_capsule("dir_attach_capsule", caps_dir)
+    assert row is not None
+    assert row["path"] == str(capsule_root.resolve())
+
+
+def test_capsule_attach_local_directory_from_workspace_registers_in_store(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_local_install"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="local_attach_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.chdir(workspace)
+
+    caps_dir = tmp_path / "caps_local_attach"
+    rc = capsule_cli.main(["attach", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["attach_action"] == "attached"
+    assert payload["capsule"]["capsule_id"] == "local_attach_capsule"
+    row = capsule_registry.get_capsule("local_attach_capsule", caps_dir)
+    assert row is not None
+
+
+def test_capsule_install_rejects_local_directory_and_points_to_attach(tmp_path) -> None:
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="local_install_reject",
+        base_dir=tmp_path,
+        register=False,
+    )
+    try:
+        capsule_cli.main(["install", str(capsule_root)])
+    except SystemExit as exc:
+        msg = str(exc)
+        assert "local capsule directory" in msg
+        assert "lelabo capsule attach" in msg
+    else:
+        raise AssertionError("Expected SystemExit when using install with local capsule directory.")
+
+
+def test_capsule_install_github_noops_when_same_capsule_already_in_workspace(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    local_capsule = capsule_create.create_capsule_scaffold(
+        capsule_name="same_workspace_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    gitspace_mod.init_gitspace(workspace, name="same-workspace")
+    gitspace_mod.add_capsule_to_gitspace(local_capsule, gitspace_root=workspace)
+    monkeypatch.chdir(workspace)
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(workspace, destination)
+        return {
+            "repo_url": "https://github.com/acme/same_workspace_capsule.git",
+            "owner": "acme",
+            "repo": "same_workspace_capsule",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+
+    caps_dir = tmp_path / "caps_store"
+    rc = capsule_cli.main(
+        [
+            "install",
+            "https://github.com/acme/same_workspace_capsule",
+            "--capsule",
+            "same_workspace_capsule",
+            "--capsules-dir",
+            str(caps_dir),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["install_action"] == "already_present_workspace"
+    assert payload["capsule"]["path"] == str(local_capsule.resolve())
+    assert capsule_registry.list_capsules(caps_dir) == []
 
 
 def test_capsule_cli_remove_keep_files(tmp_path, capsys) -> None:
@@ -133,6 +236,96 @@ def test_capsule_cli_json_outputs_use_versioned_public_schema(tmp_path, capsys) 
     assert remove_payload["command"] == "remove"
     assert remove_payload["capsule"]["capsule_id"] == "cli_json"
     assert remove_payload["result"]["deleted_files"] is True
+
+
+def test_capsule_install_same_source_is_noop(tmp_path, capsys) -> None:
+    run_dir = tmp_path / "run_same"
+    run_dir.mkdir()
+    (run_dir / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"acc": 0.31}), encoding="utf-8")
+    bundle = tmp_path / "same_capsule.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_dir), "--out", str(bundle), "--id", "same_capsule"])
+    assert rc == 0
+    capsys.readouterr()
+
+    caps_dir = tmp_path / "caps_same"
+    rc = capsule_cli.main(["install", str(bundle), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["result"]["install_action"] == "installed"
+
+    rc = capsule_cli.main(["install", str(bundle), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["result"]["install_action"] == "unchanged"
+    assert second["result"]["replaced_existing"] is False
+
+
+def test_capsule_install_conflict_requires_replace_or_rename(tmp_path, capsys) -> None:
+    run_a = tmp_path / "run_a"
+    run_a.mkdir()
+    (run_a / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_a / "summary.json").write_text(json.dumps({"acc": 0.11}), encoding="utf-8")
+    bundle_a = tmp_path / "a.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_a), "--out", str(bundle_a), "--id", "dup_capsule"])
+    assert rc == 0
+    capsys.readouterr()
+
+    run_b = tmp_path / "run_b"
+    run_b.mkdir()
+    (run_b / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_b / "summary.json").write_text(json.dumps({"acc": 0.99}), encoding="utf-8")
+    bundle_b = tmp_path / "b.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_b), "--out", str(bundle_b), "--id", "dup_capsule"])
+    assert rc == 0
+    capsys.readouterr()
+
+    caps_dir = tmp_path / "caps_conflict"
+    rc = capsule_cli.main(["install", str(bundle_a), "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+    capsys.readouterr()
+
+    try:
+        capsule_cli.main(["install", str(bundle_b), "--capsules-dir", str(caps_dir)])
+    except SystemExit as exc:
+        msg = str(exc)
+        assert "--force-replace" in msg
+        assert "--rename-to" in msg
+    else:
+        raise AssertionError("Expected SystemExit for conflicting capsule install.")
+
+
+def test_capsule_install_rename_to_allows_side_by_side(tmp_path, capsys) -> None:
+    run_a = tmp_path / "run_a2"
+    run_a.mkdir()
+    (run_a / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_a / "summary.json").write_text(json.dumps({"acc": 0.21}), encoding="utf-8")
+    bundle_a = tmp_path / "a2.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_a), "--out", str(bundle_a), "--id", "rename_base"])
+    assert rc == 0
+    capsys.readouterr()
+
+    run_b = tmp_path / "run_b2"
+    run_b.mkdir()
+    (run_b / "meta.json").write_text(json.dumps({"argv": ["python", "-m", "lelabo"]}), encoding="utf-8")
+    (run_b / "summary.json").write_text(json.dumps({"acc": 0.22}), encoding="utf-8")
+    bundle_b = tmp_path / "b2.tar.gz"
+    rc = capsule_cli.main(["pack", "--from", str(run_b), "--out", str(bundle_b), "--id", "rename_base"])
+    assert rc == 0
+    capsys.readouterr()
+
+    caps_dir = tmp_path / "caps_rename"
+    rc = capsule_cli.main(["install", str(bundle_a), "--capsules-dir", str(caps_dir)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = capsule_cli.main(
+        ["install", str(bundle_b), "--capsules-dir", str(caps_dir), "--rename-to", "rename_variant", "--json"]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule"]["capsule_id"] == "rename_variant"
+    assert payload["result"]["install_action"] == "installed"
 
 
 def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
@@ -401,17 +594,21 @@ def test_capsule_cli_stash_all_rejects_running_from_active_capsule(tmp_path, mon
 
 
 def test_capsule_cli_install_github_store_only(tmp_path, monkeypatch, capsys) -> None:
+    repo_root = tmp_path / "gitspace_repo"
+    repo_root.mkdir()
     source = capsule_create.create_capsule_scaffold(
         capsule_name="github_capsule",
-        base_dir=tmp_path,
+        base_dir=repo_root,
         register=False,
     )
+    gitspace_mod.init_gitspace(repo_root, name="github-demo")
+    gitspace_mod.add_capsule_to_gitspace(source, gitspace_root=repo_root)
     caps_dir = tmp_path / "caps_github"
 
     def _fake_clone(*, repo_url, destination, ref):
         import shutil
 
-        shutil.copytree(source, destination)
+        shutil.copytree(repo_root, destination)
         return {
             "repo_url": "https://github.com/acme/github_capsule.git",
             "owner": "acme",
@@ -426,6 +623,8 @@ def test_capsule_cli_install_github_store_only(tmp_path, monkeypatch, capsys) ->
         [
             "install",
             "https://github.com/acme/github_capsule",
+            "--capsule",
+            "github_capsule",
             "--ref",
             "main",
             "--capsules-dir",
@@ -437,7 +636,7 @@ def test_capsule_cli_install_github_store_only(tmp_path, monkeypatch, capsys) ->
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "lelabo.cli.capsule/v1"
     assert payload["command"] == "install"
-    assert payload["result"]["source_kind"] == "github"
+    assert payload["result"]["source_kind"] == "github_gitspace"
     assert payload["result"]["source_url"] == "https://github.com/acme/github_capsule.git"
     assert payload["result"]["source_ref"] == "abc123"
     assert payload["result"]["checked_out"] is False
@@ -448,17 +647,197 @@ def test_capsule_cli_install_rejects_non_github_remote_source() -> None:
     try:
         capsule_cli.main(["install", "https://gitlab.com/acme/demo"])
     except SystemExit as exc:
-        assert "GitHub repo URLs only" in str(exc)
+        assert "GitHub gitspace URLs only" in str(exc)
     else:
         raise AssertionError("Expected SystemExit for unsupported non-GitHub remote install source.")
 
 
-def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, capsys) -> None:
-    capsule_root = capsule_create.create_capsule_scaffold(
-        capsule_name="share_capsule",
+def test_capsule_cli_install_rejects_github_repo_without_gitspace_manifest(tmp_path, monkeypatch) -> None:
+    source = capsule_create.create_capsule_scaffold(
+        capsule_name="plain_repo_capsule",
         base_dir=tmp_path,
         register=False,
     )
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(source, destination)
+        return {
+            "repo_url": "https://github.com/acme/plain_repo_capsule.git",
+            "owner": "acme",
+            "repo": "plain_repo_capsule",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+
+    try:
+        capsule_cli.main(["install", "https://github.com/acme/plain_repo_capsule"])
+    except SystemExit as exc:
+        assert "not a LeLabo gitspace" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit for a GitHub repo without gitspace manifest.")
+
+
+def test_capsule_cli_install_github_gitspace_all(tmp_path, monkeypatch, capsys) -> None:
+    repo_root = tmp_path / "multi_repo"
+    repo_root.mkdir()
+    cap_a = capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=repo_root, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=repo_root, register=False)
+    gitspace_mod.init_gitspace(repo_root, name="multi-repo")
+    gitspace_mod.add_capsule_to_gitspace(cap_a, gitspace_root=repo_root)
+    gitspace_mod.add_capsule_to_gitspace(cap_b, gitspace_root=repo_root)
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(repo_root, destination)
+        return {
+            "repo_url": "https://github.com/acme/multi_repo.git",
+            "owner": "acme",
+            "repo": "multi_repo",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+
+    caps_dir = tmp_path / "caps_multi"
+    rc = capsule_cli.main(
+        ["install", "https://github.com/acme/multi_repo", "--all", "--capsules-dir", str(caps_dir), "--json"]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsules/v1"
+    assert payload["command"] == "install"
+    assert sorted(item["capsule_id"] for item in payload["capsules"]) == ["cap_a", "cap_b"]
+
+
+def test_capsule_cli_install_github_gitspace_repeatable_capsule_flags(tmp_path, monkeypatch, capsys) -> None:
+    repo_root = tmp_path / "multi_repo_repeatable"
+    repo_root.mkdir()
+    cap_a = capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=repo_root, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=repo_root, register=False)
+    gitspace_mod.init_gitspace(repo_root, name="multi-repo-repeatable")
+    gitspace_mod.add_capsule_to_gitspace(cap_a, gitspace_root=repo_root)
+    gitspace_mod.add_capsule_to_gitspace(cap_b, gitspace_root=repo_root)
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(repo_root, destination)
+        return {
+            "repo_url": "https://github.com/acme/multi_repo_repeatable.git",
+            "owner": "acme",
+            "repo": "multi_repo_repeatable",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+
+    caps_dir = tmp_path / "caps_multi_repeatable"
+    rc = capsule_cli.main(
+        [
+            "install",
+            "https://github.com/acme/multi_repo_repeatable",
+            "--capsule",
+            "cap_b",
+            "--capsule",
+            "cap_a",
+            "--capsules-dir",
+            str(caps_dir),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsules/v1"
+    assert sorted(item["capsule_id"] for item in payload["capsules"]) == ["cap_a", "cap_b"]
+
+
+def test_capsule_cli_install_github_gitspace_non_tty_requires_explicit_selection(tmp_path, monkeypatch) -> None:
+    repo_root = tmp_path / "multi_repo_non_tty"
+    repo_root.mkdir()
+    cap_a = capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=repo_root, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=repo_root, register=False)
+    gitspace_mod.init_gitspace(repo_root, name="multi-repo-non-tty")
+    gitspace_mod.add_capsule_to_gitspace(cap_a, gitspace_root=repo_root)
+    gitspace_mod.add_capsule_to_gitspace(cap_b, gitspace_root=repo_root)
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(repo_root, destination)
+        return {
+            "repo_url": "https://github.com/acme/multi_repo_non_tty.git",
+            "owner": "acme",
+            "repo": "multi_repo_non_tty",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+    monkeypatch.setattr(capsule_cli, "_is_interactive_tty", lambda: False)
+
+    try:
+        capsule_cli.main(["install", "https://github.com/acme/multi_repo_non_tty"])
+    except SystemExit as exc:
+        msg = str(exc)
+        assert "--capsule <id>" in msg
+        assert "(repeatable)" in msg
+        assert "--all" in msg
+    else:
+        raise AssertionError("Expected SystemExit when multi-capsule install runs non-interactively.")
+
+
+def test_capsule_cli_install_github_gitspace_interactive_picker_is_used(tmp_path, monkeypatch, capsys) -> None:
+    repo_root = tmp_path / "multi_repo_picker"
+    repo_root.mkdir()
+    cap_a = capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=repo_root, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=repo_root, register=False)
+    gitspace_mod.init_gitspace(repo_root, name="multi-repo-picker")
+    gitspace_mod.add_capsule_to_gitspace(cap_a, gitspace_root=repo_root)
+    gitspace_mod.add_capsule_to_gitspace(cap_b, gitspace_root=repo_root)
+
+    def _fake_clone(*, repo_url, destination, ref):
+        import shutil
+
+        shutil.copytree(repo_root, destination)
+        return {
+            "repo_url": "https://github.com/acme/multi_repo_picker.git",
+            "owner": "acme",
+            "repo": "multi_repo_picker",
+            "requested_ref": ref,
+            "resolved_ref": "abc123",
+        }
+
+    monkeypatch.setattr(capsule_cli, "clone_github_repo", _fake_clone)
+    monkeypatch.setattr(capsule_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(capsule_cli, "pick_many_with_checkboxes", lambda **kwargs: ["cap_b"])
+
+    caps_dir = tmp_path / "caps_picker"
+    rc = capsule_cli.main(
+        ["install", "https://github.com/acme/multi_repo_picker", "--capsules-dir", str(caps_dir), "--json"]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
+    assert payload["capsule"]["capsule_id"] == "cap_b"
+
+
+def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, capsys) -> None:
+    repo_root = tmp_path / "share_repo"
+    repo_root.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="share_capsule",
+        base_dir=repo_root,
+        register=False,
+    )
+    gitspace_mod.init_gitspace(repo_root, name="share-demo")
+    gitspace_mod.add_capsule_to_gitspace(capsule_root, gitspace_root=repo_root)
     monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
     monkeypatch.setattr(capsule_cli, "parse_owner_repo_from_origin", lambda _: ("origin_owner", "origin_repo"))
     monkeypatch.setattr(
@@ -480,7 +859,7 @@ def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, caps
     def _fake_share(**kwargs):
         calls.append(kwargs)
         return {
-            "capsule_path": str(capsule_root),
+            "gitspace_root": str(repo_root),
             "owner": "acme",
             "repo": "demo",
             "remote_url": "https://github.com/acme/demo.git",
@@ -490,7 +869,7 @@ def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, caps
             "pushed": True,
         }
 
-    monkeypatch.setattr(capsule_cli, "share_capsule_github", _fake_share)
+    monkeypatch.setattr(capsule_cli, "share_gitspace_github", _fake_share)
 
     rc = capsule_cli.main(["share", "--owner", "acme", "--repo", "demo", "--branch", "main", "--public", "--json"])
     assert rc == 0
@@ -507,14 +886,105 @@ def test_capsule_cli_share_github_uses_share_backend(tmp_path, monkeypatch, caps
     assert calls[0]["assume_yes"] is False
 
 
-def test_capsule_cli_share_yes_forwards_non_interactive_git_init(tmp_path, monkeypatch, capsys) -> None:
+def test_capsule_cli_share_bootstraps_gitspace_when_missing(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_bootstrap"
+    workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
-        capsule_name="share_capsule_yes",
-        base_dir=tmp_path,
+        capsule_name="branch_capsule",
+        base_dir=workspace,
         register=False,
     )
     monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
     monkeypatch.setattr(capsule_cli, "parse_owner_repo_from_origin", lambda _: None)
+    monkeypatch.setattr(capsule_cli, "current_github_login", lambda: "acme")
+    monkeypatch.setattr(capsule_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(
+        capsule_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+                "create_repo_if_missing": True,
+            },
+            "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
+        },
+    )
+
+    calls: list[dict[str, object]] = []
+
+    def _fake_share(**kwargs):
+        calls.append(kwargs)
+        return {
+            "gitspace_root": str(workspace),
+            "owner": "acme",
+            "repo": "branch_capsule",
+            "remote_url": "https://github.com/acme/branch_capsule.git",
+            "branch": "main",
+            "created_repo": False,
+            "created_origin_remote": False,
+            "pushed": True,
+        }
+
+    monkeypatch.setattr(capsule_cli, "share_gitspace_github", _fake_share)
+    answers = iter(["y", "branch_capsule_space", "acme", "branch_capsule", "private", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    rc = capsule_cli.main(["share", "--owner", "acme", "--repo", "branch_capsule"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert calls
+    assert calls[0]["branch"] is None
+    assert "Info: This capsule does not belong to any gitspace yet." in out
+    assert "Review" in out
+    assert "Success: Gitspace bootstrapped and capsule shared to GitHub." in out
+    assert (workspace / ".lelabo" / "gitspace.toml").exists()
+
+
+def test_capsule_cli_share_json_bootstrap_requires_yes(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace_bootstrap_json"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="json_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
+    monkeypatch.setattr(
+        capsule_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "acme",
+                "default_visibility": "private",
+                "default_branch": "main",
+                "create_repo_if_missing": True,
+            },
+            "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
+        },
+    )
+
+    try:
+        capsule_cli.main(["share", "--json"])
+    except SystemExit as exc:
+        assert "--yes" in str(exc)
+        assert "JSON mode requires non-interactive bootstrap" in str(exc)
+    else:
+        raise AssertionError("Expected SystemExit when JSON share needs interactive bootstrap.")
+
+
+def test_capsule_cli_share_yes_forwards_non_interactive_git_init(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_yes"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="share_capsule_yes",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
+    monkeypatch.setattr(capsule_cli, "parse_owner_repo_from_origin", lambda _: None)
+    monkeypatch.setattr(capsule_cli, "current_github_login", lambda: "acme")
     monkeypatch.setattr(
         capsule_cli,
         "_effective_settings",
@@ -534,8 +1004,7 @@ def test_capsule_cli_share_yes_forwards_non_interactive_git_init(tmp_path, monke
     def _fake_share(**kwargs):
         calls.append(kwargs)
         return {
-            "capsule_path": str(capsule_root),
-            "workspace_path": str(capsule_root),
+            "gitspace_root": str(workspace),
             "owner": "acme",
             "repo": "demo",
             "remote_url": "https://github.com/acme/demo.git",
@@ -546,7 +1015,7 @@ def test_capsule_cli_share_yes_forwards_non_interactive_git_init(tmp_path, monke
             "pushed": True,
         }
 
-    monkeypatch.setattr(capsule_cli, "share_capsule_github", _fake_share)
+    monkeypatch.setattr(capsule_cli, "share_gitspace_github", _fake_share)
     rc = capsule_cli.main(["share", "--repo", "demo", "--yes", "--json"])
     assert rc == 0
     _ = json.loads(capsys.readouterr().out)
@@ -582,6 +1051,8 @@ def test_capsule_cli_share_accepts_capsule_name_from_workspace(tmp_path, monkeyp
         base_dir=workspace,
         register=False,
     )
+    gitspace_mod.init_gitspace(workspace, name="caps-a-space")
+    gitspace_mod.add_capsule_to_gitspace(capsule_root, gitspace_root=workspace)
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(capsule_cli, "parse_owner_repo_from_origin", lambda _: None)
     monkeypatch.setattr(
@@ -603,8 +1074,7 @@ def test_capsule_cli_share_accepts_capsule_name_from_workspace(tmp_path, monkeyp
     def _fake_share(**kwargs):
         calls.append(kwargs)
         return {
-            "capsule_path": str(kwargs["capsule_root"]),
-            "workspace_path": str(workspace),
+            "gitspace_root": str(kwargs["gitspace_root"]),
             "owner": "acme",
             "repo": "caps_a_repo",
             "remote_url": "https://github.com/acme/caps_a_repo.git",
@@ -614,14 +1084,14 @@ def test_capsule_cli_share_accepts_capsule_name_from_workspace(tmp_path, monkeyp
             "pushed": True,
         }
 
-    monkeypatch.setattr(capsule_cli, "share_capsule_github", _fake_share)
+    monkeypatch.setattr(capsule_cli, "share_gitspace_github", _fake_share)
 
     rc = capsule_cli.main(["share", "caps_a", "--owner", "acme", "--repo", "caps_a_repo", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["target"] == "github"
     assert calls
-    assert Path(str(calls[0]["capsule_root"])).resolve() == capsule_root.resolve()
+    assert Path(str(calls[0]["gitspace_root"])).resolve() == workspace.resolve()
 
 
 def test_capsule_cli_share_github_non_git_repo_has_actionable_error(tmp_path, monkeypatch) -> None:
@@ -637,7 +1107,7 @@ def test_capsule_cli_share_github_non_git_repo_has_actionable_error(tmp_path, mo
         capsule_cli.main(["share", "caps_non_git", "--owner", "acme", "--repo", "demo"])
     except SystemExit as exc:
         msg = str(exc)
-        assert "No git repository found for this capsule" in msg
+        assert "does not belong to any gitspace" in msg
         assert "--yes" in msg
     else:
         raise AssertionError("Expected SystemExit when sharing to GitHub outside a git repository.")

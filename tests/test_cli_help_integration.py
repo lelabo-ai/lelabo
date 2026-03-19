@@ -65,10 +65,22 @@ def test_capsule_help_displays_lifecycle_subcommands() -> None:
     assert proc.returncode == 0
     assert "Manage LeLabo experiment capsules" in proc.stdout
     assert "init" in proc.stdout
+    assert "attach" in proc.stdout
     assert "stash" in proc.stdout
     assert "checkout" in proc.stdout
     assert "install" in proc.stdout
     assert "share" in proc.stdout
+    assert "lelabo capsule sweep" not in proc.stdout
+
+
+def test_gitspace_help_displays_gitspace_subcommands() -> None:
+    proc = _run_cli_help("gitspace", "-h")
+    assert proc.returncode == 0
+    assert "Manage LeLabo gitspaces" in proc.stdout
+    assert "init" in proc.stdout
+    assert "show" in proc.stdout
+    assert "list" in proc.stdout
+    assert "add" in proc.stdout
 
 
 def test_config_help_displays_config_subcommands() -> None:
@@ -85,15 +97,20 @@ def test_config_help_displays_config_subcommands() -> None:
 def test_capsule_install_help_mentions_github_and_checkout() -> None:
     proc = _run_cli_help("capsule", "install", "-h")
     assert proc.returncode == 0
-    assert "GitHub repo URL" in proc.stdout
+    assert "GitHub gitspace URL" in proc.stdout
     assert "--ref" in proc.stdout
     assert "--checkout" in proc.stdout
+    assert "--capsule" in proc.stdout
+    assert "repeatable" in proc.stdout
+    assert "--all" in proc.stdout
+    assert "--rename-to" in proc.stdout
+    assert "--force-replace" in proc.stdout
 
 
 def test_capsule_share_help_mentions_mode_and_local_export() -> None:
     proc = _run_cli_help("capsule", "share", "-h")
     assert proc.returncode == 0
-    assert "Share a capsule to GitHub (default) or export a local bundle." in proc.stdout
+    assert "Share a capsule through its gitspace on GitHub" in proc.stdout
     assert "--mode {github,local}" in proc.stdout
     assert "--owner" in proc.stdout
     assert "--repo" in proc.stdout
@@ -121,6 +138,25 @@ def test_capsule_stash_help_includes_workbench_examples() -> None:
     assert proc.returncode == 0
     assert "Move a local capsule into the local capsule store." in proc.stdout
     assert "lelabo capsule stash --all ./workspace_capsules" in proc.stdout
+
+
+def test_capsule_attach_help_includes_linking_description() -> None:
+    proc = _run_cli_help("capsule", "attach", "-h")
+    assert proc.returncode == 0
+    assert "Link a local capsule into the LeLabo capsule registry" in proc.stdout
+    assert "--rename-to" in proc.stdout
+    assert "--force-replace" in proc.stdout
+
+
+def test_sweep_help_displays_workspace_first_usage() -> None:
+    proc = _run_cli_help("sweep", "-h")
+    assert proc.returncode == 0
+    assert "Run parameter sweeps from the current workspace." in proc.stdout
+    assert "lelabo sweep" in proc.stdout
+    assert "lelabo sweep run" in proc.stdout
+    assert "--capsule CAPSULE_ID" in proc.stdout
+    assert "--sweep SWEEP_NAME" in proc.stdout
+    assert "--config PATH" in proc.stdout
 
 
 def test_train_without_subcommand_prints_help() -> None:

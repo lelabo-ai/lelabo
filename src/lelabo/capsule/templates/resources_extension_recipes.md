@@ -26,7 +26,7 @@ optimizer params.
 ### Where to edit
 
 - Code: `optimizers/example.py`
-- Config: `configs/train.supervised.capsule_optimizer.toml`
+- Config: `configs/train/supervised.capsule_optimizer.toml`
 - Validation: `tests/test_capsule_optimizer_smoke.py`
 
 ### Builder shape
@@ -62,7 +62,7 @@ lelabo list optimizers
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml --optimizer my_optimizer
+lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml --optimizer my_optimizer
 ```
 
 ```bash
@@ -96,7 +96,7 @@ enough.
 ### Where to edit
 
 - Code: `models/example.py`
-- Config: `configs/train.supervised.quickstart.toml`
+- Config: `configs/train/supervised.quickstart.toml`
 
 ### Builder shape
 
@@ -132,7 +132,7 @@ lelabo list models
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.quickstart.toml --model my_model
+lelabo train supervised --config configs/train/supervised.quickstart.toml --model my_model
 ```
 
 ### Common mistakes
@@ -162,7 +162,7 @@ intermediate activations, also read `resources/MODEL_CACHE_ADVANCED.md`.
 ### Where to edit
 
 - Code: `update_rules/example.py`
-- Config: `configs/train.supervised.paper_pack.toml`
+- Config: `configs/train/supervised.paper_pack.toml`
 - Validation: `tests/test_paper_pack_smoke.py`
 
 ### Builder shape
@@ -198,7 +198,7 @@ lelabo list update-rules
 ```
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml --rule my_rule
+lelabo train supervised --config configs/train/supervised.paper_pack.toml --rule my_rule
 ```
 
 ```bash
@@ -231,7 +231,7 @@ Use a dataset plugin when you need custom loading, splitting, or metadata.
 ### Where to edit
 
 - Code: `datasets/example.py`
-- Config: `configs/train.supervised.quickstart.toml`
+- Config: `configs/train/supervised.quickstart.toml`
 
 ### Builder shape
 
@@ -296,7 +296,7 @@ rule + dataset + config + test.
 ### Where to edit
 
 - Workflow: `resources/PAPER_PACK_PLAYBOOK.md`
-- Config: `configs/train.supervised.paper_pack.toml`
+- Config: `configs/train/supervised.paper_pack.toml`
 - Validation: `tests/test_paper_pack_smoke.py`
 
 ### Shape
@@ -331,7 +331,7 @@ name = "my_rule"
 ### Validation commands
 
 ```bash
-lelabo train supervised --config configs/train.supervised.paper_pack.toml
+lelabo train supervised --config configs/train/supervised.paper_pack.toml
 ```
 
 ```bash

@@ -37,7 +37,7 @@ Uncomment `@register_loss("example_scaled_l1")`.
 How to test
 -----------
 lelabo list losses
-lelabo train supervised --config configs/train.supervised.quickstart.toml --loss example_scaled_l1
+lelabo train supervised --config configs/train/supervised.quickstart.toml --loss example_scaled_l1
 
 Common errors
 -------------

@@ -87,7 +87,7 @@ This capsule ships a small multi-component reference path:
 
 - model: `example_mlp`
 - update rule: `local_head`
-- config: `configs/train.supervised.paper_pack.toml`
+- config: `configs/train/supervised.paper_pack.toml`
 - smoke test: `tests/test_paper_pack_smoke.py`
 
 This is not a scientific reference implementation. It is an integration reference.

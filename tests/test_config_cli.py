@@ -83,3 +83,22 @@ def test_config_cli_show_effective_prefers_local_override(tmp_path, monkeypatch,
     assert 'owner = "local-owner"' in out
     assert 'default_checkout_dir = "workspace"' in out
     assert 'default_branch = "main"' in out
+
+
+def test_config_cli_path_and_set_use_human_blocks(tmp_path, capsys) -> None:
+    cfg = tmp_path / "settings.toml"
+
+    rc = config_cli.main(["path"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Config paths" in out
+    assert "global:" in out
+    assert "local:" in out
+
+    rc = config_cli.main(["set", "github.owner", "acme", "--file", str(cfg)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Success: Config updated." in out
+    assert "Config change" in out
+    assert "key: github.owner" in out
+    assert "value: acme" in out

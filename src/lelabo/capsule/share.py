@@ -1,9 +1,9 @@
-"""Share capsule workspaces to GitHub repositories."""
+"""Share gitspaces and capsules to GitHub repositories."""
 
 from __future__ import annotations
 
-import shutil
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -44,19 +44,12 @@ def _git_current_branch(path: Path) -> str:
     return str(out).strip()
 
 
-def _git_subtree_split(path: Path, *, prefix: str) -> str:
-    out = _run(["git", "-C", str(path), "subtree", "split", "--prefix", prefix, "HEAD"])
-    token = str(out).strip()
-    if not token:
-        raise RuntimeError(f"Could not compute subtree split for prefix '{prefix}'.")
-    return token
-
-
-def _init_git_repo(path: Path) -> None:
-    _run(["git", "-C", str(path), "init", "-b", "main"])
+def _init_git_repo(path: Path, *, initial_branch: str) -> None:
+    branch = str(initial_branch).strip() or "main"
+    _run(["git", "-C", str(path), "init", "-b", branch])
     _run(["git", "-C", str(path), "add", "-A"])
     try:
-        _run(["git", "-C", str(path), "commit", "-m", "Initialize capsule for GitHub share"])
+        _run(["git", "-C", str(path), "commit", "-m", "Initialize LeLabo gitspace for GitHub share"])
     except RuntimeError as exc:
         raise RuntimeError(
             "Git repository initialized but initial commit failed. "
@@ -78,7 +71,7 @@ def _ensure_gh_auth() -> None:
         raise RuntimeError("`gh` is required for GitHub share. Install GitHub CLI and run `gh auth login`.")
     proc = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True, check=False)
     if proc.returncode != 0:
-        err = (proc.stderr or "").strip() or "Run `gh auth login` before `lelabo capsule share github`."
+        err = (proc.stderr or "").strip() or "Run `gh auth login` before `lelabo capsule share`."
         raise RuntimeError(err)
 
 
@@ -122,28 +115,39 @@ def _create_repo(owner: str, repo: str, visibility: str) -> None:
         raise RuntimeError(f"{exc}\n{hint}") from exc
 
 
-def _push_refspec(path: Path, *, remote_url: str, refspec: str, branch: str) -> None:
-    _run(["git", "-C", str(path), "push", "-u", remote_url, refspec])
-    _run(["git", "-C", str(path), "fetch", remote_url, branch])
+def _push_refspec(path: Path, *, remote_target: str, refspec: str, branch: str) -> None:
+    _run(["git", "-C", str(path), "push", "-u", remote_target, refspec])
+    _run(["git", "-C", str(path), "fetch", remote_target, branch])
 
 
-def share_capsule_github(
+def current_github_login() -> str | None:
+    """Return the currently authenticated GitHub login when available."""
+    return _gh_current_login()
+
+
+def git_repo_root(path: Path) -> Path:
+    """Return the git repository root for one path."""
+    return _git_repo_root(path)
+
+
+def share_gitspace_github(
     *,
-    capsule_root: Path,
+    gitspace_root: Path,
     owner: str,
     repo: str,
-    branch: str,
+    branch: str | None,
     visibility: str,
     create_repo_if_missing: bool,
+    default_branch: str = "main",
     auto_init_git: bool = False,
     assume_yes: bool = False,
 ) -> dict[str, Any]:
-    """Push a clean local capsule git repository to GitHub."""
-    root = capsule_root.resolve()
+    """Push a clean gitspace repository to GitHub."""
+    root = gitspace_root.resolve()
     if not root.exists() or not root.is_dir():
-        raise FileNotFoundError(f"Capsule root not found: {root}")
+        raise FileNotFoundError(f"Gitspace root not found: {root}")
     if shutil.which("git") is None:
-        raise RuntimeError("`git` is required for `lelabo capsule share github`.")
+        raise RuntimeError("`git` is required for `lelabo capsule share`.")
 
     initialized_repo = False
     try:
@@ -152,12 +156,12 @@ def share_capsule_github(
         if not auto_init_git:
             raise RuntimeError(
                 "GitHub share requires a git repository. "
-                "Initialize git in your workspace (e.g. `git init`) or use `lelabo capsule share --mode local`."
+                "Initialize git in your gitspace or pass `--yes` to let LeLabo bootstrap it."
             ) from exc
         if not assume_yes:
             if not sys.stdin.isatty():
                 raise RuntimeError(
-                    "No git repository found for this capsule. "
+                    "No git repository found for this gitspace. "
                     "Run in interactive mode to confirm auto-init, or pass `--yes`."
                 ) from exc
             answer = input(
@@ -165,17 +169,17 @@ def share_capsule_github(
             ).strip().lower()
             if answer not in {"y", "yes"}:
                 raise RuntimeError("Git initialization canceled by user.") from exc
-        _init_git_repo(root)
+        _init_git_repo(root, initial_branch=default_branch)
         repo_root = root
         initialized_repo = True
-    if repo_root != root and repo_root not in root.parents:
+    if repo_root != root:
         raise RuntimeError(
-            f"Capsule root '{root}' is not inside git repo root '{repo_root}'."
+            f"Gitspace root '{root}' must be the git repository root, but git is initialized at '{repo_root}'."
         )
 
     _git_head_exists(repo_root)
     if not _git_is_clean(repo_root):
-        raise RuntimeError("Git worktree is dirty. Commit or stash changes before sharing.")
+        raise RuntimeError("Git worktree is dirty. Commit or stash changes before sharing this gitspace.")
 
     _ensure_gh_auth()
     owner = str(owner).strip()
@@ -191,27 +195,34 @@ def share_capsule_github(
         _create_repo(owner, repo, visibility)
         created_repo = True
 
-    target_branch = str(branch).strip() or _git_current_branch(root) or "main"
-    if repo_root == root:
-        refspec = f"HEAD:{target_branch}"
-    else:
-        prefix = root.relative_to(repo_root).as_posix()
-        split_sha = _git_subtree_split(repo_root, prefix=prefix)
-        refspec = f"{split_sha}:{target_branch}"
-    _push_refspec(repo_root, remote_url=remote_url, refspec=refspec, branch=target_branch)
+    origin_url = _git_origin_url(root)
+    created_origin_remote = False
+    if not origin_url:
+        _run(["git", "-C", str(root), "remote", "add", "origin", remote_url])
+        origin_url = remote_url
+        created_origin_remote = True
+
+    target_branch = str(branch or "").strip() or _git_current_branch(root) or str(default_branch).strip() or "main"
+    remote_target = "origin" if origin_url == remote_url else remote_url
+    _push_refspec(repo_root, remote_target=remote_target, refspec=f"HEAD:{target_branch}", branch=target_branch)
 
     return {
-        "capsule_path": str(root),
-        "workspace_path": str(repo_root),
+        "gitspace_root": str(root),
         "owner": owner,
         "repo": repo,
         "remote_url": remote_url,
         "branch": target_branch,
         "created_repo": bool(created_repo),
-        "created_origin_remote": False,
+        "created_origin_remote": bool(created_origin_remote),
         "initialized_git_repo": bool(initialized_repo),
         "pushed": True,
     }
+
+
+def share_capsule_github(**kwargs) -> dict[str, Any]:
+    """Backward-compatible wrapper around gitspace GitHub share."""
+    capsule_root = Path(kwargs.pop("capsule_root"))
+    return share_gitspace_github(gitspace_root=capsule_root, **kwargs)
 
 
 def parse_owner_repo_from_origin(path: Path) -> tuple[str, str] | None:
@@ -223,3 +234,12 @@ def parse_owner_repo_from_origin(path: Path) -> tuple[str, str] | None:
         return parse_owner_repo_from_url(url)
     except Exception:
         return None
+
+
+__all__ = [
+    "current_github_login",
+    "git_repo_root",
+    "share_gitspace_github",
+    "share_capsule_github",
+    "parse_owner_repo_from_origin",
+]

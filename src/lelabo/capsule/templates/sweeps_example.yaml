@@ -1,5 +1,6 @@
 # Example sweep config for capsule experiments.
-# Run with: lelabo capsule sweep run example
+# Run with: lelabo sweep
+# Or:       lelabo sweep run --capsule <capsule_id> --sweep example
 # Or:       lelabo sweep run --config sweeps/example.yaml
 
 name: capsule_sweep_example

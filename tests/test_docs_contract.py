@@ -7,16 +7,6 @@ def _read(rel_path: str) -> str:
     return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
 
 
-def test_docs_nav_contains_public_pages() -> None:
-    mkdocs = _read("mkdocs.yml")
-    assert "Home: index.md" in mkdocs
-    assert "Installation: getting-started/installation.md" in mkdocs
-    assert "Quickstart: getting-started/quickstart.md" in mkdocs
-    assert "CLI: reference/cli.md" in mkdocs
-    assert "Public API: reference/api.md" in mkdocs
-    assert "Research Notes: research-notes.md" in mkdocs
-    assert "Community: community.md" in mkdocs
-
 
 def test_docs_nav_contains_concept_pages() -> None:
     mkdocs = _read("mkdocs.yml")

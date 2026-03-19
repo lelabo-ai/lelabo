@@ -180,6 +180,7 @@ def add_capsule_entry(
             "installed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "source_bundle": source_bundle,
             "kind": manifest.get("kind"),
+            "fingerprint": manifest.get("fingerprint"),
             "created_at": manifest.get("created_at"),
             "source": manifest.get("source", {}),
         }

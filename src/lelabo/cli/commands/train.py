@@ -166,13 +166,13 @@ def _add_rl_overrides(parser: argparse.ArgumentParser) -> None:
 def build_train_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lelabo train",
-        description="Run a LeLabo experiment.",
+        description="Run a LeLabo training workflow from a layered config.",
     )
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
     supervised_parser = subparsers.add_parser(
         "supervised",
-        help="Run supervised training.",
+        help="Run supervised training from a layered config.",
         description=(
             "Run a supervised LeLabo experiment from a layered config. "
             "CLI flags override the config; use --set for advanced nested overrides."
@@ -184,7 +184,7 @@ def build_train_parser() -> argparse.ArgumentParser:
 
     rl_parser = subparsers.add_parser(
         "rl",
-        help="Run reinforcement-learning training.",
+        help="Run reinforcement-learning training from a layered config.",
         description="Run an RL LeLabo experiment from a layered config.",
     )
     _add_config_args(rl_parser)

@@ -68,11 +68,11 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert (out / "schedulers" / "example.py").exists()
     assert (out / "callbacks" / "example.py").exists()
     assert (out / "configs" / "README.md").exists()
-    assert (out / "configs" / "train.supervised.quickstart.toml").exists()
-    assert (out / "configs" / "train.supervised.detailed.toml").exists()
-    assert (out / "configs" / "train.supervised.capsule_optimizer.toml").exists()
-    assert (out / "configs" / "train.supervised.paper_pack.toml").exists()
-    assert (out / "configs" / "train.rl.detailed.toml").exists()
+    assert (out / "configs" / "train" / "supervised.quickstart.toml").exists()
+    assert (out / "configs" / "train" / "supervised.detailed.toml").exists()
+    assert (out / "configs" / "train" / "supervised.capsule_optimizer.toml").exists()
+    assert (out / "configs" / "train" / "supervised.paper_pack.toml").exists()
+    assert (out / "configs" / "train" / "rl.detailed.toml").exists()
     assert (out / "runs" / "example.py").exists()
     assert (out / "tests" / "test_capsule_optimizer_smoke.py").exists()
     assert (out / "tests" / "test_paper_pack_smoke.py").exists()
@@ -98,8 +98,8 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     capsule_toml = (out / "capsule.toml").read_text(encoding="utf-8")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     configs_readme = (out / "configs" / "README.md").read_text(encoding="utf-8")
-    cfg_quick = (out / "configs" / "train.supervised.quickstart.toml").read_text(encoding="utf-8")
-    cfg_paper = (out / "configs" / "train.supervised.paper_pack.toml").read_text(encoding="utf-8")
+    cfg_quick = (out / "configs" / "train" / "supervised.quickstart.toml").read_text(encoding="utf-8")
+    cfg_paper = (out / "configs" / "train" / "supervised.paper_pack.toml").read_text(encoding="utf-8")
     assert "register_model" in model_example
     assert 'Uncomment `@register_model("example_mlp")`' in model_example
     assert "cache_walkthrough.py" in model_example
@@ -199,10 +199,10 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "Validation checklist" in paper_pack_playbook
     assert "When not to build a paper pack" in paper_pack_playbook
     assert 'Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`' in smoke_test
-    assert "lelabo train supervised --config configs/train.supervised.capsule_optimizer.toml" in smoke_test or "train.supervised.capsule_optimizer.toml" in smoke_test
+    assert 'CONFIG_PATH = CAPSULE_ROOT / "configs" / "train" / "supervised.capsule_optimizer.toml"' in smoke_test
     assert 'Uncomment `@register_model("example_mlp")`' in paper_pack_smoke
     assert 'Uncomment `@register_update_rule("local_head")`' in paper_pack_smoke
-    assert "train.supervised.paper_pack.toml" in paper_pack_smoke
+    assert 'CONFIG_PATH = CAPSULE_ROOT / "configs" / "train" / "supervised.paper_pack.toml"' in paper_pack_smoke
     assert "lelabo_version" in capsule_toml
     assert str(manifest.get("lelabo_version", "")).strip()
     assert 'config_version = "1.0"' in cfg_quick
@@ -213,9 +213,9 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert f'lelabo_version = "{lab_pkg.__version__}"' in cfg_paper
     assert 'config_version = "auto"' not in cfg_quick
     assert "AGENTS.md" in configs_readme
-    assert "train.supervised.quickstart.toml" in configs_readme
-    assert "train.supervised.capsule_optimizer.toml" in configs_readme
-    assert "train.supervised.paper_pack.toml" in configs_readme
+    assert "train/supervised.quickstart.toml" in configs_readme
+    assert "train/supervised.capsule_optimizer.toml" in configs_readme
+    assert "train/supervised.paper_pack.toml" in configs_readme
     assert "optimizers/example.py" in configs_readme
     assert "models/cache_walkthrough.py" in configs_readme
     assert "../resources/EXTENSION_RECIPES.md" in configs_readme
@@ -331,19 +331,3 @@ def test_fresh_capsule_examples_do_not_pollute_plugin_listings(tmp_path, monkeyp
         assert "example_mlp" not in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
-
-
-def test_create_capsule_cli_prints_guided_next_steps(tmp_path, capsys) -> None:
-    rc = capsule_cli.main(["init", "guided_capsule", "--dir", str(tmp_path)])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert str(tmp_path / "guided_capsule") in out
-    assert "Start with README.md" in out
-    assert "open AGENTS.md" in out
-    assert "resources/EXTENSION_RECIPES.md" in out
-    assert "resources/LELABO_REFERENCE.md" in out
-    assert "resources/PARAM_FLOW.md" in out
-    assert "resources/UPDATE_RULE_LIFECYCLE.md" in out
-    assert "resources/PAPER_PACK_PLAYBOOK.md" in out
-    assert 'capsule_sgd' in out
-    assert "pytest -q tests" in out

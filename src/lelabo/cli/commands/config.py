@@ -17,6 +17,7 @@ from ...config.user_settings import (
     write_settings,
     dumps_toml,
 )
+from ..ui import print_block, print_status
 
 
 CONFIG_HELP = """\
@@ -50,8 +51,13 @@ def _cmd_path(argv: list[str]) -> int:
     _ = args
     global_path = user_config_path()
     local_path = find_local_override()
-    print(f"global: {global_path}")
-    print(f"local: {local_path if local_path is not None else '-'}")
+    print_block(
+        "Config paths",
+        (
+            ("global", global_path),
+            ("local", local_path if local_path is not None else "-"),
+        ),
+    )
     return 0
 
 
@@ -89,7 +95,15 @@ def _cmd_set(argv: list[str]) -> int:
     data = load_settings_file(path)
     updated = set_key(data, args.key, args.value)
     write_settings(path, updated)
-    print(str(path))
+    print_status("success", "Config updated.")
+    print_block(
+        "Config change",
+        (
+            ("file", path),
+            ("key", args.key),
+            ("value", get_key(updated, args.key)),
+        ),
+    )
     return 0
 
 
@@ -124,4 +138,3 @@ def main(argv: Sequence[str]) -> int:
         "Use one of: path, show, get, set, edit.\n"
         "Run `lelabo config -h` for usage."
     )
-
