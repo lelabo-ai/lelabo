@@ -10,7 +10,7 @@ from typing import Sequence
 
 from ...sweep.discovery import DiscoveredCapsuleSweeps, DiscoveredSweep, discover_workspace_capsules, resolve_discovered_sweep
 from ...sweep.runner import build_sweep_plan, load_sweep_config, run_sweep
-from ..ui import build_prompt_style, print_list_block, print_status
+from ..ui import build_prompt_style, print_block, print_list_block, print_status
 
 
 SWEEP_HELP = """\
@@ -99,7 +99,17 @@ def _print_workspace_listing(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> i
     return 0
 
 
-def _pick_sweep_interactive(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> DiscoveredSweep | None:
+def _pick_sweep_interactive(
+    capsules: tuple[DiscoveredCapsuleSweeps, ...],
+    *,
+    outdir: str,
+    name: str | None,
+    max_parallel: int,
+    gpus: str | None,
+    dry_run: bool,
+    initial_sweep: DiscoveredSweep | None = None,
+    extra_flags: Sequence[str] | None = None,
+) -> tuple[str, DiscoveredSweep | None, list[str]]:
     try:
         from prompt_toolkit.application import Application
         from prompt_toolkit.key_binding import KeyBindings
@@ -120,14 +130,52 @@ def _pick_sweep_interactive(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> Di
         for sweep in capsule.sweeps:
             lines.append((f"  {sweep.sweep_name}", sweep))
     if not lines:
-        return None
+        return "cancel", None, []
+
+    configured_flags = list(extra_flags or [])
+    parser = _build_run_parser()
+    preview_args = parser.parse_args(["--config", "/tmp/placeholder.yaml", *configured_flags])
 
     cursor = 0
+    if initial_sweep is not None:
+        for idx, (_, sweep) in enumerate(lines):
+            if sweep == initial_sweep:
+                cursor = idx
+                break
     state = {"error": ""}
 
     def _move(step: int) -> None:
         nonlocal cursor
         cursor = max(0, min(len(lines) - 1, cursor + step))
+
+    def _current_sweep() -> DiscoveredSweep | None:
+        _, selected = lines[cursor]
+        return selected
+
+    def _preview_rows() -> list[tuple[str, str]]:
+        selected = _current_sweep()
+        if selected is None:
+            return [
+                ("capsule", lines[cursor][0].strip()),
+                ("sweep", "-"),
+                ("config_path", "-"),
+                ("resolved_command", "-"),
+            ]
+        cmd_preview = _command_preview(
+            config_path=selected.config_path,
+            outdir=str(preview_args.outdir),
+            name=preview_args.name,
+            max_parallel=int(preview_args.max_parallel),
+            gpus=preview_args.gpus,
+            dry_run=bool(preview_args.dry_run or dry_run),
+        )
+        return [
+            ("capsule", selected.capsule_id),
+            ("sweep", selected.sweep_name),
+            ("config_path", str(selected.config_path)),
+            ("resolved_command", shlex.join(cmd_preview)),
+            ("overrides", shlex.join(configured_flags) if configured_flags else "-"),
+        ]
 
     def _render_text():
         fragments: list[tuple[str, str]] = []
@@ -142,9 +190,21 @@ def _pick_sweep_interactive(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> Di
             fragments.append(("class:error", f"\n{state['error']}\n"))
         return fragments
 
+    def _render_preview():
+        fragments: list[tuple[str, str]] = [("class:accent", "Current selection\n")]
+        for key, value in _preview_rows():
+            fragments.append(("class:muted", f"{key}: "))
+            fragments.append(("", f"{value}\n"))
+        return fragments
+
     body = Window(
         content=FormattedTextControl(_render_text),
         always_hide_cursor=True,
+    )
+    preview = Window(
+        content=FormattedTextControl(_render_preview),
+        always_hide_cursor=True,
+        wrap_lines=True,
     )
 
     kb = KeyBindings()
@@ -163,24 +223,46 @@ def _pick_sweep_interactive(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> Di
 
     @kb.add("enter", eager=True)
     def _enter(event) -> None:
-        _, selected = lines[cursor]
+        selected = _current_sweep()
         if selected is None:
             state["error"] = "Select a sweep, not a capsule header."
             event.app.invalidate()
             return
-        event.app.exit(result=selected)
+        event.app.exit(result=("run", selected, list(configured_flags)))
+
+    @kb.add("d", eager=True)
+    def _dry_run(event) -> None:
+        selected = _current_sweep()
+        if selected is None:
+            state["error"] = "Select a sweep, not a capsule header."
+            event.app.invalidate()
+            return
+        flags = list(configured_flags)
+        if "--dry-run" not in flags:
+            flags.append("--dry-run")
+        event.app.exit(result=("run", selected, flags))
+
+    @kb.add("e", eager=True)
+    def _edit(event) -> None:
+        selected = _current_sweep()
+        if selected is None:
+            state["error"] = "Select a sweep, not a capsule header."
+            event.app.invalidate()
+            return
+        event.app.exit(result=("edit", selected, list(configured_flags)))
 
     @kb.add("escape", eager=True)
     @kb.add("c-c", eager=True)
     def _cancel(event) -> None:
-        event.app.exit(result=None)
+        event.app.exit(result=("cancel", None, []))
 
     root = HSplit(
         [
             Label(text="Workspace sweeps", style="class:accent"),
-            Label(text="Select a sweep and press Enter for a preview.", style="class:muted"),
+            Label(text="Select a sweep. Enter runs, e edits flags, d runs dry-run, q quits.", style="class:muted"),
             body,
-            Label(text="Keys: Up/Down move | Enter preview | Esc cancel", style="class:muted"),
+            preview,
+            Label(text="Keys: Up/Down move | Enter run | e edit flags | d dry-run | Esc/q cancel", style="class:muted"),
         ],
         padding=1,
     )
@@ -191,78 +273,48 @@ def _pick_sweep_interactive(capsules: tuple[DiscoveredCapsuleSweeps, ...]) -> Di
         full_screen=True,
         style=build_prompt_style(),
     )
+    @kb.add("q", eager=True)
+    def _quit(event) -> None:
+        event.app.exit(result=("cancel", None, []))
     return app.run()
 
 
 def _preview_and_confirm_run(
-    sweep: DiscoveredSweep,
+    capsules: tuple[DiscoveredCapsuleSweeps, ...],
     *,
     outdir: str,
     name: str | None,
     max_parallel: int,
     gpus: str | None,
     dry_run: bool,
-) -> tuple[bool, list[str]]:
+    initial_sweep: DiscoveredSweep | None = None,
+) -> tuple[bool, DiscoveredSweep | None, list[str]]:
     if not _is_interactive_tty():
-        return True, []
+        return True, None, []
 
     extra_flags: list[str] = []
-    current_outdir = outdir
-    current_name = name
-    current_parallel = max_parallel
-    current_gpus = gpus
-    current_dry_run = dry_run
-
-    try:
-        from prompt_toolkit.shortcuts import button_dialog, input_dialog
-    except Exception:
-        return True, []
+    selected: DiscoveredSweep | None = initial_sweep
 
     while True:
-        cmd_preview = _command_preview(
-            config_path=sweep.config_path,
-            outdir=current_outdir,
-            name=current_name,
-            max_parallel=current_parallel,
-            gpus=current_gpus,
-            dry_run=current_dry_run,
+        action, selected, returned_flags = _pick_sweep_interactive(
+            capsules,
+            outdir=outdir,
+            name=name,
+            max_parallel=max_parallel,
+            gpus=gpus,
+            dry_run=dry_run,
+            initial_sweep=selected,
+            extra_flags=extra_flags,
         )
-        result = button_dialog(
-            title="Sweep preview",
-            text=(
-                f"capsule: {sweep.capsule_id}\n"
-                f"sweep: {sweep.sweep_name}\n"
-                f"config_path: {sweep.config_path}\n"
-                f"resolved_command: {shlex.join(cmd_preview)}\n"
-                f"overrides: {shlex.join(extra_flags) if extra_flags else '-'}"
-            ),
-            buttons=[
-                ("Run", "run"),
-                ("Edit flags", "edit"),
-                ("Cancel", "cancel"),
-            ],
-            style=build_prompt_style(),
-        ).run()
-        if result == "run":
-            return True, extra_flags
-        if result == "cancel" or result is None:
-            return False, []
-        raw = input_dialog(
-            title="Edit flags",
-            text="Add optional sweep flags, e.g. --dry-run --max-parallel 4 --gpus 0,1",
-            default=shlex.join(extra_flags),
-            style=build_prompt_style(),
-        ).run()
-        if raw is None:
-            continue
+        if action == "run":
+            return True, selected, returned_flags
+        if action == "cancel":
+            return False, None, []
+        extra_flags = returned_flags
+        raw = input(
+            "Extra flags [e.g. --dry-run --max-parallel 4 --gpus 0,1]: "
+        ).strip()
         extra_flags = shlex.split(str(raw).strip()) if str(raw).strip() else []
-        parser = _build_run_parser()
-        parsed = parser.parse_args(["--config", str(sweep.config_path), *extra_flags])
-        current_outdir = str(parsed.outdir)
-        current_name = parsed.name
-        current_parallel = int(parsed.max_parallel)
-        current_gpus = parsed.gpus
-        current_dry_run = bool(parsed.dry_run)
 
 
 def _build_run_parser() -> argparse.ArgumentParser:
@@ -288,9 +340,18 @@ def _build_run_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_run_target(parsed: argparse.Namespace) -> tuple[Path, DiscoveredSweep | None]:
+def _cmd_run(argv: list[str]) -> int:
+    parser = _build_run_parser()
+    parsed = parser.parse_args(argv)
     if parsed.config:
-        return Path(str(parsed.config)).expanduser().resolve(), None
+        return _run_sweep_from_config(
+            config_path=Path(str(parsed.config)).expanduser().resolve(),
+            outdir=str(parsed.outdir),
+            name=parsed.name,
+            max_parallel=int(parsed.max_parallel),
+            gpus=parsed.gpus,
+            dry_run=bool(parsed.dry_run),
+        )
 
     capsules = discover_workspace_capsules()
     non_empty = tuple(capsule for capsule in capsules if capsule.sweeps)
@@ -300,44 +361,40 @@ def _resolve_run_target(parsed: argparse.Namespace) -> tuple[Path, DiscoveredSwe
             "Use `lelabo sweep run --config path/to/sweep.yaml`."
         )
 
+    selected: DiscoveredSweep | None = None
     if parsed.sweep:
         try:
-            resolved = resolve_discovered_sweep(non_empty, capsule_id=parsed.capsule, sweep_name=parsed.sweep)
+            selected = resolve_discovered_sweep(non_empty, capsule_id=parsed.capsule, sweep_name=parsed.sweep)
         except ValueError as exc:
             raise SystemExit(str(exc))
-        return resolved.config_path, resolved
+    elif not _is_interactive_tty():
+        raise SystemExit(
+            "Sweep selection is ambiguous in non-interactive mode. "
+            "Use `lelabo sweep run --config <path>` or `lelabo sweep run --capsule <capsule_id> --sweep <name>`."
+        )
 
     if _is_interactive_tty():
-        selected = _pick_sweep_interactive(non_empty)
-        if selected is None:
-            raise SystemExit("Sweep selection canceled by user.")
-        return selected.config_path, selected
-
-    raise SystemExit(
-        "Sweep selection is ambiguous in non-interactive mode. "
-        "Use `lelabo sweep run --config <path>` or `lelabo sweep run --capsule <capsule_id> --sweep <name>`."
-    )
-
-
-def _cmd_run(argv: list[str]) -> int:
-    parser = _build_run_parser()
-    parsed = parser.parse_args(argv)
-    config_path, selected = _resolve_run_target(parsed)
-    should_run = True
-    extra_flags: list[str] = []
-    if selected is not None:
-        should_run, extra_flags = _preview_and_confirm_run(
-            selected,
+        should_run, selected, extra_flags = _preview_and_confirm_run(
+            non_empty,
             outdir=str(parsed.outdir),
             name=parsed.name,
             max_parallel=int(parsed.max_parallel),
             gpus=parsed.gpus,
             dry_run=bool(parsed.dry_run),
+            initial_sweep=selected,
         )
         if not should_run:
             raise SystemExit("Sweep launch canceled by user.")
         if extra_flags:
-            parsed = parser.parse_args(["--config", str(config_path), *extra_flags])
+            parsed = parser.parse_args(["--config", str(selected.config_path), *extra_flags])
+        config_path = selected.config_path
+    else:
+        if selected is None:
+            raise SystemExit(
+                "Sweep selection is ambiguous in non-interactive mode. "
+                "Use `lelabo sweep run --config <path>` or `lelabo sweep run --capsule <capsule_id> --sweep <name>`."
+            )
+        config_path = selected.config_path
 
     return _run_sweep_from_config(
         config_path=config_path,
@@ -382,19 +439,15 @@ def _pick_or_list_workspace_sweeps(capsules: tuple[DiscoveredCapsuleSweeps, ...]
     if not _is_interactive_tty():
         return _print_workspace_listing(non_empty)
 
-    selected = _pick_sweep_interactive(non_empty)
-    if selected is None:
-        print_status("info", "Sweep selection canceled.")
-        return 0
-    should_run, extra_flags = _preview_and_confirm_run(
-        selected,
+    should_run, selected, extra_flags = _preview_and_confirm_run(
+        non_empty,
         outdir="outputs/runs",
         name=None,
         max_parallel=1,
         gpus=None,
         dry_run=False,
     )
-    if not should_run:
+    if not should_run or selected is None:
         print_status("info", "Sweep launch canceled.")
         return 0
     run_args = ["--config", str(selected.config_path), *extra_flags]

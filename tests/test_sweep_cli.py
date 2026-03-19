@@ -98,8 +98,7 @@ def test_sweep_dashboard_uses_interactive_selection_even_for_single_sweep(tmp_pa
     )
     calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(sweep_cli, "_pick_sweep_interactive", lambda capsules: selected)
-    monkeypatch.setattr(sweep_cli, "_preview_and_confirm_run", lambda *args, **kwargs: (False, []))
+    monkeypatch.setattr(sweep_cli, "_preview_and_confirm_run", lambda *args, **kwargs: (False, None, []))
     monkeypatch.setattr(sweep_cli, "_run_sweep_from_config", lambda **kwargs: calls.append(kwargs) or 0)
 
     rc = sweep_cli.main([])
@@ -122,11 +121,38 @@ def test_sweep_run_uses_interactive_selection_when_missing_target_in_tty(tmp_pat
     )
     calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(sweep_cli, "_pick_sweep_interactive", lambda capsules: selected)
-    monkeypatch.setattr(sweep_cli, "_preview_and_confirm_run", lambda *args, **kwargs: (True, ["--dry-run"]))
+    monkeypatch.setattr(sweep_cli, "_preview_and_confirm_run", lambda *args, **kwargs: (True, selected, ["--dry-run"]))
     monkeypatch.setattr(sweep_cli, "_run_sweep_from_config", lambda **kwargs: calls.append(kwargs) or 0)
 
     rc = sweep_cli.main(["run"])
     assert rc == 0
     assert calls
     assert calls[0]["dry_run"] is True
+
+
+def test_sweep_picker_run_and_dry_run_keys_return_selected_sweep(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace_picker_keys"
+    workspace.mkdir()
+    capsule_create.create_capsule_scaffold(capsule_name="cap_single", base_dir=workspace, register=False)
+    capsules = sweep_cli.discover_workspace_capsules(workspace)
+    selected = capsules[0].sweeps[0]
+
+    monkeypatch.setattr(
+        sweep_cli,
+        "_pick_sweep_interactive",
+        lambda *args, **kwargs: ("run", selected, ["--dry-run"]),
+    )
+    monkeypatch.setattr(sweep_cli, "_is_interactive_tty", lambda: True)
+
+    should_run, resolved, flags = sweep_cli._preview_and_confirm_run(
+        capsules,
+        outdir="outputs/runs",
+        name=None,
+        max_parallel=1,
+        gpus=None,
+        dry_run=False,
+        initial_sweep=selected,
+    )
+    assert should_run is True
+    assert resolved == selected
+    assert flags == ["--dry-run"]
