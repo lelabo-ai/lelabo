@@ -146,47 +146,46 @@ lelabo config get capsules.install_checkout
 
 ---
 
-## `lelabo gitspace`
+## `lelabo push`
 
-Manage multi-capsule Git workspaces.
-
-```bash
-lelabo gitspace <subcommand> [args]
-```
-
-### `init`
+Publish one capsule to a workspace repo or a configured remote target.
 
 ```bash
-lelabo gitspace init [PATH]
+lelabo push [capsule_ref] [--target NAME] [--all-targets] [-m MESSAGE] [--preview] [--yes] [--json]
 ```
 
-Create `.lelabo/gitspace.toml` in `PATH` or the current directory.
+- `capsule_ref` can be a local path or a stored capsule id/alias
+- if the capsule already lives in a git repo with `origin`, LeLabo uses the implicit `workspace` target
+- otherwise LeLabo can bootstrap a GitHub target and remember it for next time
 
-### `show`
+| Flag | Description |
+|---|---|
+| `--target NAME` | Push to one named target |
+| `--all-targets` | Push to every configured target |
+| `-m MESSAGE` | Commit message override |
+| `--preview` | Show the resolved publish plan without pushing |
+| `--yes` | Accept bootstrap defaults non-interactively |
+
+`lelabo push` auto-stages and auto-commits only the selected capsule scope. It never does a repo-wide `git add -A`.
+
+---
+
+## `lelabo repo`
+
+Manage advanced publish targets for capsules.
 
 ```bash
-lelabo gitspace show [PATH]
+lelabo repo <subcommand> [args]
 ```
 
-Show the detected gitspace and its manifest location.
+| Subcommand | Description |
+|---|---|
+| `list [capsule_ref]` | List publish targets for one capsule |
+| `add [capsule_ref] --name NAME --owner OWNER --repo REPO` | Add a GitHub publish target |
+| `use <name> [capsule_ref]` | Set the default publish target |
+| `remove <name> [capsule_ref]` | Remove one configured publish target |
 
-### `list`
-
-```bash
-lelabo gitspace list [PATH]
-```
-
-List capsules declared in the gitspace manifest.
-
-### `add`
-
-```bash
-lelabo gitspace add <capsule_path> [PATH]
-```
-
-Register an existing local capsule in the gitspace manifest without moving files.
-
-Human output is rendered as compact status blocks; use `--json` when you need stable machine-readable output.
+`repo list` also shows the implicit `workspace` target when the capsule already belongs to a git repo with `origin`.
 
 ---
 
@@ -274,7 +273,7 @@ Import a capsule into the local store.
 
 `<source>` supports:
 - local bundle path (`.tar.gz` / `.tar.zst`)
-- GitHub gitspace URL (`https://github.com/<owner>/<repo>` or `.git`)
+- GitHub LeLabo repo URL (`https://github.com/<owner>/<repo>` or `.git`)
 
 Local capsule directories must use `lelabo capsule attach <capsule_dir>`.
 GitHub repos without `.lelabo/gitspace.toml` are not supported.
@@ -286,8 +285,8 @@ Install is store-first. Use `--checkout` to move the installed capsule into a wo
 | `--alias NAME` | Optional alias in the store |
 | `--rename-to CAPSULE_ID` | Install under a different capsule id to avoid id conflicts |
 | `--force-replace` | Replace an existing capsule that already uses the same capsule id |
-| `--capsule ID` | Select one capsule from a multi-capsule gitspace (repeatable) |
-| `--all` | Install all capsules declared in the gitspace |
+| `--capsule ID` | Select one capsule from a multi-capsule LeLabo repo (repeatable) |
+| `--all` | Install all capsules declared in the repo manifest |
 | `--ref REF` | Branch / tag / commit for GitHub installs |
 | `--checkout [DEST]` | Checkout after install (`DEST` optional, defaults to config checkout dir) |
 
@@ -295,7 +294,7 @@ Install conflict policy:
 - same capsule id + same fingerprint in current workspace: no-op (`install_action = "already_present_workspace"`)
 - same capsule id + same source: no-op (`install_action = "unchanged"`)
 - same capsule id + different source: error with explicit resolution (`--force-replace` or `--rename-to`)
-- multi-capsule gitspace without `--capsule` or `--all`: interactive checkbox picker in TTY (`↑/↓`, `space`, `a`, `enter`), error otherwise
+- multi-capsule repo without `--capsule` or `--all`: interactive checkbox picker in TTY (`↑/↓`, `space`, `a`, `enter`), error otherwise
 
 Human mode prints short progress updates such as cloning, resolving, and installing. `--json` stays silent except for the final payload.
 
@@ -305,30 +304,20 @@ Human mode prints short progress updates such as cloning, resolving, and install
 lelabo capsule share [capsule_ref] [--mode github|local] [--owner OWNER] [--repo REPO] [--branch BRANCH] [--public|--private] [--out PATH] [--yes] [--json]
 ```
 
-Share a capsule with mode-based backends.
+Transition alias for `lelabo push`, with local bundle export kept for compatibility.
 
 - Default: `--mode github`
 - Local export: `--mode local`
 - `capsule_ref` can be a local path or a stored capsule id/alias (so you can share from a multi-capsule workspace)
-- GitHub share works through the capsule's gitspace, not through a standalone capsule repo
+- GitHub publish now follows the same target logic as `lelabo push`
 
 Preconditions:
-- run from an active capsule root
 - `gh` is installed and authenticated (`gh auth status`)
-- worktree is clean
 
 Behavior:
-- no auto-commit
 - with `--mode local`, exports a `.tar.gz` bundle in the current directory by default (or `--out PATH`) and does not require git/gh
-- with `--mode github`, if the capsule is not part of any gitspace, LeLabo launches a guided bootstrap flow
-- with `--mode github`, LeLabo can initialize git + first commit after confirmation (`--yes` for non-interactive mode)
+- with `--mode github`, the command delegates to `lelabo push` and can bootstrap a GitHub target when needed
 - optional repo auto-creation remains controlled by `github.create_repo_if_missing`
-- with `--json`, bootstrap is non-interactive only (`--yes` required when bootstrap is needed)
-
-The interactive bootstrap flow shows:
-- the detected GitHub account
-- the proposed gitspace root
-- the gitspace/GitHub settings to review before publishing
 
 ### `list`
 

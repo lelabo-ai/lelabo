@@ -6,6 +6,7 @@ from .pack import pack_capsule
 from .install import compute_capsule_fingerprint, inspect_capsule_directory, install_capsule, install_capsule_from_directory
 from .gitspace import add_capsule_to_gitspace, find_gitspace_root, init_gitspace, load_gitspace, resolve_gitspace_capsule
 from .registry import list_capsules, get_capsule, default_capsules_dir
+from .publish import available_targets, infer_workspace_target, list_configured_targets, save_configured_target, set_default_target
 from .rerun import rerun_capsule
 from .create import create_capsule_scaffold
 from .remove import remove_capsule
@@ -30,6 +31,11 @@ __all__ = [
     "list_capsules",
     "get_capsule",
     "default_capsules_dir",
+    "available_targets",
+    "infer_workspace_target",
+    "list_configured_targets",
+    "save_configured_target",
+    "set_default_target",
     "rerun_capsule",
     "create_capsule_scaffold",
     "remove_capsule",

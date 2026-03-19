@@ -73,14 +73,22 @@ def test_capsule_help_displays_lifecycle_subcommands() -> None:
     assert "lelabo capsule sweep" not in proc.stdout
 
 
-def test_gitspace_help_displays_gitspace_subcommands() -> None:
-    proc = _run_cli_help("gitspace", "-h")
+def test_push_help_displays_publish_usage() -> None:
+    proc = _run_cli_help("push", "-h")
     assert proc.returncode == 0
-    assert "Manage LeLabo gitspaces" in proc.stdout
-    assert "init" in proc.stdout
-    assert "show" in proc.stdout
+    assert "Publish one capsule" in proc.stdout
+    assert "--target NAME" in proc.stdout
+    assert "--all-targets" in proc.stdout
+
+
+def test_repo_help_displays_repo_subcommands() -> None:
+    proc = _run_cli_help("repo", "-h")
+    assert proc.returncode == 0
+    assert "Manage advanced publish targets" in proc.stdout
     assert "list" in proc.stdout
     assert "add" in proc.stdout
+    assert "use" in proc.stdout
+    assert "remove" in proc.stdout
 
 
 def test_config_help_displays_config_subcommands() -> None:
@@ -97,7 +105,7 @@ def test_config_help_displays_config_subcommands() -> None:
 def test_capsule_install_help_mentions_github_and_checkout() -> None:
     proc = _run_cli_help("capsule", "install", "-h")
     assert proc.returncode == 0
-    assert "GitHub gitspace URL" in proc.stdout
+    assert "GitHub LeLabo repo URL" in proc.stdout
     assert "--ref" in proc.stdout
     assert "--checkout" in proc.stdout
     assert "--capsule" in proc.stdout
@@ -110,11 +118,17 @@ def test_capsule_install_help_mentions_github_and_checkout() -> None:
 def test_capsule_share_help_mentions_mode_and_local_export() -> None:
     proc = _run_cli_help("capsule", "share", "-h")
     assert proc.returncode == 0
-    assert "Share a capsule through its gitspace on GitHub" in proc.stdout
+    assert "Publish a capsule with `lelabo push`" in proc.stdout
     assert "--mode {github,local}" in proc.stdout
     assert "--owner" in proc.stdout
     assert "--repo" in proc.stdout
     assert "--out" in proc.stdout
+
+
+def test_removed_gitspace_command_is_actionable() -> None:
+    proc = _run_cli_help("gitspace", "-h")
+    assert proc.returncode != 0
+    assert "`lelabo gitspace` has been removed" in proc.stderr
 
 
 def test_capsule_show_help_documents_positionals_and_examples() -> None:
