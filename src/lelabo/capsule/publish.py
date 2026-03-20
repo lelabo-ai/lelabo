@@ -402,12 +402,8 @@ def push_workspace_target(
     preview: bool,
 ) -> dict[str, Any]:
     root = capsule_root.expanduser().resolve()
-    manifest = ensure_repo_manifest_for_capsule(root)
-    repo_root = Path(str(manifest["root"])).resolve()
+    repo_root = Path(str(target.get("repo_root") or "")).expanduser().resolve() if str(target.get("repo_root") or "").strip() else git_repo_root(root)
     rel_paths = [root.relative_to(repo_root).as_posix(), ".lelabo/gitspace.toml"]
-    if _git_has_staged_changes(repo_root):
-        raise RuntimeError("The git index already has staged changes. Commit or unstage them before `lelabo push`.")
-    scoped_dirty = _git_status_for_paths(repo_root, rel_paths)
     target_branch = str(target.get("branch", "")).strip() or git_current_branch(repo_root) or "main"
     result = {
         "target_name": str(target.get("name", "workspace")),
@@ -420,13 +416,23 @@ def push_workspace_target(
         "path": rel_paths[0],
         "remote_url": target.get("remote_url") or git_origin_url(repo_root),
         "commit_message": str(message or "").strip() or auto_commit_message(root),
-        "scoped_changes": bool(scoped_dirty),
+        "scoped_changes": False,
         "committed": False,
         "pushed": False,
         "preview": bool(preview),
     }
     if preview:
+        result["scoped_changes"] = _git_status_for_paths(repo_root, [rel_paths[0]])
         return result
+    manifest = ensure_repo_manifest_for_capsule(root)
+    repo_root = Path(str(manifest["root"])).resolve()
+    rel_paths = [root.relative_to(repo_root).as_posix(), ".lelabo/gitspace.toml"]
+    if _git_has_staged_changes(repo_root):
+        raise RuntimeError("The git index already has staged changes. Commit or unstage them before `lelabo push`.")
+    scoped_dirty = _git_status_for_paths(repo_root, rel_paths)
+    result["repo_root"] = str(repo_root)
+    result["path"] = rel_paths[0]
+    result["scoped_changes"] = bool(scoped_dirty)
     if scoped_dirty:
         _git_stage_paths(repo_root, rel_paths)
         try:
@@ -521,6 +527,24 @@ def push_github_target(
     if rel_path in {"", "."}:
         raise ValueError("GitHub target path cannot be empty or '.'.")
     visibility = str(target.get("visibility", "private")).strip().lower() or "private"
+    result = {
+        "target_name": str(target.get("name", "")),
+        "target_kind": "github",
+        "capsule_path": str(root),
+        "repo_root": str(repo_checkout_cache_dir(owner, repo)),
+        "owner": owner,
+        "repo": repo,
+        "branch": branch,
+        "path": rel_path,
+        "remote_url": f"https://github.com/{owner}/{repo}.git",
+        "commit_message": str(message or "").strip() or auto_commit_message(root),
+        "created_repo": False,
+        "committed": False,
+        "pushed": False,
+        "preview": bool(preview),
+    }
+    if preview:
+        return result
     checkout, created_repo = _clone_or_prepare_target_repo(
         owner=owner,
         repo=repo,
@@ -530,24 +554,8 @@ def push_github_target(
     )
     target_capsule_root = (checkout / rel_path).resolve()
     init_gitspace(checkout, name=repo)
-    result = {
-        "target_name": str(target.get("name", "")),
-        "target_kind": "github",
-        "capsule_path": str(root),
-        "repo_root": str(checkout),
-        "owner": owner,
-        "repo": repo,
-        "branch": branch,
-        "path": rel_path,
-        "remote_url": f"https://github.com/{owner}/{repo}.git",
-        "commit_message": str(message or "").strip() or auto_commit_message(root),
-        "created_repo": bool(created_repo),
-        "committed": False,
-        "pushed": False,
-        "preview": bool(preview),
-    }
-    if preview:
-        return result
+    result["repo_root"] = str(checkout)
+    result["created_repo"] = bool(created_repo)
     _copy_capsule_tree(root, target_capsule_root)
     add_capsule_to_gitspace(
         target_capsule_root,

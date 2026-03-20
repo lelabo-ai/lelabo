@@ -14,20 +14,20 @@ from ...capsule.publish import (
     auto_commit_message,
     available_targets,
     current_github_login,
-    infer_workspace_target,
-    list_configured_targets,
-    parse_owner_repo_from_origin,
+    get_target_preferences,
     push_github_target,
     push_workspace_target,
     resolve_target,
     save_configured_target,
 )
 from ...config.user_settings import load_effective_settings
+from ..interactive_picker import pick_many_with_checkboxes
 from ..ui import print_block, print_list_block, print_status
 
 
 PUSH_JSON_SCHEMA = "lelabo.cli.push/v1"
 PUSHES_JSON_SCHEMA = "lelabo.cli.pushes/v1"
+_CREATE_TARGET_OPTION = "__create_new_github_target__"
 
 
 PUSH_HELP = """\
@@ -81,8 +81,30 @@ def _confirm(question: str, *, default: bool = False) -> bool:
 
 def _prompt_with_default(label: str, default: str) -> str:
     token = str(default).strip()
-    answer = input(f"{label} [{token}]: ").strip()
+    prompt = f"{label} [{token}]: " if token else f"{label}: "
+    answer = input(prompt).strip()
     return answer or token
+
+
+def _prompt_choice(title: str, options: Sequence[tuple[str, str]], *, default: str) -> str:
+    print(title)
+    for key, label in options:
+        print(f"{key}. {label}")
+    valid = {str(key).strip(): str(key).strip() for key, _ in options if str(key).strip()}
+    fallback = str(default).strip()
+    while True:
+        answer = input(f"Choice [{fallback}]: ").strip() or fallback
+        if answer in valid:
+            return valid[answer]
+        print_status("warning", "Enter a valid choice.")
+
+
+def _workspace_child_capsules(root: Path) -> list[Path]:
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return []
+    return sorted(child.resolve() for child in children if child.is_dir() and _is_capsule_root(child))
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
@@ -90,10 +112,17 @@ def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> 
         active = find_active_capsule_root()
         if active is not None:
             return active.resolve()
-        direct_children = sorted(child.resolve() for child in Path.cwd().iterdir() if _is_capsule_root(child))
+        direct_children = _workspace_child_capsules(Path.cwd())
         if len(direct_children) == 1:
             return direct_children[0]
-        raise SystemExit("No active capsule found. Pass a capsule path/id or run inside a capsule directory.")
+        if not direct_children:
+            raise SystemExit(
+                "No capsule found in the current workspace. Pass a capsule path/id or create a capsule under this directory."
+            )
+        names = ", ".join(child.name for child in direct_children)
+        raise SystemExit(
+            f"Multiple capsules found in the current workspace: {names}. Pass a capsule path/id to `lelabo push`."
+        )
 
     ref_path = Path(capsule_ref).expanduser()
     if ref_path.exists():
@@ -120,23 +149,174 @@ def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> 
     return root
 
 
-def _pick_target_interactively(targets: list[dict[str, Any]]) -> dict[str, Any]:
-    print_list_block(
-        "Publish targets",
-        [
-            f"{idx}. {item['name']} | kind: {item.get('kind')} | repo: {item.get('owner', '-')}/{item.get('repo', '-')} | branch: {item.get('branch', '-')}"
-            for idx, item in enumerate(targets, start=1)
-        ],
-    )
+def _repo_label(target: dict[str, Any]) -> str:
+    owner = str(target.get("owner", "")).strip()
+    repo = str(target.get("repo", "")).strip()
+    if owner and repo:
+        return f"{owner}/{repo}"
+    return repo or "-"
+
+
+def _target_picker_label(target: dict[str, Any]) -> str:
+    kind = str(target.get("kind", "")).strip() or "-"
+    folder = str(target.get("path", "")).strip() or "-"
+    if kind == "workspace":
+        branch = str(target.get("branch", "")).strip() or "-"
+        return f"workspace | repo: {_repo_label(target)} | branch: {branch} | folder: {folder}"
+    visibility = str(target.get("visibility", "")).strip() or "private"
+    return f"{kind} | repo: {_repo_label(target)} | folder: {folder} | visibility: {visibility}"
+
+
+def _target_summary(target: dict[str, Any]) -> str:
+    kind = str(target.get("kind", "")).strip() or "-"
+    folder = str(target.get("path", "")).strip() or "-"
+    if kind == "workspace":
+        branch = str(target.get("branch", "")).strip() or "-"
+        return f"workspace | repo: {_repo_label(target)} | branch: {branch} | folder: {folder}"
+    return f"{kind} | repo: {_repo_label(target)} | folder: {folder}"
+
+
+def _find_target_by_name(targets: Sequence[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    token = str(name).strip()
+    for item in targets:
+        if str(item.get("name", "")).strip() == token:
+            return item
+    return None
+
+
+def _suggest_target_name(existing_targets: Sequence[dict[str, Any]], *, owner: str, repo: str) -> str:
+    normalized_owner = str(owner).strip()
+    normalized_repo = str(repo).strip()
+    for item in existing_targets:
+        if (
+            str(item.get("kind", "")).strip() == "github"
+            and str(item.get("owner", "")).strip() == normalized_owner
+            and str(item.get("repo", "")).strip() == normalized_repo
+        ):
+            name = str(item.get("name", "")).strip()
+            if name:
+                return name
+    used = {str(item.get("name", "")).strip() for item in existing_targets if str(item.get("name", "")).strip()}
+    if "github" not in used:
+        return "github"
+    repo_token = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in normalized_repo).strip("-_") or "repo"
+    candidate = f"github-{repo_token}"
+    if candidate not in used:
+        return candidate
+    index = 2
     while True:
-        answer = input("Target number (blank to cancel): ").strip()
-        if not answer:
-            raise SystemExit("Push canceled by user.")
-        if answer.isdigit():
-            idx = int(answer)
-            if 1 <= idx <= len(targets):
-                return targets[idx - 1]
-        print_status("warning", "Enter a valid target number.")
+        numbered = f"{candidate}-{index}"
+        if numbered not in used:
+            return numbered
+        index += 1
+
+
+def _default_github_target(
+    *,
+    capsule_root: Path,
+    owner: str | None,
+    repo: str | None,
+    branch: str | None,
+    visibility: str,
+    existing_targets: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    capsule_id = str(inspect_capsule_directory(capsule_root).get("capsule_id", capsule_root.name)).strip() or capsule_root.name
+    login = current_github_login()
+    resolved_owner = str(owner or "").strip() or str(login or "").strip()
+    resolved_repo = str(repo or "").strip() or "lelabo-capsules"
+    return {
+        "name": _suggest_target_name(list(existing_targets or []), owner=resolved_owner, repo=resolved_repo),
+        "kind": "github",
+        "owner": resolved_owner,
+        "repo": resolved_repo,
+        "branch": str(branch or "").strip() or "main",
+        "path": capsule_id,
+        "visibility": str(visibility).strip().lower() or "private",
+    }
+
+
+def _validate_github_target(target: dict[str, Any]) -> dict[str, Any]:
+    name = str(target.get("name", "")).strip()
+    owner = str(target.get("owner", "")).strip()
+    repo = str(target.get("repo", "")).strip()
+    branch = str(target.get("branch", "")).strip() or "main"
+    folder = str(target.get("path", "")).strip()
+    visibility = str(target.get("visibility", "")).strip().lower() or "private"
+    if not name:
+        raise SystemExit("Target name cannot be empty.")
+    if not owner:
+        raise SystemExit("GitHub owner cannot be empty.")
+    if not repo:
+        raise SystemExit("GitHub repo cannot be empty.")
+    if not folder or folder == ".":
+        raise SystemExit("Folder cannot be empty or '.'.")
+    if visibility not in {"public", "private"}:
+        raise SystemExit("Visibility must be 'public' or 'private'.")
+    normalized = dict(target)
+    normalized.update(
+        {
+            "name": name,
+            "owner": owner,
+            "repo": repo,
+            "branch": branch,
+            "path": folder,
+            "visibility": visibility,
+        }
+    )
+    return normalized
+
+
+def _materialize_github_target(
+    *,
+    capsule_root: Path,
+    target: dict[str, Any],
+    persist: bool,
+    make_default: bool,
+) -> dict[str, Any]:
+    normalized = _validate_github_target(target)
+    if persist:
+        return save_configured_target(capsule_root, normalized, make_default=make_default)
+    out = dict(normalized)
+    out["default"] = False
+    out["last_used"] = False
+    out["_ephemeral"] = True
+    return out
+
+
+def _prompt_custom_github_target(
+    *,
+    capsule_root: Path,
+    proposed: dict[str, Any],
+    persist: bool,
+    make_default: bool,
+    existing_targets: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    target = {
+        "name": "github",
+        "kind": "github",
+        "owner": _prompt_with_default("Owner", str(proposed.get("owner", "")).strip()),
+        "repo": _prompt_with_default("Repo", str(proposed.get("repo", "")).strip() or "lelabo-capsules"),
+        "branch": _prompt_with_default("Branch", str(proposed.get("branch", "")).strip() or "main"),
+        "path": _prompt_with_default("Folder", str(proposed.get("path", "")).strip()),
+        "visibility": _prompt_with_default("Visibility", str(proposed.get("visibility", "")).strip() or "private"),
+    }
+    target["name"] = _suggest_target_name(
+        list(existing_targets or []),
+        owner=str(target.get("owner", "")).strip(),
+        repo=str(target.get("repo", "")).strip(),
+    )
+    target = _validate_github_target(target)
+    print(f"Proposed GitHub target: {_repo_label(target)}")
+    print(f"Folder: {target['path']}")
+    print(f"Visibility: {target['visibility']}")
+    if not _confirm("Create it now?", default=True):
+        raise SystemExit("Publish target creation canceled by user.")
+    return _materialize_github_target(
+        capsule_root=capsule_root,
+        target=target,
+        persist=persist,
+        make_default=make_default,
+    )
 
 
 def _bootstrap_github_target(
@@ -147,72 +327,67 @@ def _bootstrap_github_target(
     branch: str | None,
     visibility: str,
     assume_yes: bool,
+    preview: bool,
+    make_default: bool,
+    existing_targets: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    capsule_id = str(inspect_capsule_directory(capsule_root).get("capsule_id", capsule_root.name)).strip() or capsule_root.name
-    login = current_github_login()
-    default_owner = str(owner or "").strip() or str(login or "").strip()
-    default_repo = str(repo or "").strip() or capsule_id
-    default_branch = str(branch or "").strip() or "main"
-    default_path = capsule_id
-    default_name = "github"
-    resolved_visibility = str(visibility).strip().lower() or "private"
+    proposed = _default_github_target(
+        capsule_root=capsule_root,
+        owner=owner,
+        repo=repo,
+        branch=branch,
+        visibility=visibility,
+        existing_targets=existing_targets,
+    )
 
     if not assume_yes:
         if not _is_interactive_tty():
             raise SystemExit(
-                "No publish target is configured for this capsule. "
-                "Run interactively to bootstrap one, or pass `--yes` with enough GitHub defaults configured."
+                "No saved publish target is available for this capsule. "
+                "Run interactively to choose or create one, or pass `--yes` to accept the proposed GitHub target."
             )
-        print_status("info", "No publish target is configured for this capsule yet.")
-        print_block(
-            "GitHub account",
+        capsule_id = str(inspect_capsule_directory(capsule_root).get("capsule_id", capsule_root.name)).strip() or capsule_root.name
+        print_status("info", f"No saved publish target for {capsule_id}.")
+        print(f"Proposed GitHub target: {_repo_label(proposed)}")
+        print(f"Visibility: {proposed['visibility']}")
+        action = _prompt_choice(
+            "Action",
             (
-                ("detected_login", login or "-"),
-                ("capsule_id", capsule_id),
+                ("1", "Use proposed target"),
+                ("2", "Create custom target"),
+                ("3", "Cancel"),
             ),
+            default="1",
         )
-        if not _confirm("Create a GitHub publish target now?", default=True):
-            raise SystemExit("Publish target bootstrap canceled by user.")
-        default_name = _prompt_with_default("Target name", default_name)
-        default_owner = _prompt_with_default("GitHub owner", default_owner or "")
-        default_repo = _prompt_with_default("GitHub repo", default_repo)
-        default_branch = _prompt_with_default("Branch", default_branch)
-        default_path = _prompt_with_default("Path in repo", default_path)
-        resolved_visibility = _prompt_with_default("Visibility (private/public)", resolved_visibility)
-        if resolved_visibility not in {"public", "private"}:
-            raise SystemExit("Visibility must be 'public' or 'private'.")
-        print_block(
-            "Review",
-            (
-                ("target", default_name),
-                ("owner", default_owner),
-                ("repo", default_repo),
-                ("branch", default_branch),
-                ("path", default_path),
-                ("visibility", resolved_visibility),
-            ),
-        )
-        if not _confirm("Continue?", default=True):
-            raise SystemExit("Publish target bootstrap canceled by user.")
+        if action == "1":
+            target = _materialize_github_target(
+                capsule_root=capsule_root,
+                target=proposed,
+                persist=not preview,
+                make_default=make_default,
+            )
+        elif action == "2":
+            target = _prompt_custom_github_target(
+                capsule_root=capsule_root,
+                proposed=proposed,
+                persist=not preview,
+                make_default=make_default,
+                existing_targets=existing_targets,
+            )
+        else:
+            raise SystemExit("Push canceled by user.")
     else:
-        if not default_owner:
+        if not str(proposed.get("owner", "")).strip():
             raise SystemExit(
                 "GitHub owner could not be resolved. Set --owner or `lelabo config set github.owner <owner>`."
             )
+        target = _materialize_github_target(
+            capsule_root=capsule_root,
+            target=proposed,
+            persist=not preview,
+            make_default=make_default,
+        )
 
-    target = save_configured_target(
-        capsule_root,
-        {
-            "name": default_name,
-            "kind": "github",
-            "owner": default_owner,
-            "repo": default_repo,
-            "branch": default_branch,
-            "path": default_path,
-            "visibility": resolved_visibility,
-        },
-        make_default=True,
-    )
     target["bootstrapped"] = True
     return target
 
@@ -225,6 +400,7 @@ def _override_target_from_args(
     repo: str | None,
     branch: str | None,
     visibility: str,
+    preview: bool,
 ) -> dict[str, Any] | None:
     if not any(str(item or "").strip() for item in (owner, repo, branch)):
         return None
@@ -235,19 +411,87 @@ def _override_target_from_args(
         current = resolve_target(capsule_root, name)
     except Exception:
         current = {}
-    return save_configured_target(
-        capsule_root,
-        {
-            "name": name,
-            "kind": "github",
-            "owner": str(owner or current.get("owner") or "").strip(),
-            "repo": str(repo or current.get("repo") or capsule_id).strip(),
-            "branch": str(branch or current.get("branch") or "main").strip() or "main",
-            "path": str(current.get("path") or capsule_id).strip() or capsule_id,
-            "visibility": str(visibility or current.get("visibility") or "private").strip().lower() or "private",
-        },
+    target = {
+        "name": name,
+        "kind": "github",
+        "owner": str(owner or current.get("owner") or "").strip(),
+        "repo": str(repo or current.get("repo") or "lelabo-capsules").strip(),
+        "branch": str(branch or current.get("branch") or "main").strip() or "main",
+        "path": str(current.get("path") or capsule_id).strip() or capsule_id,
+        "visibility": str(visibility or current.get("visibility") or "private").strip().lower() or "private",
+    }
+    return _materialize_github_target(
+        capsule_root=capsule_root,
+        target=target,
+        persist=not preview,
         make_default=True,
     )
+
+
+def _pick_targets_interactively(
+    *,
+    capsule_root: Path,
+    targets: list[dict[str, Any]],
+    owner: str | None,
+    repo: str | None,
+    branch: str | None,
+    visibility: str,
+    preview: bool,
+) -> list[dict[str, Any]]:
+    selected_names: set[str] = set()
+    if len(targets) == 1:
+        selected_names.add(str(targets[0].get("name", "")).strip())
+    extra_targets: dict[str, dict[str, Any]] = {}
+
+    while True:
+        display_targets = list(targets)
+        for name, target in extra_targets.items():
+            found = _find_target_by_name(display_targets, name)
+            if found is None:
+                display_targets.append(target)
+            else:
+                display_targets[display_targets.index(found)] = target
+
+        options = [(str(item.get("name", "")).strip(), _target_picker_label(item)) for item in display_targets]
+        options.append((_CREATE_TARGET_OPTION, "Create new GitHub target"))
+        selected = pick_many_with_checkboxes(
+            title="Select publish targets",
+            text="Select one or more publish targets.",
+            options=options,
+            default_values=sorted(name for name in selected_names if name),
+            empty_selection_message="Select at least one publish target before confirming.",
+            selection_noun="target",
+            confirm_button_text="Use selected",
+        )
+        if selected is None:
+            raise SystemExit("Push canceled by user.")
+        selected_names = {str(item).strip() for item in selected if str(item).strip()}
+        if _CREATE_TARGET_OPTION in selected_names:
+            selected_names.discard(_CREATE_TARGET_OPTION)
+            proposed = _default_github_target(
+                capsule_root=capsule_root,
+                owner=owner,
+                repo=repo,
+                branch=branch,
+                visibility=visibility,
+                existing_targets=[*display_targets, *extra_targets.values()],
+            )
+            new_target = _prompt_custom_github_target(
+                capsule_root=capsule_root,
+                proposed=proposed,
+                persist=not preview,
+                make_default=False,
+                existing_targets=[*display_targets, *extra_targets.values()],
+            )
+            if preview:
+                extra_targets[str(new_target.get("name", "")).strip()] = new_target
+            else:
+                targets = available_targets(capsule_root)
+            selected_names.add(str(new_target.get("name", "")).strip())
+            continue
+        chosen = [item for item in display_targets if str(item.get("name", "")).strip() in selected_names]
+        if chosen:
+            return chosen
 
 
 def push_capsule(
@@ -267,6 +511,8 @@ def push_capsule(
     github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
     visibility = str(visibility_override or github_cfg.get("default_visibility", "private")).strip().lower() or "private"
     create_repo_if_missing = bool(github_cfg.get("create_repo_if_missing", True))
+    default_branch = branch_override or str(github_cfg.get("default_branch", "main")).strip() or "main"
+    default_owner = owner_override or str(github_cfg.get("owner", "")).strip() or None
 
     overridden = _override_target_from_args(
         capsule_root,
@@ -275,60 +521,92 @@ def push_capsule(
         repo=repo_override,
         branch=branch_override,
         visibility=visibility,
+        preview=preview,
     )
     targets = available_targets(capsule_root)
     if overridden is not None:
-        targets = available_targets(capsule_root)
+        targets = available_targets(capsule_root) if not preview else [overridden, *targets]
 
     if all_targets:
-        chosen = targets
+        if targets:
+            chosen = targets
+        else:
+            chosen = [
+                _bootstrap_github_target(
+                    capsule_root=capsule_root,
+                    owner=default_owner,
+                    repo=repo_override,
+                    branch=default_branch,
+                    visibility=visibility,
+                    assume_yes=assume_yes,
+                    preview=preview,
+                    make_default=True,
+                    existing_targets=targets,
+                )
+            ]
     elif target_name:
-        try:
-            chosen = [resolve_target(capsule_root, target_name)]
-        except ValueError as exc:
-            raise SystemExit(str(exc))
-    else:
-        preferred = None
         if overridden is not None:
-            preferred = overridden
+            chosen = [overridden]
         else:
-            if len(targets) == 1:
-                preferred = targets[0]
+            try:
+                chosen = [resolve_target(capsule_root, target_name)]
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+    else:
+        default_target_name, last_used_target_name = get_target_preferences(capsule_root)
+        default_target = _find_target_by_name(targets, default_target_name or "")
+        last_used_target = _find_target_by_name(targets, last_used_target_name or "")
+        if overridden is not None:
+            chosen = [overridden]
+        elif default_target is not None:
+            chosen = [default_target]
+        elif last_used_target is not None:
+            if assume_yes or not _is_interactive_tty():
+                chosen = [last_used_target]
             else:
-                for item in targets:
-                    if bool(item.get("default")):
-                        preferred = item
-                        break
-                if preferred is None:
-                    for item in targets:
-                        if bool(item.get("last_used")):
-                            preferred = item
-                            break
-        if preferred is not None:
-            chosen = [preferred]
-        else:
-            workspace = infer_workspace_target(capsule_root)
-            if workspace is not None and not list_configured_targets(capsule_root):
-                chosen = [workspace]
-            else:
-                owner = owner_override or str(github_cfg.get("owner", "")).strip() or None
-                repo = repo_override
-                branch = branch_override or str(github_cfg.get("default_branch", "main")).strip() or "main"
-                if not targets:
-                    chosen = [_bootstrap_github_target(
-                        capsule_root=capsule_root,
-                        owner=owner,
-                        repo=repo,
-                        branch=branch,
-                        visibility=visibility,
-                        assume_yes=assume_yes,
-                    )]
-                elif _is_interactive_tty():
-                    chosen = [_pick_target_interactively(targets)]
+                if _confirm(f"Last used publish target: {_target_summary(last_used_target)}. Push there again?", default=True):
+                    chosen = [last_used_target]
                 else:
-                    raise SystemExit(
-                        "This capsule has multiple publish targets. Use `--target <name>` or `--all-targets`."
+                    chosen = _pick_targets_interactively(
+                        capsule_root=capsule_root,
+                        targets=targets,
+                        owner=default_owner,
+                        repo=repo_override,
+                        branch=default_branch,
+                        visibility=visibility,
+                        preview=preview,
                     )
+        elif not targets:
+            chosen = [
+                _bootstrap_github_target(
+                    capsule_root=capsule_root,
+                    owner=default_owner,
+                    repo=repo_override,
+                    branch=default_branch,
+                    visibility=visibility,
+                    assume_yes=assume_yes,
+                    preview=preview,
+                    make_default=True,
+                    existing_targets=targets,
+                )
+            ]
+        else:
+            if assume_yes and len(targets) == 1:
+                chosen = [targets[0]]
+            elif _is_interactive_tty():
+                chosen = _pick_targets_interactively(
+                    capsule_root=capsule_root,
+                    targets=targets,
+                    owner=default_owner,
+                    repo=repo_override,
+                    branch=default_branch,
+                    visibility=visibility,
+                    preview=preview,
+                )
+            else:
+                raise SystemExit(
+                    "This capsule has multiple possible publish targets. Run interactively, set a default target, or pass `--target <name>` / `--all-targets`."
+                )
 
     results: list[dict[str, Any]] = []
     for target in chosen:
@@ -350,6 +628,8 @@ def push_capsule(
             )
         else:
             raise SystemExit(f"Unsupported publish target kind '{kind}'.")
+        if bool(target.get("_ephemeral")):
+            result["_ephemeral_target"] = True
         results.append(result)
     return results
 
@@ -403,18 +683,19 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
         branch_override=args.branch,
         visibility_override=visibility,
     )
+    payload_results = [{key: value for key, value in row.items() if not str(key).startswith("_")} for row in results]
     payload = {
-        "schema_version": PUSH_JSON_SCHEMA if len(results) == 1 else PUSHES_JSON_SCHEMA,
+        "schema_version": PUSH_JSON_SCHEMA if len(payload_results) == 1 else PUSHES_JSON_SCHEMA,
         "command": "push",
         "capsule": {
             "capsule_id": inspect_capsule_directory(capsule_root).get("capsule_id"),
             "path": str(capsule_root),
         },
-        "result": results[0] if len(results) == 1 else None,
-        "results": results if len(results) > 1 else None,
+        "result": payload_results[0] if len(payload_results) == 1 else None,
+        "results": payload_results if len(payload_results) > 1 else None,
     }
     if bool(args.json):
-        if len(results) == 1:
+        if len(payload_results) == 1:
             payload.pop("results", None)
         else:
             payload.pop("result", None)
@@ -422,6 +703,8 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
     else:
         if len(results) == 1:
             row = results[0]
+            if bool(args.preview) and bool(row.get("_ephemeral_target")):
+                print_status("info", "Preview uses an unsaved publish target.")
             if bool(args.preview):
                 print_status("info", "Publish preview")
             else:
@@ -434,7 +717,7 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
                     ("owner", row.get("owner")),
                     ("repo", row.get("repo")),
                     ("branch", row.get("branch")),
-                    ("path", row.get("path")),
+                    ("folder", row.get("path")),
                     ("commit_message", row.get("commit_message") or auto_commit_message(capsule_root)),
                     ("committed", row.get("committed")),
                     ("pushed", row.get("pushed")),
@@ -442,12 +725,14 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
             )
         else:
             header = "Push preview" if bool(args.preview) else "Push results"
+            if bool(args.preview) and any(bool(row.get("_ephemeral_target")) for row in results):
+                print_status("info", "Preview uses at least one unsaved publish target.")
             if not bool(args.preview):
                 print_status("success", f"Pushed {len(results)} targets.")
             print_list_block(
                 header,
                 [
-                    f"{row.get('target_name')} | kind: {row.get('target_kind')} | repo: {row.get('owner')}/{row.get('repo')} | pushed: {row.get('pushed')}"
+                    f"{row.get('target_name')} | kind: {row.get('target_kind')} | repo: {row.get('owner')}/{row.get('repo')} | folder: {row.get('path')} | pushed: {row.get('pushed')}"
                     for row in results
                 ],
             )

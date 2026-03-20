@@ -115,13 +115,22 @@ def test_capsule_install_help_mentions_github_and_checkout() -> None:
     assert "--force-replace" in proc.stdout
 
 
-def test_capsule_share_help_mentions_mode_and_local_export() -> None:
+def test_capsule_share_help_mentions_github_publish_only() -> None:
     proc = _run_cli_help("capsule", "share", "-h")
     assert proc.returncode == 0
     assert "Publish a capsule with `lelabo push`" in proc.stdout
-    assert "--mode {github,local}" in proc.stdout
     assert "--owner" in proc.stdout
     assert "--repo" in proc.stdout
+    assert "--mode" not in proc.stdout
+    assert "lelabo export" in proc.stdout
+
+
+def test_export_help_displays_local_bundle_usage() -> None:
+    proc = _run_cli_help("export", "-h")
+    assert proc.returncode == 0
+    assert "Export one capsule as a local `.tar.gz` bundle." in proc.stdout
+    assert "Usage:" in proc.stdout
+    assert "lelabo export [capsule_ref]" in proc.stdout
     assert "--out" in proc.stdout
 
 

@@ -12,6 +12,12 @@ def pick_many_with_checkboxes(
     title: str,
     text: str,
     options: Sequence[tuple[str, str]],
+    default_values: Sequence[str] | None = None,
+    empty_selection_message: str = "Select at least one capsule before confirming.",
+    selection_noun: str = "capsule",
+    confirm_button_text: str = "Install selected",
+    max_selection_count: int | None = None,
+    max_selection_message: str | None = None,
 ) -> list[str] | None:
     """
     Render an interactive multi-select picker.
@@ -42,7 +48,7 @@ def pick_many_with_checkboxes(
         ) from exc
 
     values = [(key, label) for key, label in options]
-    checkbox = CheckboxList(values=values, default_values=[])
+    checkbox = CheckboxList(values=values, default_values=list(default_values or []))
     state = {"error": ""}
 
     def _set_error(message: str) -> None:
@@ -54,13 +60,23 @@ def pick_many_with_checkboxes(
     def _selection_label() -> str:
         count = len(_selected())
         total = len(values)
-        suffix = "capsule" if count == 1 else "capsules"
+        singular = str(selection_noun).strip() or "item"
+        plural = singular if singular.endswith("s") else f"{singular}s"
+        suffix = singular if count == 1 else plural
         return f"Selected: {count}/{total} {suffix}"
 
     def _confirm() -> None:
         selected = _selected()
         if not selected:
-            _set_error("Select at least one capsule before confirming.")
+            _set_error(empty_selection_message)
+            app.invalidate()
+            return
+        if max_selection_count is not None and len(selected) > int(max_selection_count):
+            _set_error(
+                str(max_selection_message).strip()
+                if str(max_selection_message or "").strip()
+                else f"Select at most {int(max_selection_count)} {selection_noun} before confirming."
+            )
             app.invalidate()
             return
         app.exit(result=selected)
@@ -123,7 +139,7 @@ def pick_many_with_checkboxes(
             padding=1,
         ),
         buttons=[
-            Button(text="Install selected", handler=_confirm),
+            Button(text=confirm_button_text, handler=_confirm),
             Button(text="Cancel", handler=_return_none),
         ],
         with_background=True,

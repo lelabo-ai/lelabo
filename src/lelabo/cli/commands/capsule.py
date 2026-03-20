@@ -416,9 +416,8 @@ def _cmd_init(argv: list[str]) -> int:
     except (ValueError, FileExistsError) as exc:
         raise SystemExit(str(exc))
 
-    print_status("success", "Capsule scaffold created.")
-    print_block("Capsule", (("path", out),))
-    print("Next: open README.md to start.")
+    print_status("success", "Capsule initialized.")
+    print_block("Capsule", (("name", args.name), ("path", out)))
     return 0
 
 
@@ -1055,24 +1054,24 @@ def _cmd_remove(argv: list[str]) -> int:
 def _cmd_share(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule share",
-        description="Publish a capsule with `lelabo push`, or export a local bundle.",
+        description="Publish a capsule with `lelabo push`.",
         epilog=(
             "Examples:\n"
             "  lelabo capsule share\n"
             "  lelabo capsule share my_capsule_alias --owner owner --repo repo\n"
-            "  lelabo capsule share --mode local --out ./my_capsule.tar.gz"
+            "  lelabo export my_capsule_alias --out ./my_capsule.tar.gz"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--mode", choices=["github", "local"], default="github", help="Share mode backend")
+    parser.add_argument("--mode", default="github", help=argparse.SUPPRESS)
     parser.add_argument("--owner", default=None, help="GitHub owner override")
     parser.add_argument("--repo", default=None, help="GitHub repository override")
     parser.add_argument("--branch", default=None, help="Target git branch override")
     vis = parser.add_mutually_exclusive_group()
     vis.add_argument("--public", action="store_true", help="Create/share as a public repo")
     vis.add_argument("--private", action="store_true", help="Create/share as a private repo")
-    parser.add_argument("--out", default=None, help="Output bundle path for --mode local")
+    parser.add_argument("--out", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--yes",
         action="store_true",
@@ -1082,37 +1081,12 @@ def _cmd_share(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
+    if str(args.mode).strip().lower() != "github" or args.out is not None:
+        raise SystemExit("Local bundle export moved to `lelabo export`.")
+
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
     capsule_root = _resolve_share_capsule_root(args.capsule_ref, caps_dir=caps_dir)
-
-    if args.mode == "local":
-        out = _export_capsule_local_bundle(
-            capsule_root,
-            out_path=Path(args.out).expanduser() if args.out else None,
-        )
-        payload = {
-            "schema_version": CAPSULE_JSON_SCHEMA,
-            "command": "share",
-            "target": "local",
-            "result": {
-                "capsule_path": str(capsule_root),
-                "bundle_path": str(out),
-                "mode": "local",
-            },
-        }
-        if bool(args.json):
-            _print_json(payload)
-        else:
-            print_status("success", "Capsule exported locally.")
-            print_block(
-                "Local share",
-                (
-                    ("capsule_path", capsule_root),
-                    ("bundle_path", out),
-                ),
-            )
-        return 0
 
     forward_argv: list[str] = []
     if args.capsule_ref is not None:

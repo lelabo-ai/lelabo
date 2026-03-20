@@ -17,7 +17,10 @@ def test_capsule_init_creates_local_layout_without_storing(tmp_path, capsys) -> 
     assert rc == 0
 
     out = capsys.readouterr().out
-    assert "cli_capsule" in out
+    assert "Success: Capsule initialized." in out
+    assert "Capsule" in out
+    assert "name: cli_capsule" in out
+    assert f"path: {tmp_path / 'cli_capsule'}" in out
     assert (tmp_path / "cli_capsule" / "models").is_dir()
     assert (tmp_path / "cli_capsule" / "update_rules").is_dir()
     assert (tmp_path / "cli_capsule" / "metrics").is_dir()

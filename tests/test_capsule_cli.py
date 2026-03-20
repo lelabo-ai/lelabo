@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -879,7 +881,7 @@ def test_capsule_cli_share_forwards_to_push_backend(tmp_path, monkeypatch, capsy
     ]]
 
 
-def test_capsule_cli_share_local_exports_bundle(tmp_path, monkeypatch, capsys) -> None:
+def test_capsule_cli_share_local_is_redirected_to_export(tmp_path, monkeypatch) -> None:
     capsule_root = capsule_create.create_capsule_scaffold(
         capsule_name="local_share_capsule",
         base_dir=tmp_path,
@@ -887,15 +889,10 @@ def test_capsule_cli_share_local_exports_bundle(tmp_path, monkeypatch, capsys) -
     )
     monkeypatch.chdir(capsule_root)
 
-    rc = capsule_cli.main(["share", "--mode", "local", "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
-    assert payload["command"] == "share"
-    assert payload["target"] == "local"
-    bundle_path = payload["result"]["bundle_path"]
-    assert bundle_path.endswith(".tar.gz")
-    assert Path(bundle_path).exists()
+    with pytest.raises(SystemExit) as exc:
+        capsule_cli.main(["share", "--mode", "local", "--json"])
+
+    assert "Local bundle export moved to `lelabo export`." in str(exc.value)
 
 
 def test_capsule_cli_share_accepts_capsule_name_from_workspace(tmp_path, monkeypatch, capsys) -> None:

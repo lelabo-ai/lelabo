@@ -9,6 +9,7 @@ from ._common import CLI_USER_ERROR_TYPES, coerce_system_exit_code, is_help_toke
 from .commands.audit import main as run_audit_command
 from .commands.capsule import main as run_capsule_command
 from .commands.config import main as run_config_command
+from .commands.export import main as run_export_command
 from .commands.list import main as run_list_command
 from .commands.push import main as run_push_command
 from .commands.repo import main as run_repo_command
@@ -45,6 +46,9 @@ def _run_list_cli(argv: Sequence[str]) -> int:
 def _run_push_cli(argv: Sequence[str]) -> int:
     return _run_command(run_push_command, argv)
 
+def _run_export_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_export_command, argv)
+
 def _run_repo_cli(argv: Sequence[str]) -> int:
     return _run_command(run_repo_command, argv)
 
@@ -64,6 +68,7 @@ Commands:
   sweep      Discover and run workspace sweeps
   audit      Run update-rule audit checks
   push       Publish a capsule to a repo target
+  export     Export a capsule as a local tar.gz bundle
   repo       Manage advanced capsule publish targets
   config     Manage user settings and defaults
   list       List available registries and active-capsule exports
@@ -74,6 +79,7 @@ Help:
   lelabo train -h
   lelabo audit -h
   lelabo push -h
+  lelabo export -h
   lelabo repo -h
   lelabo config -h
   lelabo list -h
@@ -84,6 +90,7 @@ Examples:
   lelabo train rl --env CartPole-v1 --algo ppo
   lelabo audit --all --modes supervised,rl
   lelabo push my_capsule
+  lelabo export my_capsule --out ./my_capsule.tar.gz
   lelabo repo add my_capsule --name public --owner your-org --repo method-zoo
   lelabo config set github.owner your-org
   lelabo capsule init my_capsule
@@ -126,6 +133,11 @@ def main(argv: list[str] | None = None) -> int:
             return _run_push_cli(["-h"])
         return _run_push_cli(rest)
 
+    if cmd == "export":
+        if rest and is_help_token(rest[0]):
+            return _run_export_cli(["-h"])
+        return _run_export_cli(rest)
+
     if cmd == "repo":
         if not rest or is_help_token(rest[0]):
             return _run_repo_cli(["-h"])
@@ -157,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, sweep, audit, push, repo, config, list, capsule.\n"
+        "Use one of: train, sweep, audit, push, export, repo, config, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2
