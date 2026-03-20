@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ...capsule import get_capsule
-from ...capsule.plugins.discovery import find_active_capsule_root
+from ...capsule.discovery import DiscoveredCapsule, discover_workspace_capsules, find_capsule_root, is_capsule_root
 from ...config.user_settings import load_effective_settings
 from ..interactive_picker import pick_many_with_checkboxes
 from ..ui import print_block, print_status
@@ -51,24 +51,12 @@ def _resolved_capsules_dir(raw_capsules_dir: str | None, settings: dict[str, Any
     return Path(store_dir).expanduser().resolve()
 
 
-def _is_capsule_root(path: Path) -> bool:
-    return path.is_dir() and ((path / "capsule.toml").is_file() or (path / "manifest.json").is_file())
-
-
 def _is_interactive_tty() -> bool:
     return bool(sys.stdin.isatty() and sys.stdout.isatty())
 
 
-def _workspace_child_capsules(root: Path) -> list[Path]:
-    try:
-        children = list(root.iterdir())
-    except OSError:
-        return []
-    return sorted(child.resolve() for child in children if child.is_dir() and _is_capsule_root(child))
-
-
-def _pick_capsule_interactively(candidates: Sequence[Path]) -> Path:
-    options = [(path.name, f"{path.name} | path: {path.name}") for path in candidates]
+def _pick_capsule_interactively(candidates: Sequence[DiscoveredCapsule]) -> Path:
+    options = [(item.path, f"{item.capsule_id} | path: {item.path}") for item in candidates]
     selected = pick_many_with_checkboxes(
         title="Select capsule to export",
         text="Select one capsule to export as a tar.gz bundle.",
@@ -81,27 +69,24 @@ def _pick_capsule_interactively(candidates: Sequence[Path]) -> Path:
     if selected is None:
         raise SystemExit("Export canceled by user.")
     chosen = str(selected[0]).strip() if selected else ""
-    for path in candidates:
-        if path.name == chosen:
-            return path
+    for item in candidates:
+        if item.path == chosen:
+            return item.root
     raise SystemExit("Export canceled by user.")
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
     if not capsule_ref:
-        active = find_active_capsule_root()
-        if active is not None:
-            return active.resolve()
-        direct_children = _workspace_child_capsules(Path.cwd())
-        if len(direct_children) == 1:
-            return direct_children[0]
-        if not direct_children:
+        candidates = list(discover_workspace_capsules(start=Path.cwd()))
+        if len(candidates) == 1:
+            return candidates[0].root
+        if not candidates:
             raise SystemExit(
                 "No capsule found in the current workspace. Pass a capsule path/id or create a capsule under this directory."
             )
         if _is_interactive_tty():
-            return _pick_capsule_interactively(direct_children)
-        names = ", ".join(path.name for path in direct_children)
+            return _pick_capsule_interactively(candidates)
+        names = ", ".join(item.capsule_id for item in candidates)
         raise SystemExit(
             f"Multiple capsules found in the current workspace: {names}. Pass a capsule path/id to `lelabo export`."
         )
@@ -111,15 +96,15 @@ def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> 
         start = ref_path.resolve()
         if start.is_file():
             start = start.parent
-        root = find_active_capsule_root(start=start)
-        if root is None and _is_capsule_root(start):
+        root = find_capsule_root(start=start)
+        if root is None and is_capsule_root(start):
             root = start
         if root is None:
             raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
         return root.resolve()
 
     local_candidate = (Path.cwd() / str(capsule_ref)).resolve()
-    if _is_capsule_root(local_candidate):
+    if is_capsule_root(local_candidate):
         return local_candidate
 
     row = get_capsule(capsule_ref, caps_dir)

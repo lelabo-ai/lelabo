@@ -121,6 +121,41 @@ def test_push_cli_errors_when_workspace_has_multiple_child_capsules(tmp_path, mo
     assert "cap_b" in str(exc.value)
 
 
+def test_push_cli_uses_capsule_picker_when_workspace_has_multiple_capsules(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_multi_picker"
+    workspace.mkdir()
+    capsule_create.create_capsule_scaffold(capsule_name="cap_a", base_dir=workspace, register=False)
+    cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=workspace, register=False)
+    captured: dict[str, object] = {}
+
+    def _fake_push_capsule(**kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "target_name": "workspace",
+                "target_kind": "workspace",
+                "owner": "acme",
+                "repo": "research",
+                "branch": "main",
+                "path": "cap_b",
+                "commit_message": "Update cap_b",
+                "committed": False,
+                "pushed": False,
+            }
+        ]
+
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: [str(cap_b)])
+    monkeypatch.setattr(push_cli, "push_capsule", _fake_push_capsule)
+
+    rc = push_cli.main(["--json"])
+    assert rc == 0
+    assert captured["capsule_root"] == cap_b
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule"]["capsule_id"] == "cap_b"
+
+
 def test_push_cli_bootstraps_github_target_with_yes(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_bootstrap"
     workspace.mkdir()

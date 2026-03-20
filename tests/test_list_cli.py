@@ -228,3 +228,31 @@ def test_list_cli_does_not_auto_include_stored_capsules(tmp_path, monkeypatch, c
         assert "auto_capsule_model" not in payload["sources"]["capsule"]
     finally:
         plugins.reset_capsule_plugin_cache()
+
+
+def test_list_cli_auto_includes_workspace_capsules(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_list_runtime"
+    workspace.mkdir()
+    capsule_root = workspace / "capsule_models"
+    (capsule_root / "models").mkdir(parents=True)
+    (capsule_root / "capsule.toml").write_text(
+        "[capsule]\nname = \"capsule_models\"\nformat = \"lelabo.capsule.scaffold.v1\"\n",
+        encoding="utf-8",
+    )
+    (capsule_root / "models" / "workspace_model.py").write_text(
+        "from lelabo.models.registry import register_model\n\n"
+        "@register_model('workspace_capsule_model')\n"
+        "def build_workspace_capsule_model(ctx, args):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    plugins.reset_capsule_plugin_cache()
+    try:
+        rc = list_cli.main(["models", "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "workspace_capsule_model" in payload["sources"]["capsule"]
+    finally:
+        plugins.reset_capsule_plugin_cache()

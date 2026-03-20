@@ -166,7 +166,7 @@ def test_capsule_stash_help_includes_workbench_examples() -> None:
 def test_capsule_attach_help_includes_linking_description() -> None:
     proc = _run_cli_help("capsule", "attach", "-h")
     assert proc.returncode == 0
-    assert "Link a local capsule into the LeLabo capsule registry" in proc.stdout
+    assert "Link an external capsule into the LeLabo capsule registry" in proc.stdout
     assert "--rename-to" in proc.stdout
     assert "--force-replace" in proc.stdout
 

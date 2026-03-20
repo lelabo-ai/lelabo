@@ -41,4 +41,4 @@ def test_capsule_init_does_not_register_in_capsule_store(tmp_path, capsys) -> No
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    assert "Info: The capsule store is empty." in capsys.readouterr().out
+    assert "Info: No capsules found in the current workspace or store." in capsys.readouterr().out

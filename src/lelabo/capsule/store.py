@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .discovery import current_workspace_root, is_capsule_root
 from .install import compute_capsule_fingerprint
 from .plugins.discovery import find_active_capsule_root
 from .registry import add_capsule_entry, default_capsules_dir, get_capsule
@@ -21,9 +22,13 @@ def _safe_capsule_dst(root: Path, capsule_id: str) -> Path:
 
 
 def _looks_like_capsule_root(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-    return (path / "manifest.json").is_file() or (path / "capsule.toml").is_file()
+    return is_capsule_root(path)
+
+
+def _path_within(root: Path, candidate: Path) -> bool:
+    resolved_root = root.expanduser().resolve()
+    resolved_candidate = candidate.expanduser().resolve()
+    return resolved_candidate == resolved_root or resolved_root in resolved_candidate.parents
 
 
 def _resolve_named_child(start: Path, alias: str | None) -> Path | None:
@@ -165,10 +170,28 @@ def attach_capsule(
 
     root = (capsules_dir or default_capsules_dir()).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    if _path_within(root, source_root):
+        raise ValueError(
+            f"Capsule '{capsule_id}' already lives in the local store at '{source_root}'. "
+            "Use `lelabo capsule checkout` to work on stored capsules, or `lelabo capsule stash` for the normal move-to-store flow."
+        )
+
+    workspace_root = current_workspace_root()
+    if _path_within(workspace_root, source_root):
+        raise ValueError(
+            f"Capsule '{capsule_id}' is already in the current workspace at '{source_root}'. "
+            "Use `lelabo capsule stash` to move it into the store. `attach` is only for external capsules."
+        )
+
     existing = get_capsule(capsule_id, root)
     if existing is not None and not bool(force_replace):
         existing_path = Path(str(existing.get("path", "") or "")).expanduser().resolve()
         existing_fp = _existing_capsule_fingerprint(existing)
+        if _path_within(root, existing_path):
+            raise ValueError(
+                f"Capsule id '{capsule_id}' already exists in the store at '{existing_path}'. "
+                "Use `lelabo capsule checkout` or `lelabo capsule stash` as the normal store/workspace flow."
+            )
         if existing_path == source_root.resolve() or (
             existing_fp and existing_fp == str(manifest.get("fingerprint", ""))
         ):
@@ -179,8 +202,8 @@ def attach_capsule(
             out["replaced_existing"] = False
             return out
         raise ValueError(
-            f"Capsule id '{capsule_id}' already exists in store at '{existing.get('path')}'. "
-            "Use `--force-replace` to replace registry entry, or `--rename-to <new_id>` to attach side-by-side."
+            f"Capsule id '{capsule_id}' is already attached at '{existing.get('path')}'. "
+            "Use `--force-replace` to replace the external registry entry, or `--rename-to <new_id>` to attach side-by-side."
         )
 
     entry = add_capsule_entry(

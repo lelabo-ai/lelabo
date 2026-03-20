@@ -31,6 +31,7 @@ from ...capsule import (
     share_gitspace_github,
     stash_capsule,
 )
+from ...capsule.discovery import discover_visible_capsules
 from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ...capsule.share import parse_owner_repo_from_origin
@@ -48,13 +49,13 @@ Usage:
 
 Subcommands:
   init       Create a local work capsule in the current workspace
-  attach     Link a local capsule into the LeLabo capsule registry (no move/copy)
+  attach     Link an external capsule into the LeLabo capsule registry (no move/copy)
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
   install    Import an external capsule bundle or GitHub multi-capsule repo into the local store
   share      Transition alias for `lelabo push` (or export a local bundle)
   pack       Build a shareable capsule bundle from a run/sweep/config
-  list       List stored capsules
+  list       List visible capsules from the workspace and store
   show       Show one stored capsule entry
   remove     Remove one stored capsule entry (and files by default)
 
@@ -65,6 +66,7 @@ Help:
 
 CAPSULE_JSON_SCHEMA = "lelabo.cli.capsule/v1"
 CAPSULES_JSON_SCHEMA = "lelabo.cli.capsules/v1"
+CAPSULE_LIST_JSON_SCHEMA = "lelabo.cli.capsules/v2"
 
 
 def _json_dumps(payload: Any) -> str:
@@ -81,12 +83,16 @@ def _render_aliases(row: dict[str, Any]) -> str:
 
 
 def _capsule_json_entry(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    payload = {
         "capsule_id": row.get("capsule_id"),
         "aliases": list(row.get("aliases", []) or []),
         "path": row.get("path"),
-        "kind": row.get("kind"),
     }
+    if "kind" in row:
+        payload["kind"] = row.get("kind")
+    if "status" in row:
+        payload["status"] = row.get("status")
+    return payload
 
 
 def _capsule_command_json(command: str, row: dict[str, Any], *, result_fields: Sequence[str] = ()) -> dict[str, Any]:
@@ -745,12 +751,12 @@ def _cmd_install(argv: list[str]) -> int:
 def _cmd_attach(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule attach",
-        description="Link a local capsule into the LeLabo capsule registry without moving files.",
+        description="Link an external capsule into the LeLabo capsule registry without moving files.",
         epilog=(
             "Examples:\n"
-            "  lelabo capsule attach ./my_capsule\n"
-            "  lelabo capsule attach --alias paper_demo\n"
-            "  lelabo capsule attach ./my_capsule --rename-to paper_v2"
+            "  lelabo capsule attach /external/my_capsule\n"
+            "  lelabo capsule attach /external/my_capsule --alias paper_demo\n"
+            "  lelabo capsule attach /external/my_capsule --rename-to paper_v2"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -926,7 +932,7 @@ def _cmd_checkout(argv: list[str]) -> int:
 def _cmd_list(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule list",
-        description="List capsules currently stored in the local capsule store.",
+        description="List visible capsules from the workspace and local store.",
     )
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
@@ -934,24 +940,32 @@ def _cmd_list(argv: list[str]) -> int:
 
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    rows = list_capsules(caps_dir)
+    rows = [
+        {
+            "capsule_id": item.capsule_id,
+            "aliases": list(item.aliases),
+            "path": item.path,
+            "status": item.status,
+        }
+        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
+    ]
     if bool(args.json):
         _print_json(
             {
-                "schema_version": CAPSULES_JSON_SCHEMA,
+                "schema_version": CAPSULE_LIST_JSON_SCHEMA,
                 "capsules": [_capsule_json_entry(row) for row in rows],
             }
         )
         return 0
 
     if not rows:
-        print_status("info", "The capsule store is empty.")
+        print_status("info", "No capsules found in the current workspace or store.")
         return 0
 
     print_list_block(
-        "Stored capsules",
+        "Capsules",
         [
-            f"{row.get('capsule_id')} | aliases: {_render_aliases(row)} | path: {row.get('path')}"
+            f"{row.get('capsule_id')} | status: {row.get('status')} | aliases: {_render_aliases(row)} | path: {row.get('path')}"
             for row in rows
         ],
     )

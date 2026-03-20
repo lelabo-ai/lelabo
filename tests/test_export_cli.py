@@ -38,7 +38,7 @@ def test_export_cli_uses_picker_for_multiple_workspace_capsules(tmp_path, monkey
     cap_b = capsule_create.create_capsule_scaffold(capsule_name="cap_b", base_dir=workspace, register=False)
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(export_cli, "_is_interactive_tty", lambda: True)
-    monkeypatch.setattr(export_cli, "pick_many_with_checkboxes", lambda **kwargs: ["cap_b"])
+    monkeypatch.setattr(export_cli, "pick_many_with_checkboxes", lambda **kwargs: [str(cap_b)])
 
     rc = export_cli.main(["--json"])
     assert rc == 0

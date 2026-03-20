@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ...capsule import get_capsule, inspect_capsule_directory
-from ...capsule.plugins.discovery import find_active_capsule_root
+from ...capsule.discovery import DiscoveredCapsule, discover_workspace_capsules, find_capsule_root, is_capsule_root
 from ...capsule.publish import (
     auto_commit_message,
     available_targets,
@@ -45,10 +45,6 @@ Notes:
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-
-def _is_capsule_root(path: Path) -> bool:
-    return path.is_dir() and ((path / "capsule.toml").is_file() or (path / "manifest.json").is_file())
 
 
 def _effective_settings() -> dict[str, Any]:
@@ -99,27 +95,38 @@ def _prompt_choice(title: str, options: Sequence[tuple[str, str]], *, default: s
         print_status("warning", "Enter a valid choice.")
 
 
-def _workspace_child_capsules(root: Path) -> list[Path]:
-    try:
-        children = list(root.iterdir())
-    except OSError:
-        return []
-    return sorted(child.resolve() for child in children if child.is_dir() and _is_capsule_root(child))
+def _pick_capsule_interactively(candidates: Sequence[DiscoveredCapsule], *, title: str) -> Path:
+    options = [(item.path, f"{item.capsule_id} | path: {item.path}") for item in candidates]
+    selected = pick_many_with_checkboxes(
+        title=title,
+        text="Select one capsule before choosing publish targets.",
+        options=options,
+        selection_noun="capsule",
+        confirm_button_text="Use selected",
+        max_selection_count=1,
+        max_selection_message="Select exactly one capsule before confirming.",
+    )
+    if selected is None:
+        raise SystemExit("Push canceled by user.")
+    chosen = str(selected[0]).strip() if selected else ""
+    for item in candidates:
+        if item.path == chosen:
+            return item.root
+    raise SystemExit("Push canceled by user.")
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
     if not capsule_ref:
-        active = find_active_capsule_root()
-        if active is not None:
-            return active.resolve()
-        direct_children = _workspace_child_capsules(Path.cwd())
-        if len(direct_children) == 1:
-            return direct_children[0]
-        if not direct_children:
+        candidates = list(discover_workspace_capsules(start=Path.cwd()))
+        if len(candidates) == 1:
+            return candidates[0].root
+        if not candidates:
             raise SystemExit(
                 "No capsule found in the current workspace. Pass a capsule path/id or create a capsule under this directory."
             )
-        names = ", ".join(child.name for child in direct_children)
+        if _is_interactive_tty():
+            return _pick_capsule_interactively(candidates, title="Select capsule to push")
+        names = ", ".join(item.capsule_id for item in candidates)
         raise SystemExit(
             f"Multiple capsules found in the current workspace: {names}. Pass a capsule path/id to `lelabo push`."
         )
@@ -129,15 +136,15 @@ def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> 
         start = ref_path.resolve()
         if start.is_file():
             start = start.parent
-        root = find_active_capsule_root(start=start)
-        if root is None and _is_capsule_root(start):
+        root = find_capsule_root(start=start)
+        if root is None and is_capsule_root(start):
             root = start
         if root is None:
             raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
         return root.resolve()
 
     local_candidate = (Path.cwd() / str(capsule_ref)).resolve()
-    if _is_capsule_root(local_candidate):
+    if is_capsule_root(local_candidate):
         return local_candidate
 
     row = get_capsule(capsule_ref, caps_dir)

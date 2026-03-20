@@ -39,8 +39,9 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "Stored capsules" in out
+    assert "Capsules" in out
     assert "cli_cap" in out
+    assert "status: store" in out
     assert "cli_alias" in out
     assert "kind:" not in out
     assert "| path: " in out
@@ -66,15 +67,20 @@ def test_capsule_cli_pack_install_list_show_remove(tmp_path, capsys) -> None:
 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir)])
     assert rc == 0
-    assert "Info: The capsule store is empty." in capsys.readouterr().out
+    assert "Info: No capsules found in the current workspace or store." in capsys.readouterr().out
 
 
-def test_capsule_attach_accepts_local_capsule_directory(tmp_path, capsys) -> None:
+def test_capsule_attach_accepts_external_capsule_directory(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external_root = tmp_path / "external"
+    external_root.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
         capsule_name="dir_attach_capsule",
-        base_dir=tmp_path,
+        base_dir=external_root,
         register=False,
     )
+    monkeypatch.chdir(workspace)
     caps_dir = tmp_path / "caps_dir_attach"
     rc = capsule_cli.main(["attach", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
@@ -89,7 +95,7 @@ def test_capsule_attach_accepts_local_capsule_directory(tmp_path, capsys) -> Non
     assert row["path"] == str(capsule_root.resolve())
 
 
-def test_capsule_attach_local_directory_from_workspace_registers_in_store(tmp_path, monkeypatch, capsys) -> None:
+def test_capsule_attach_rejects_capsule_in_current_workspace(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace_local_install"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -100,13 +106,121 @@ def test_capsule_attach_local_directory_from_workspace_registers_in_store(tmp_pa
     monkeypatch.chdir(workspace)
 
     caps_dir = tmp_path / "caps_local_attach"
-    rc = capsule_cli.main(["attach", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
+    with pytest.raises(SystemExit) as exc:
+        capsule_cli.main(["attach", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
+    assert "already in the current workspace" in str(exc.value)
+    assert "`attach` is only for external capsules" in str(exc.value)
+
+
+def test_capsule_attach_rejects_capsule_already_in_store(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace_store_attach"
+    workspace.mkdir()
+    external_root = tmp_path / "external_store_attach"
+    external_root.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="stored_attach_capsule",
+        base_dir=external_root,
+        register=False,
+    )
+    caps_dir = tmp_path / "caps_store_attach"
+    rc = capsule_cli.main(["stash", str(capsule_root), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    monkeypatch.chdir(workspace)
+
+    stored_root = caps_dir / "stored_attach_capsule"
+    with pytest.raises(SystemExit) as exc:
+        capsule_cli.main(["attach", str(stored_root), "--capsules-dir", str(caps_dir)])
+    assert "already lives in the local store" in str(exc.value)
+
+
+def test_capsule_list_unifies_workspace_store_and_external_attached_capsules(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_list"
+    workspace.mkdir()
+    workspace_capsule = capsule_create.create_capsule_scaffold(
+        capsule_name="workspace_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    store_source = capsule_create.create_capsule_scaffold(
+        capsule_name="store_capsule",
+        base_dir=tmp_path / "store_source",
+        register=False,
+    )
+    external_capsule = capsule_create.create_capsule_scaffold(
+        capsule_name="external_capsule",
+        base_dir=tmp_path / "external_source",
+        register=False,
+    )
+    caps_dir = tmp_path / "caps_unified"
+    rc = capsule_cli.main(["stash", str(store_source), "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    capsys.readouterr()
+    capsule_registry.add_capsule_entry(
+        capsule_id="external_capsule",
+        capsule_path=external_capsule,
+        manifest={
+            "kind": "config_only",
+            "created_at": "2026-02-20T00:00:00Z",
+            "source": {"path": str(external_capsule)},
+        },
+        alias="external_alias",
+        capsules_dir=caps_dir,
+    )
+    monkeypatch.chdir(workspace)
+
+    rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["result"]["attach_action"] == "attached"
-    assert payload["capsule"]["capsule_id"] == "local_attach_capsule"
-    row = capsule_registry.get_capsule("local_attach_capsule", caps_dir)
-    assert row is not None
+    assert payload["schema_version"] == "lelabo.cli.capsules/v2"
+    assert [row["capsule_id"] for row in payload["capsules"]] == [
+        "external_capsule",
+        "workspace_capsule",
+        "store_capsule",
+    ]
+    assert [row["status"] for row in payload["capsules"]] == ["workspace", "workspace", "store"]
+    external_row = payload["capsules"][0]
+    assert external_row["aliases"] == ["external_alias"]
+    assert external_row["path"] == str(external_capsule.resolve())
+    store_row = payload["capsules"][-1]
+    assert store_row["path"] == str((caps_dir / "store_capsule").resolve())
+
+
+def test_capsule_list_shows_store_workspace_conflict_as_two_entries(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_conflict"
+    workspace.mkdir()
+    workspace_capsule = capsule_create.create_capsule_scaffold(
+        capsule_name="dup_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    caps_dir = tmp_path / "caps_conflict_list"
+    legacy_store_capsule = capsule_create.create_capsule_scaffold(
+        capsule_name="dup_capsule",
+        base_dir=caps_dir,
+        register=False,
+    )
+    capsule_registry.add_capsule_entry(
+        capsule_id="dup_capsule",
+        capsule_path=legacy_store_capsule,
+        manifest={
+            "kind": "config_only",
+            "created_at": "2026-02-20T00:00:00Z",
+            "source": {"path": str(legacy_store_capsule)},
+        },
+        capsules_dir=caps_dir,
+    )
+    monkeypatch.chdir(workspace)
+
+    rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    dup_rows = [row for row in payload["capsules"] if row["capsule_id"] == "dup_capsule"]
+    assert len(dup_rows) == 2
+    assert {row["status"] for row in dup_rows} == {"workspace", "store"}
+    assert {row["path"] for row in dup_rows} == {
+        str(workspace_capsule.resolve()),
+        str((caps_dir / "dup_capsule").resolve()),
+    }
 
 
 def test_capsule_install_rejects_local_directory_and_points_to_attach(tmp_path) -> None:
@@ -220,8 +334,9 @@ def test_capsule_cli_json_outputs_use_versioned_public_schema(tmp_path, capsys) 
     rc = capsule_cli.main(["list", "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0
     list_payload = json.loads(capsys.readouterr().out)
-    assert list_payload["schema_version"] == "lelabo.cli.capsules/v1"
+    assert list_payload["schema_version"] == "lelabo.cli.capsules/v2"
     assert [row["capsule_id"] for row in list_payload["capsules"]] == ["cli_json"]
+    assert list_payload["capsules"][0]["status"] == "store"
 
     rc = capsule_cli.main(["show", "json_alias", "--capsules-dir", str(caps_dir), "--json"])
     assert rc == 0

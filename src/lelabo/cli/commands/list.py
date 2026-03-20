@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Sequence
 
-from ...capsule.plugins.discovery import find_active_capsule_root
+from ...capsule.discovery import discover_workspace_capsules, find_capsule_root
 from ...capsule.registry import get_capsule
 from ...config.user_settings import load_effective_settings
 from ...callbacks.registry import _callback_snapshot
@@ -48,7 +48,7 @@ Examples:
   lelabo list models --capsule my_capsule_alias
 
 Notes:
-  - `lelabo list` includes built-ins plus the active capsule in the current working tree.
+  - `lelabo list` includes built-ins plus capsules visible from the current workspace.
   - Stored capsules do not affect registries until checkout or explicit `--capsule ...`.
   - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
@@ -126,7 +126,7 @@ def _resolve_capsule_root(ref: str, capsules_dir: Path | None) -> Path:
         start = as_path.resolve()
         if start.is_file():
             start = start.parent
-        root = find_active_capsule_root(start=start)
+        root = find_capsule_root(start=start)
         if root is None:
             raise ValueError(f"Path '{ref}' is not inside a capsule (missing capsule.toml).")
         return root
@@ -154,7 +154,20 @@ def _snapshot_rows(
     capsules_dir: Path | None,
     explicit_capsule_roots: Sequence[Path] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
-    extra_roots = list(explicit_capsule_roots or [])
+    extra_roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add_root(root: Path) -> None:
+        token = str(root.resolve())
+        if token in seen:
+            return
+        seen.add(token)
+        extra_roots.append(root.resolve())
+
+    for item in discover_workspace_capsules(start=Path.cwd()):
+        _add_root(item.root)
+    for root in list(explicit_capsule_roots or []):
+        _add_root(root)
 
     def _grouped_row(name: str) -> dict[str, list[str]]:
         snapshot_builder = _REGISTRY_SPECS[name]
