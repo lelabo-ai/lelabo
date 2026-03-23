@@ -13,6 +13,7 @@ from .publish import (
     list_configured_targets,
     save_configured_target,
     set_default_target,
+    unset_default_target,
 )
 from .rerun import rerun_capsule
 from .create import create_capsule_scaffold
@@ -37,6 +38,7 @@ __all__ = [
     "list_configured_targets",
     "save_configured_target",
     "set_default_target",
+    "unset_default_target",
     "rerun_capsule",
     "create_capsule_scaffold",
     "remove_capsule",

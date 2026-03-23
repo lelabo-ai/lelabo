@@ -96,7 +96,7 @@ This is not a scientific reference implementation. It is an integration referenc
 
 Before calling the paper pack “done”, verify:
 
-- the registered plugins appear in `lelabo list ...`
+- the registered plugins appear in `lelabo registries ...`
 - the config runs
 - the smoke test passes
 - the runtime contract is documented if the paper needs non-standard assumptions

@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import tarfile
 from pathlib import Path
 from typing import Any, Sequence
 
 from ...capsule import get_capsule
-from ...capsule.discovery import DiscoveredCapsule, discover_workspace_capsules, find_capsule_root, is_capsule_root
+from ...capsule.discovery import discover_visible_capsules, find_capsule_root
 from ...config.user_settings import load_effective_settings
-from ..interactive_picker import pick_many_with_checkboxes
 from ..ui import print_block, print_status
 
 
@@ -23,11 +21,11 @@ EXPORT_HELP = """\
 Export one capsule as a local `.tar.gz` bundle.
 
 Usage:
-  lelabo export [capsule_ref] [--out PATH] [--capsules-dir DIR] [--json]
+  lelabo export <capsule> [--out PATH] [--json]
 
 Notes:
-  - `capsule_ref` can be a local path or a stored capsule id/alias
-  - if omitted, LeLabo uses the active capsule or a direct child capsule of the current workspace
+  - pass a capsule id or alias from `lelabo capsule list`
+  - local filesystem paths are not accepted by `lelabo export` in v1
 """
 
 
@@ -51,67 +49,32 @@ def _resolved_capsules_dir(raw_capsules_dir: str | None, settings: dict[str, Any
     return Path(store_dir).expanduser().resolve()
 
 
-def _is_interactive_tty() -> bool:
-    return bool(sys.stdin.isatty() and sys.stdout.isatty())
-
-
-def _pick_capsule_interactively(candidates: Sequence[DiscoveredCapsule]) -> Path:
-    options = [(item.path, f"{item.capsule_id} | path: {item.path}") for item in candidates]
-    selected = pick_many_with_checkboxes(
-        title="Select capsule to export",
-        text="Select one capsule to export as a tar.gz bundle.",
-        options=options,
-        selection_noun="capsule",
-        confirm_button_text="Export selected",
-        max_selection_count=1,
-        max_selection_message="Select exactly one capsule to export.",
-    )
-    if selected is None:
-        raise SystemExit("Export canceled by user.")
-    chosen = str(selected[0]).strip() if selected else ""
-    for item in candidates:
-        if item.path == chosen:
-            return item.root
-    raise SystemExit("Export canceled by user.")
-
-
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
-    if not capsule_ref:
-        candidates = list(discover_workspace_capsules(start=Path.cwd()))
-        if len(candidates) == 1:
-            return candidates[0].root
-        if not candidates:
-            raise SystemExit(
-                "No capsule found in the current workspace. Pass a capsule path/id or create a capsule under this directory."
-            )
-        if _is_interactive_tty():
-            return _pick_capsule_interactively(candidates)
-        names = ", ".join(item.capsule_id for item in candidates)
+    token = str(capsule_ref or "").strip()
+    if not token:
+        raise SystemExit("Missing capsule. Use `lelabo export <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
+    if "/" in token or token.startswith("."):
         raise SystemExit(
-            f"Multiple capsules found in the current workspace: {names}. Pass a capsule path/id to `lelabo export`."
+            "Local paths are not accepted by `lelabo export` in v1. "
+            "Pass a capsule id or alias from `lelabo capsule list`."
         )
 
-    ref_path = Path(capsule_ref).expanduser()
-    if ref_path.exists():
-        start = ref_path.resolve()
-        if start.is_file():
-            start = start.parent
-        root = find_capsule_root(start=start)
-        if root is None and is_capsule_root(start):
-            root = start
-        if root is None:
-            raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
-        return root.resolve()
+    visible = [
+        item
+        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
+        if item.capsule_id == token or token in set(item.aliases)
+    ]
+    if len(visible) == 1:
+        return visible[0].root
+    if len(visible) > 1:
+        matches = ", ".join(item.path for item in visible)
+        raise SystemExit(f"Capsule '{token}' is ambiguous across: {matches}")
 
-    local_candidate = (Path.cwd() / str(capsule_ref)).resolve()
-    if is_capsule_root(local_candidate):
-        return local_candidate
-
-    row = get_capsule(capsule_ref, caps_dir)
+    row = get_capsule(token, caps_dir)
     if row is None:
-        raise SystemExit(f"Unknown capsule '{capsule_ref}' (not found as path nor stored id/alias).")
+        raise SystemExit(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
     root = Path(str(row.get("path", ""))).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
+    if not root.exists() or not root.is_dir() or find_capsule_root(root) is None:
         raise SystemExit(f"Capsule path does not exist on disk: {root}")
     return root
 
@@ -135,12 +98,11 @@ def _build_parser(*, prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="Export one capsule as a local tar.gz bundle.",
-        epilog=f"Examples:\n  {prog}\n  {prog} my_capsule --out ./my_capsule.tar.gz",
+        epilog=f"Examples:\n  {prog} my_capsule\n  {prog} my_capsule --out ./my_capsule.tar.gz",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
+    parser.add_argument("capsule_ref", help="Capsule id or alias")
     parser.add_argument("--out", default=None, help="Output bundle path (.tar.gz)")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     return parser
 
@@ -149,7 +111,7 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
     parser = _build_parser(prog=prog)
     args = parser.parse_args(list(argv))
     settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    caps_dir = _resolved_capsules_dir(None, settings)
     capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir)
     out = _export_capsule_local_bundle(
         capsule_root,
@@ -159,7 +121,7 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
         "schema_version": EXPORT_JSON_SCHEMA,
         "command": "export",
         "capsule": {
-            "capsule_id": capsule_root.name,
+            "capsule_id": str(get_capsule(str(args.capsule_ref), caps_dir).get("capsule_id", capsule_root.name)),
             "path": str(capsule_root),
         },
         "result": {
@@ -174,7 +136,7 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
         print_block(
             "Export",
             (
-                ("capsule_path", capsule_root),
+                ("capsule", payload["capsule"]["capsule_id"]),
                 ("bundle_path", out),
             ),
         )

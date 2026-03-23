@@ -30,7 +30,7 @@ pytest -q tests
 ```
 
 ```bash
-lelabo list optimizers
+lelabo registries optimizers
 ```
 
 ```bash

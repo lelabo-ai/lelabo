@@ -184,13 +184,23 @@ def _capsule_state_entry(state: dict[str, Any], capsule_root: Path) -> dict[str,
     if not isinstance(capsules, dict):
         state["capsules"] = {}
         capsules = state["capsules"]
-    entry = capsules.setdefault(key, {"targets": {}, "default_target": None, "last_used_target": None})
+    entry = capsules.setdefault(key, {"targets": {}, "default_targets": [], "last_used_target": None})
     if not isinstance(entry, dict):
-        entry = {"targets": {}, "default_target": None, "last_used_target": None}
+        entry = {"targets": {}, "default_targets": [], "last_used_target": None}
         capsules[key] = entry
     entry.setdefault("targets", {})
     if not isinstance(entry["targets"], dict):
         entry["targets"] = {}
+    legacy_default = str(entry.pop("default_target", "") or "").strip()
+    defaults = entry.setdefault("default_targets", [])
+    if not isinstance(defaults, list):
+        defaults = []
+        entry["default_targets"] = defaults
+    normalized_defaults = [str(item).strip() for item in defaults if str(item).strip()]
+    if legacy_default and legacy_default not in normalized_defaults:
+        normalized_defaults.append(legacy_default)
+    normalized_defaults = [name for name in normalized_defaults if name in entry["targets"]]
+    entry["default_targets"] = sorted(set(normalized_defaults))
     return entry
 
 
@@ -215,7 +225,7 @@ def list_configured_targets(capsule_root: Path) -> list[dict[str, Any]]:
                     or "private"
                 )
         row["name"] = str(name)
-        row["default"] = str(entry.get("default_target") or "") == str(name)
+        row["default"] = str(name) in set(str(item).strip() for item in list(entry.get("default_targets", []) or []))
         row["last_used"] = str(entry.get("last_used_target") or "") == str(name)
         targets.append(row)
     return targets
@@ -286,11 +296,14 @@ def save_configured_target(capsule_root: Path, target: dict[str, Any], *, make_d
     entry = _capsule_state_entry(state, capsule_root)
     payload["name"] = name
     entry["targets"][name] = payload
+    default_targets = [str(item).strip() for item in list(entry.get("default_targets", []) or []) if str(item).strip()]
     if make_default or len(entry["targets"]) == 1:
-        entry["default_target"] = name
+        if name not in default_targets:
+            default_targets.append(name)
+    entry["default_targets"] = sorted(set(default_targets))
     save_publish_state(state)
     out = dict(payload)
-    out["default"] = str(entry.get("default_target") or "") == name
+    out["default"] = name in set(entry.get("default_targets", []) or [])
     out["last_used"] = str(entry.get("last_used_target") or "") == name
     return out
 
@@ -302,8 +315,7 @@ def remove_configured_target(capsule_root: Path, name: str) -> dict[str, Any]:
     payload = entry["targets"].pop(token, None)
     if payload is None:
         raise ValueError(f"Unknown target '{token}'.")
-    if entry.get("default_target") == token:
-        entry["default_target"] = next(iter(sorted(entry["targets"].keys())), None)
+    entry["default_targets"] = [name for name in list(entry.get("default_targets", []) or []) if str(name).strip() != token]
     if entry.get("last_used_target") == token:
         entry["last_used_target"] = None
     save_publish_state(state)
@@ -319,12 +331,82 @@ def set_default_target(capsule_root: Path, name: str) -> dict[str, Any]:
     payload = entry["targets"].get(token)
     if payload is None:
         raise ValueError(f"Unknown target '{token}'.")
-    entry["default_target"] = token
+    default_targets = [str(item).strip() for item in list(entry.get("default_targets", []) or []) if str(item).strip()]
+    if token not in default_targets:
+        default_targets.append(token)
+    entry["default_targets"] = sorted(set(default_targets))
     save_publish_state(state)
     out = dict(payload)
     out["name"] = token
     out["default"] = True
     out["last_used"] = str(entry.get("last_used_target") or "") == token
+    return out
+
+
+def unset_default_target(capsule_root: Path, name: str) -> dict[str, Any]:
+    token = str(name).strip()
+    state = load_publish_state()
+    entry = _capsule_state_entry(state, capsule_root)
+    payload = entry["targets"].get(token)
+    if payload is None:
+        raise ValueError(f"Unknown target '{token}'.")
+    entry["default_targets"] = [
+        str(item).strip()
+        for item in list(entry.get("default_targets", []) or [])
+        if str(item).strip() and str(item).strip() != token
+    ]
+    save_publish_state(state)
+    out = dict(payload)
+    out["name"] = token
+    out["default"] = False
+    out["last_used"] = str(entry.get("last_used_target") or "") == token
+    return out
+
+
+def get_default_targets(capsule_root: Path) -> list[str]:
+    state = load_publish_state()
+    entry = _capsule_state_entry(state, capsule_root)
+    return [str(item).strip() for item in list(entry.get("default_targets", []) or []) if str(item).strip()]
+
+
+def remove_global_target(*, owner: str, repo: str, kind: str = "github") -> dict[str, Any]:
+    state = load_publish_state()
+    targets = _ensure_global_target_catalog(state)
+    key = _target_registry_key(kind=kind, owner=owner, repo=repo)
+    payload = targets.pop(key, None)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Unknown global target '{owner}/{repo}'.")
+
+    affected_capsules: list[str] = []
+    capsules = state.get("capsules", {})
+    if isinstance(capsules, dict):
+        for capsule_path, entry in capsules.items():
+            if not isinstance(entry, dict):
+                continue
+            attached = entry.get("targets", {})
+            if not isinstance(attached, dict):
+                continue
+            removed_names = [
+                str(name).strip()
+                for name, target in list(attached.items())
+                if isinstance(target, dict)
+                and str(target.get("kind", "")).strip().lower() == kind
+                and str(target.get("owner", "")).strip() == str(owner).strip()
+                and str(target.get("repo", "")).strip() == str(repo).strip()
+            ]
+            if not removed_names:
+                continue
+            for name in removed_names:
+                attached.pop(name, None)
+            entry["default_targets"] = [
+                name for name in list(entry.get("default_targets", []) or []) if str(name).strip() not in set(removed_names)
+            ]
+            if str(entry.get("last_used_target", "")).strip() in set(removed_names):
+                entry["last_used_target"] = None
+            affected_capsules.append(str(capsule_path))
+    save_publish_state(state)
+    out = dict(payload)
+    out["affected_capsules"] = sorted(affected_capsules)
     return out
 
 
@@ -336,12 +418,12 @@ def mark_last_used_target(capsule_root: Path, name: str) -> None:
     save_publish_state(state)
 
 
-def get_target_preferences(capsule_root: Path) -> tuple[str | None, str | None]:
+def get_target_preferences(capsule_root: Path) -> tuple[list[str], str | None]:
     state = load_publish_state()
     entry = _capsule_state_entry(state, capsule_root)
-    default_target = str(entry.get("default_target") or "").strip() or None
+    default_targets = [str(item).strip() for item in list(entry.get("default_targets", []) or []) if str(item).strip()]
     last_used_target = str(entry.get("last_used_target") or "").strip() or None
-    return default_target, last_used_target
+    return sorted(set(default_targets)), last_used_target
 
 
 def git_repo_root(path: Path) -> Path:
@@ -509,9 +591,9 @@ def preferred_target(capsule_root: Path) -> dict[str, Any] | None:
     if not targets:
         return None
     by_name = {str(item.get("name")): item for item in targets}
-    default_target, last_used_target = get_target_preferences(capsule_root)
-    if default_target and default_target in by_name:
-        return by_name[default_target]
+    default_targets, last_used_target = get_target_preferences(capsule_root)
+    if len(default_targets) == 1 and default_targets[0] in by_name:
+        return by_name[default_targets[0]]
     if last_used_target and last_used_target in by_name:
         return by_name[last_used_target]
     if len(targets) == 1:
@@ -847,6 +929,7 @@ __all__ = [
     "push_github_target",
     "push_workspace_target",
     "remove_configured_target",
+    "remove_global_target",
     "remove_target_repo_capsule",
     "repo_checkout_cache_dir",
     "resolve_target",
@@ -854,4 +937,5 @@ __all__ = [
     "save_global_target",
     "save_publish_state",
     "set_default_target",
+    "unset_default_target",
 ]

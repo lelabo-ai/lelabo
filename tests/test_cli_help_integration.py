@@ -47,11 +47,11 @@ def test_audit_help_displays_audit_parser_usage() -> None:
     assert "usage: lelabo audit" in proc.stdout
     assert "Run warn-only local update-rule audit" in proc.stdout
 
-def test_list_help_displays_list_usage() -> None:
-    proc = _run_cli_help("list", "-h")
+def test_registries_help_displays_registries_usage() -> None:
+    proc = _run_cli_help("registries", "-h")
     assert proc.returncode == 0
     assert "List available LeLabo registries" in proc.stdout
-    assert "lelabo list [target] [--json]" in proc.stdout
+    assert "lelabo registries [target] [--json]" in proc.stdout
     assert "update-rules" in proc.stdout
     assert "datasets" in proc.stdout
     assert "initializers" in proc.stdout
@@ -69,7 +69,7 @@ def test_capsule_help_displays_lifecycle_subcommands() -> None:
     assert "stash" in proc.stdout
     assert "checkout" in proc.stdout
     assert "install" in proc.stdout
-    assert "share" in proc.stdout
+    assert "share" not in proc.stdout
     assert "pack" not in proc.stdout
     assert "lelabo capsule sweep" not in proc.stdout
 
@@ -88,7 +88,7 @@ def test_targets_help_displays_targets_subcommands() -> None:
     assert "Manage GitHub publish targets for capsules." in proc.stdout
     assert "list" in proc.stdout
     assert "create" in proc.stdout
-    assert "attach" in proc.stdout
+    assert "  attach       " not in proc.stdout
     assert "edit" in proc.stdout
     assert "detach" in proc.stdout
 
@@ -117,14 +117,10 @@ def test_capsule_install_help_mentions_github_and_checkout() -> None:
     assert "--force-replace" in proc.stdout
 
 
-def test_capsule_share_help_mentions_github_publish_only() -> None:
+def test_capsule_share_command_is_unknown() -> None:
     proc = _run_cli_help("capsule", "share", "-h")
-    assert proc.returncode == 0
-    assert "Publish a capsule with `lelabo push`" in proc.stdout
-    assert "--owner" in proc.stdout
-    assert "--repo" in proc.stdout
-    assert "--mode" not in proc.stdout
-    assert "lelabo export" in proc.stdout
+    assert proc.returncode != 0
+    assert "Unknown capsule subcommand: share" in proc.stderr
 
 
 def test_export_help_displays_local_bundle_usage() -> None:
@@ -132,7 +128,7 @@ def test_export_help_displays_local_bundle_usage() -> None:
     assert proc.returncode == 0
     assert "Export one capsule as a local `.tar.gz` bundle." in proc.stdout
     assert "Usage:" in proc.stdout
-    assert "lelabo export [capsule_ref]" in proc.stdout
+    assert "lelabo export <capsule>" in proc.stdout
     assert "--out" in proc.stdout
 
 

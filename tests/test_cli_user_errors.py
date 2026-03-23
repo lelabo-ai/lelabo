@@ -34,18 +34,18 @@ def test_root_cli_prints_import_error_from_train_command(monkeypatch, capsys) ->
     assert "optional NLP dependencies" in capsys.readouterr().err
 
 
-def test_root_cli_prints_runtime_error_from_list_command(monkeypatch, capsys) -> None:
-    def _fake_run_list(argv):
+def test_root_cli_prints_runtime_error_from_registries_command(monkeypatch, capsys) -> None:
+    def _fake_run_registries(argv):
         _ = argv
         raise RuntimeError("Failed to load installed capsule plugins: capsule_internal_bug")
 
-    monkeypatch.setattr(cli_main, "run_list_command", _fake_run_list)
-    rc = cli_main._run_list_cli(["models"])
+    monkeypatch.setattr(cli_main, "run_registries_command", _fake_run_registries)
+    rc = cli_main._run_registries_cli(["models"])
     assert rc == 1
     assert "capsule_internal_bug" in capsys.readouterr().err
 
 
-def test_root_list_cli_invalid_capsule_plugin_is_message_not_traceback(tmp_path, capsys) -> None:
+def test_root_registries_cli_invalid_capsule_plugin_is_message_not_traceback(tmp_path, capsys) -> None:
     capsule_root = tmp_path / "capsule_internal_bug"
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "capsule.toml").write_text(
@@ -61,7 +61,7 @@ def test_root_list_cli_invalid_capsule_plugin_is_message_not_traceback(tmp_path,
         encoding="utf-8",
     )
 
-    rc = cli_main.main(["list", "models", "--capsule", str(capsule_root)])
+    rc = cli_main.main(["registries", "models", "--capsule", str(capsule_root)])
     assert rc == 1
     err = capsys.readouterr().err
     assert "capsule_internal_bug" in err
@@ -69,7 +69,7 @@ def test_root_list_cli_invalid_capsule_plugin_is_message_not_traceback(tmp_path,
     assert "Traceback" not in err
 
 
-def test_root_list_cli_reports_register_import_error_cleanly(tmp_path, capsys) -> None:
+def test_root_registries_cli_reports_register_import_error_cleanly(tmp_path, capsys) -> None:
     capsule_root = tmp_path / "capsule_missing_register"
     (capsule_root / "models").mkdir(parents=True)
     (capsule_root / "capsule.toml").write_text(
@@ -83,7 +83,7 @@ def test_root_list_cli_reports_register_import_error_cleanly(tmp_path, capsys) -
         encoding="utf-8",
     )
 
-    rc = cli_main.main(["list", "models", "--capsule", str(capsule_root)])
+    rc = cli_main.main(["registries", "models", "--capsule", str(capsule_root)])
     assert rc == 1
     err = capsys.readouterr().err
     assert "does not import 'register_model'" in err

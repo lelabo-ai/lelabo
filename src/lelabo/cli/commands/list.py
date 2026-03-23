@@ -27,8 +27,7 @@ LIST_HELP = """\
 List available LeLabo registries (update_rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks).
 
 Usage:
-  lelabo list [target] [--json]
-  lelabo ls [target] [--json]
+  lelabo registries [target] [--json]
 
 Targets:
   all        Show all registries (default)
@@ -43,13 +42,13 @@ Targets:
   callbacks  Show callback names
 
 Examples:
-  lelabo list
-  lelabo list update-rules
-  lelabo list datasets --json
-  lelabo list models --capsule my_capsule_alias
+  lelabo registries
+  lelabo registries update-rules
+  lelabo registries datasets --json
+  lelabo registries models --capsule my_capsule_alias
 
 Notes:
-  - `lelabo list` includes built-ins plus capsules visible from the current workspace.
+  - `lelabo registries` includes built-ins plus capsules visible from the current workspace.
   - Stored capsules do not affect registries until checkout or explicit `--capsule ...`.
   - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
@@ -115,7 +114,7 @@ def _normalized_target(raw: str) -> str:
     target = _TARGET_ALIASES.get(key)
     if target is None:
         raise ValueError(
-            "Unknown list target "
+            "Unknown registries target "
             f"'{raw}'. Use one of: all, update-rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks."
         )
     return target
@@ -242,7 +241,7 @@ def _list_json_payload(target: str, rows: dict[str, dict[str, Any]]) -> dict[str
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="lelabo list")
+    parser = argparse.ArgumentParser(prog="lelabo registries")
     parser.add_argument(
         "target",
         nargs="?",
@@ -257,11 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH_OR_ID",
         help="Load plugins from a capsule path or a stored capsule id/alias (repeatable)",
     )
-    parser.add_argument(
-        "--capsules-dir",
-        default=None,
-        help="Capsule store path used to resolve `--capsule <id_or_alias>`",
-    )
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     return parser
 
 

@@ -38,7 +38,7 @@ Uncomment `@register_callback("epoch_echo")`.
 
 How to test
 -----------
-lelabo list callbacks
+lelabo registries callbacks
 lelabo train supervised --config configs/train/supervised.detailed.toml --set callbacks.0.name=epoch_echo
 
 Common errors

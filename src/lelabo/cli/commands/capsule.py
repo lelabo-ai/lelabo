@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any, Sequence
@@ -25,7 +24,6 @@ from ...capsule.discovery import DiscoveredCapsule, discover_visible_capsules, d
 from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ..interactive_picker import pick_many_with_checkboxes
-from .push import run_push_command
 from ..ui import print_block, print_list_block, print_status
 from ...config.user_settings import load_effective_settings
 
@@ -42,7 +40,6 @@ Subcommands:
   stash      Move a local capsule into the local capsule store/cache
   checkout   Move a stored capsule back into a local workspace
   install    Import an external capsule bundle or GitHub repo into the local store
-  share      Transition alias for `lelabo push` (or export a local bundle)
   list       List visible capsules from the workspace and store
   show       Show one stored capsule entry
   remove     Remove one stored capsule entry (and files by default)
@@ -239,52 +236,6 @@ def _select_repo_capsules(
     return out
 
 
-def _resolve_share_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
-    if not capsule_ref:
-        active = find_active_capsule_root()
-        if active is None:
-            raise SystemExit("No active capsule found. Pass a capsule path/id or run inside a capsule directory.")
-        return active.resolve()
-
-    ref_path = Path(capsule_ref).expanduser()
-    if ref_path.exists():
-        start = ref_path.resolve()
-        if start.is_file():
-            start = start.parent
-        root = find_active_capsule_root(start=start)
-        if root is None:
-            raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
-        return root.resolve()
-
-    row = get_capsule(capsule_ref, caps_dir)
-    if row is None:
-        raise SystemExit(f"Unknown capsule '{capsule_ref}' (not found as path nor stored id/alias).")
-    root = Path(str(row.get("path", ""))).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"Capsule path does not exist on disk: {root}")
-    return root
-
-
-def _export_capsule_local_bundle(capsule_root: Path, *, out_path: Path | None) -> Path:
-    root = capsule_root.resolve()
-    if out_path is None:
-        out = (Path.cwd() / f"{root.name}.tar.gz").resolve()
-    else:
-        out = out_path.resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(out, mode="w:gz") as tf:
-        for p in sorted(root.rglob("*")):
-            rel = p.relative_to(root)
-            if ".git" in rel.parts:
-                continue
-            if "__pycache__" in rel.parts:
-                continue
-            if p.suffix in {".pyc", ".pyo"}:
-                continue
-            tf.add(p, arcname=f"{root.name}/{rel.as_posix()}")
-    return out
-
-
 def _cmd_init(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule init",
@@ -352,7 +303,7 @@ def _cmd_install(argv: list[str]) -> int:
         metavar="DEST",
         help="After install, checkout into DEST. If omitted, uses config default checkout directory.",
     )
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
@@ -617,7 +568,7 @@ def _cmd_attach(argv: list[str]) -> int:
         action="store_true",
         help="Replace existing registry entry when capsule id already exists",
     )
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
@@ -667,7 +618,7 @@ def _cmd_stash(argv: list[str]) -> int:
     parser.add_argument("source", nargs="?", default=None, help="Capsule root to stash (defaults to active capsule from cwd)")
     parser.add_argument("--alias", default=None, help="Optional alias inside the capsule store")
     parser.add_argument("--all", action="store_true", help="Stash all direct child capsule folders from SOURCE or '.'")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
@@ -735,7 +686,7 @@ def _cmd_checkout(argv: list[str]) -> int:
     )
     parser.add_argument("id_or_alias", help="Stored capsule id or alias to move back into a local workspace")
     parser.add_argument("destination", nargs="?", default=".", help="Parent directory where the capsule folder is recreated")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
@@ -783,7 +734,7 @@ def _cmd_list(argv: list[str]) -> int:
         prog="lelabo capsule list",
         description="List visible capsules from the workspace and local store.",
     )
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
@@ -829,7 +780,7 @@ def _cmd_show(argv: list[str]) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("id_or_alias", help="Stored capsule id or alias to inspect")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
@@ -856,7 +807,7 @@ def _cmd_remove(argv: list[str]) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("id_or_alias", help="Stored capsule id or alias to remove")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path")
+    parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--keep-files",
         action="store_true",
@@ -866,13 +817,13 @@ def _cmd_remove(argv: list[str]) -> int:
         "-r",
         action="store_true",
         dest="rm_recursive",
-        help="Used with -f as '-rf' to allow deleting capsule files outside cache.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-f",
         action="store_true",
         dest="rm_force",
-        help="Used with -r as '-rf' to allow deleting capsule files outside cache.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--force-external-delete",
@@ -914,83 +865,6 @@ def _cmd_remove(argv: list[str]) -> int:
     return 0
 
 
-def _cmd_share(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="lelabo capsule share",
-        description="Publish a capsule with `lelabo push`.",
-        epilog=(
-            "Examples:\n"
-            "  lelabo capsule share\n"
-            "  lelabo capsule share my_capsule_alias --owner owner --repo repo\n"
-            "  lelabo export my_capsule_alias --out ./my_capsule.tar.gz"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--mode", default="github", help=argparse.SUPPRESS)
-    parser.add_argument("--owner", default=None, help="GitHub owner override")
-    parser.add_argument("--repo", default=None, help="GitHub repository override")
-    parser.add_argument("--branch", default=None, help="Target git branch override")
-    vis = parser.add_mutually_exclusive_group()
-    vis.add_argument("--public", action="store_true", help="Create/share as a public repo")
-    vis.add_argument("--private", action="store_true", help="Create/share as a private repo")
-    parser.add_argument("--out", default=None, help=argparse.SUPPRESS)
-    parser.add_argument(
-        "--yes",
-        action="store_true",
-        help="Accept default publish setup answers non-interactively.",
-    )
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path (for capsule id/alias refs)")
-    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
-    args = parser.parse_args(argv)
-
-    if str(args.mode).strip().lower() != "github" or args.out is not None:
-        raise SystemExit("Local bundle export moved to `lelabo export`.")
-
-    settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    capsule_root = _resolve_share_capsule_root(args.capsule_ref, caps_dir=caps_dir)
-
-    forward_argv: list[str] = []
-    if args.capsule_ref is not None:
-        forward_argv.append(str(args.capsule_ref))
-    if args.owner:
-        forward_argv.extend(["--owner", str(args.owner)])
-    if args.repo:
-        forward_argv.extend(["--repo", str(args.repo)])
-    if args.branch:
-        forward_argv.extend(["--branch", str(args.branch)])
-    if bool(args.public):
-        forward_argv.append("--public")
-    if bool(args.private):
-        forward_argv.append("--private")
-    if bool(args.yes):
-        forward_argv.append("--yes")
-    if args.capsules_dir:
-        forward_argv.extend(["--capsules-dir", str(args.capsules_dir)])
-    if bool(args.json):
-        forward_argv.append("--json")
-
-    try:
-        _, push_payload = run_push_command(forward_argv, prog="lelabo capsule share")
-    except (RuntimeError, FileNotFoundError, ValueError) as exc:
-        raise SystemExit(str(exc))
-
-    if bool(args.json):
-        result = push_payload.get("result")
-        if result is None:
-            results = list(push_payload.get("results", []) or [])
-            result = results[0] if results else {}
-        _print_json(
-            {
-                "schema_version": CAPSULE_JSON_SCHEMA,
-                "command": "share",
-                "target": result.get("target_kind", "github"),
-                "result": result,
-            }
-        )
-    return 0
-
 def main(argv: Sequence[str]) -> int:
     args = list(argv)
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -1006,8 +880,6 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_install(rest)
     if cmd == "attach":
         return _cmd_attach(rest)
-    if cmd == "share":
-        return _cmd_share(rest)
     if cmd == "stash":
         return _cmd_stash(rest)
     if cmd == "checkout":
@@ -1021,6 +893,6 @@ def main(argv: Sequence[str]) -> int:
 
     raise SystemExit(
         f"Unknown capsule subcommand: {cmd}\n\n"
-        "Use one of: init, attach, stash, checkout, install, share, list, show, remove.\n"
+        "Use one of: init, attach, stash, checkout, install, list, show, remove.\n"
         "Run `lelabo capsule -h` for usage."
     )

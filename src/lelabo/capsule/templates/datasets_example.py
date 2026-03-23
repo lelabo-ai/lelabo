@@ -38,7 +38,7 @@ Uncomment `@register_dataset("example_mnist")`.
 
 How to test
 -----------
-lelabo list datasets
+lelabo registries datasets
 lelabo train supervised --dataset example_mnist --model mlp
 
 Common errors

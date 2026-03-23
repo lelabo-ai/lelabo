@@ -154,7 +154,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "Short appendix: secondary extension types" in extension_recipes
     assert "Core done criteria" in extension_recipes
     assert "Extra done criteria" in extension_recipes
-    assert "appears in `lelabo list" in extension_recipes
+    assert "appears in `lelabo registries" in extension_recipes
     assert "ModelContext" in lelabo_reference
     assert "OptimizerContext" in lelabo_reference
     assert "SchedulerContext" in lelabo_reference
@@ -323,11 +323,11 @@ def test_fresh_capsule_examples_do_not_pollute_plugin_listings(tmp_path, monkeyp
         rc = list_cli.main(["optimizers", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_sgd" not in payload["sources"]["capsule"]
+        assert payload["sources"]["capsules"] == {}
 
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "example_mlp" not in payload["sources"]["capsule"]
+        assert payload["sources"]["capsules"] == {}
     finally:
         plugins.reset_capsule_plugin_cache()

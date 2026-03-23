@@ -20,7 +20,7 @@ contracts.
   - `optimizers/`
   - `schedulers/`
   - `callbacks/`
-- A plugin appears in `lelabo list ...` only after its `@register_*` decorator is uncommented.
+- A plugin appears in `lelabo registries ...` only after its `@register_*` decorator is uncommented.
 - If the file imports fail, the plugin will not load.
 - Helper/reference files are allowed, but only registered plugins are exposed.
 
@@ -225,7 +225,7 @@ Important rules:
 
 ## Common real causes of failure
 
-- Plugin missing from `lelabo list`
+- Plugin missing from `lelabo registries`
   - decorator still commented
   - import error in the plugin file
   - wrong folder

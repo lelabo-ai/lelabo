@@ -13,9 +13,6 @@ from ...capsule import get_capsule, inspect_capsule_directory, install_capsule_f
 from ...capsule.discovery import (
     DiscoveredCapsule,
     discover_visible_capsules,
-    discover_workspace_capsules,
-    find_capsule_root,
-    is_capsule_root,
 )
 from ...capsule.publish import (
     create_repo,
@@ -27,11 +24,13 @@ from ...capsule.publish import (
     list_global_targets,
     load_publish_state,
     remove_configured_target,
+    remove_global_target,
     remove_target_repo_capsule,
     repo_exists,
     save_configured_target,
     save_global_target,
     set_default_target,
+    unset_default_target,
 )
 from ...config.user_settings import load_effective_settings
 from ..interactive_picker import pick_many_with_checkboxes
@@ -55,8 +54,7 @@ Usage:
 Subcommands:
   list         List configured GitHub targets
   create       Create or register one shared GitHub target
-  attach       Attach one capsule to an existing or new GitHub target
-  edit         Edit target attachments and defaults
+  edit         Edit one target and its attached capsules
   detach       Detach one capsule from a configured GitHub target
 """
 
@@ -147,36 +145,29 @@ def _pick_capsule_root(candidates: Sequence[DiscoveredCapsule], *, title: str, c
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None, purpose: str) -> Path:
-    if not capsule_ref:
-        candidates = list(discover_workspace_capsules(start=Path.cwd()))
-        if len(candidates) == 1:
-            return candidates[0].root
-        if not candidates:
-            raise SystemExit("No capsule found in the current workspace. Pass a capsule path/id or create a capsule under this directory.")
-        if _is_interactive_tty():
-            return _pick_capsule_root(candidates, title="Select capsule", cancel_message=f"{purpose} canceled by user.")
-        names = ", ".join(item.capsule_id for item in candidates)
-        raise SystemExit(f"Multiple capsules found in the current workspace: {names}. Pass a capsule path/id.")
+    token = str(capsule_ref or "").strip()
+    if not token:
+        raise SystemExit(f"Missing capsule. Use `lelabo targets {purpose.lower()} <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
+    if "/" in token or token.startswith("."):
+        raise SystemExit(
+            f"Local paths are not accepted by `lelabo targets {purpose.lower()}` in v1. "
+            "Pass a capsule id or alias from `lelabo capsule list`."
+        )
 
-    ref_path = Path(capsule_ref).expanduser()
-    if ref_path.exists():
-        start = ref_path.resolve()
-        if start.is_file():
-            start = start.parent
-        root = find_capsule_root(start=start)
-        if root is None and is_capsule_root(start):
-            root = start
-        if root is None:
-            raise SystemExit(f"Path '{capsule_ref}' is not inside a capsule (missing capsule.toml).")
-        return root.resolve()
+    visible = [
+        item
+        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
+        if item.capsule_id == token or token in set(item.aliases)
+    ]
+    if len(visible) == 1:
+        return visible[0].root
+    if len(visible) > 1:
+        matches = ", ".join(item.path for item in visible)
+        raise SystemExit(f"Capsule '{token}' is ambiguous across: {matches}")
 
-    local_candidate = (Path.cwd() / str(capsule_ref)).resolve()
-    if is_capsule_root(local_candidate):
-        return local_candidate
-
-    row = get_capsule(capsule_ref, caps_dir)
+    row = get_capsule(token, caps_dir)
     if row is None:
-        raise SystemExit(f"Unknown capsule '{capsule_ref}' (not found as path nor stored id/alias).")
+        raise SystemExit(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
     root = Path(str(row.get("path", ""))).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise SystemExit(f"Capsule path does not exist on disk: {root}")
@@ -307,25 +298,14 @@ def _print_capsule_context(capsule_root: Path) -> None:
     )
 
 
-def _resolve_visible_capsule_root(*, caps_dir: Path | None, purpose: str) -> Path:
-    candidates = list(discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir))
-    if len(candidates) == 1:
-        return candidates[0].root
-    if not candidates:
-        raise SystemExit("No capsule found in the current workspace or store.")
-    if not _is_interactive_tty():
-        names = ", ".join(item.capsule_id for item in candidates)
-        raise SystemExit(f"Multiple capsules are available: {names}. Pass a capsule path/id.")
-    token = _pick_one(
-        "Select capsule",
-        "Select one capsule.",
-        [(str(item.root), f"{item.capsule_id} | path: {item.path}") for item in candidates],
-        cancel_message=f"{purpose} canceled by user.",
+def _print_target_context(group: dict[str, Any]) -> None:
+    print_block(
+        "GitHub target",
+        (
+            ("target", _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))),
+            ("capsules", ", ".join(list(group.get("capsules", []))) or "-"),
+        ),
     )
-    for item in candidates:
-        if str(item.root) == token:
-            return item.root
-    raise SystemExit(f"{purpose} canceled by user.")
 
 
 def _configured_target_rows(*, capsule_root: Path | None = None) -> list[dict[str, Any]]:
@@ -368,7 +348,7 @@ def _configured_target_rows(*, capsule_root: Path | None = None) -> list[dict[st
             row["name"] = str(name)
             row["capsule_path"] = str(root)
             row["capsule_id"] = capsule_id
-            row["default"] = str(entry.get("default_target") or "") == str(name)
+            row["default"] = str(name) in set(str(item).strip() for item in list(entry.get("default_targets", []) or []))
             row["last_used"] = str(entry.get("last_used_target") or "") == str(name)
             rows.append(row)
     rows.sort(
@@ -501,6 +481,12 @@ def _resolve_repo_group(repo_ref: str | None, capsule_ref: str | None, *, caps_d
     if token:
         owner, repo = _parse_repo_full_name(token)
         matches = [group for group in groups if str(group.get("owner")) == owner and str(group.get("repo")) == repo]
+        if not matches and capsule_ref:
+            matches = [
+                group
+                for group in _group_repo_rows(_configured_target_rows(capsule_root=None), include_unattached=True)
+                if str(group.get("owner")) == owner and str(group.get("repo")) == repo
+            ]
         if len(matches) == 1:
             return matches[0]
         raise SystemExit(f"Unknown configured GitHub target '{owner}/{repo}'.")
@@ -688,7 +674,7 @@ def _attach_capsule_to_target(
     capsule_id = str(info.get("capsule_id", capsule_root.name)).strip() or capsule_root.name
     existing_targets = [item for item in list_configured_targets(capsule_root) if str(item.get("kind", "")).strip() == "github"]
     folder = _prompt_with_default("Folder", capsule_id)
-    set_default = _confirm("Set as default target?", default=make_default_default)
+    set_default = _confirm("Use this as a default target for this capsule?", default=make_default_default)
     target = _build_target_payload(
         capsule_root=capsule_root,
         existing_targets=existing_targets,
@@ -707,7 +693,7 @@ def _attach_capsule_to_target(
                 ("default", set_default),
             ),
         )
-    question = "Save target?" if persist else "Use this target in preview?"
+    question = "Attach this capsule to this target?" if persist else "Use this target in preview?"
     if not _confirm(question, default=True):
         raise SystemExit("Target setup canceled by user.")
     if persist:
@@ -831,12 +817,11 @@ def _cmd_list(argv: list[str]) -> int:
         prog="lelabo targets list",
         description="List configured GitHub targets.",
     )
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule id or alias")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    caps_dir = _resolved_capsules_dir(None, settings)
     capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target listing") if args.capsule_ref else None
     groups = _group_repo_rows(_configured_target_rows(capsule_root=capsule_root), include_unattached=capsule_root is None)
     if bool(args.json):
@@ -902,93 +887,31 @@ def _cmd_create(argv: list[str]) -> int:
     return 0
 
 
-def _cmd_attach(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="lelabo targets attach",
-        description="Attach one capsule to an existing or new GitHub target.",
-    )
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--target", default=None, help="GitHub target as owner/repo")
-    vis = parser.add_mutually_exclusive_group()
-    vis.add_argument("--public", action="store_true", help="Use public visibility for a new target")
-    vis.add_argument("--private", action="store_true", help="Use private visibility for a new target")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
-    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
-    args = parser.parse_args(argv)
-
-    settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target attach")
-    visibility = "public" if bool(args.public) else "private" if bool(args.private) else None
-    owner_override, repo_override = (None, None)
-    if args.target:
-        owner_override, repo_override = _parse_repo_full_name(args.target)
-    target = configure_github_target_for_capsule(
-        capsule_root,
-        settings=settings,
-        persist=True,
-        owner_override=owner_override,
-        repo_override=repo_override,
-        visibility_override=visibility,
-        make_default_default=True,
-        create_remote_repo=True,
-        show_summary=not bool(args.json),
-    )
-    if bool(args.json):
-        _print_json(
-            {
-                "schema_version": TARGET_JSON_SCHEMA,
-                "command": "attach",
-                "capsule_path": str(capsule_root),
-                "target": target,
-            }
-        )
-    else:
-        print_status("success", "Publish target attached.")
-        print_block(
-            "Target",
-            (
-                ("name", target.get("name")),
-                ("kind", target.get("kind")),
-                ("target", _repo_label(str(target.get("owner", "")), str(target.get("repo", "")))),
-                ("branch", target.get("branch")),
-                ("folder", target.get("path")),
-                ("default", target.get("default")),
-            ),
-        )
-    return 0
-
-
 def _cmd_edit(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo targets edit",
-        description="Edit target attachments and defaults.",
+        description="Edit one target, its attached capsules, and its default-target state.",
     )
     parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias to filter targets")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule id or alias")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    caps_dir = _resolved_capsules_dir(None, settings)
     group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Target edit")
     if not bool(args.json):
-        print_block(
-            "GitHub target",
-            (
-                ("target", _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))),
-                ("capsules", ", ".join(list(group.get("capsules", []))) or "-"),
-            ),
-        )
+        _print_target_context(group)
     action = _pick_one(
         "Edit target",
         "Choose one action for this target.",
         (
-            ("default", "Set default target for a capsule"),
-            ("attach", "Attach local capsule to this target"),
+            ("attach", "Attach capsule to this target"),
+            ("default-add", "Add to default targets for a capsule"),
+            ("default-remove", "Remove from default targets for a capsule"),
             ("detach", "Detach capsule"),
             ("remove-remote", "Remove capsule from target repo"),
-            ("import", "Import capsule from this target repo"),
+            ("import", "Import capsule from target repo"),
+            ("delete-target", "Delete target"),
             (_REPO_ACTION_CANCEL, "Cancel"),
         ),
         cancel_message="Target edit canceled by user.",
@@ -1008,15 +931,18 @@ def _cmd_edit(argv: list[str]) -> int:
     }
 
     if action == "attach":
-        capsule_root = _resolve_visible_capsule_root(caps_dir=caps_dir, purpose="Target edit")
+        if not args.capsule_ref:
+            raise SystemExit("Missing capsule. Use `lelabo targets edit <owner/repo> <capsule>`, then choose 'Attach capsule to this target'.")
+        capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="edit")
         if not bool(args.json):
+            _print_target_context(group)
             _print_capsule_context(capsule_root)
         target = _attach_capsule_to_target(
             capsule_root,
             selected_target=target_repo,
             settings=settings,
             persist=True,
-            make_default_default=False,
+            make_default_default=True,
             show_summary=not bool(args.json),
         )
         selected = {
@@ -1028,17 +954,25 @@ def _cmd_edit(argv: list[str]) -> int:
         command_name = "edit-attach"
         success_message = "Capsule attached to target."
     elif action == "import":
+        if not bool(args.json):
+            _print_target_context(group)
         repo_capsules = inspect_target_repo_capsules(target_repo)
         imported = _pick_repo_capsule(repo_capsules, title="Select target repo capsule", cancel_message="Target edit canceled by user.")
-        entry = install_capsule_from_directory(
-            source_dir=Path(str(imported.get("root", ""))).expanduser().resolve(),
-            capsules_dir=caps_dir,
-            source_meta={
-                "type": "github_repo",
-                "target": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
-                "folder": str(imported.get("folder", "")),
-            },
-        )
+        try:
+            entry = install_capsule_from_directory(
+                source_dir=Path(str(imported.get("root", ""))).expanduser().resolve(),
+                capsules_dir=caps_dir,
+                source_meta={
+                    "type": "github_repo",
+                    "path": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
+                    "target": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
+                    "folder": str(imported.get("folder", "")),
+                },
+            )
+        except Exception as exc:
+            raise SystemExit(
+                f"Failed to import capsule from {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}.\n{exc}"
+            ) from exc
         target = {
             "owner": group.get("owner"),
             "repo": group.get("repo"),
@@ -1053,23 +987,64 @@ def _cmd_edit(argv: list[str]) -> int:
         }
         command_name = "edit-import"
         success_message = "Capsule imported from target repo."
+    elif action == "delete-target":
+        if not bool(args.json):
+            _print_target_context(group)
+        target_name = _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))
+        capsules = ", ".join(list(group.get("capsules", []))) or "-"
+        if not _confirm(f"Delete local target {target_name}? Attached capsules: {capsules}.", default=False):
+            raise SystemExit("Target edit canceled by user.")
+        try:
+            target = remove_global_target(
+                owner=str(group.get("owner", "")).strip(),
+                repo=str(group.get("repo", "")).strip(),
+                kind=str(group.get("kind", "")).strip() or "github",
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        selected = {
+            "capsule_id": capsules,
+            "owner": group.get("owner"),
+            "repo": group.get("repo"),
+            "path": "-",
+        }
+        command_name = "edit-delete-target"
+        success_message = "Target deleted from local catalog."
     else:
         attachments = list(group.get("attachments", []))
         if not attachments:
             raise SystemExit("No capsule is attached to this target.")
+        if not bool(args.json):
+            _print_target_context(group)
+        if args.capsule_ref:
+            filter_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="edit")
+            attachments = [
+                row for row in attachments if Path(str(row.get("capsule_path", ""))).expanduser().resolve() == filter_root
+            ]
+            if not attachments:
+                raise SystemExit(
+                    f"Capsule '{_capsule_id_for_path(filter_root)}' is not attached to {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}."
+                )
         selected = _pick_attachment(
             attachments,
             title="Select capsule",
             cancel_message="Target edit canceled by user.",
         )
         capsule_root = Path(str(selected.get("capsule_path", ""))).expanduser().resolve()
-        if action == "default":
+        if action == "default-add":
             try:
                 target = set_default_target(capsule_root, str(selected.get("name", "")))
             except ValueError as exc:
                 raise SystemExit(str(exc))
-            command_name = "edit-default"
-            success_message = "Default target updated."
+            command_name = "edit-default-add"
+            success_message = "Default targets updated."
+        elif action == "default-remove":
+            try:
+                target = unset_default_target(capsule_root, str(selected.get("name", "")))
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            command_name = "edit-default-remove"
+            success_message = "Default targets updated."
         elif action == "detach":
             try:
                 target = remove_configured_target(capsule_root, str(selected.get("name", "")))
@@ -1078,7 +1053,10 @@ def _cmd_edit(argv: list[str]) -> int:
             command_name = "edit-detach"
             success_message = "Capsule detached from target."
         elif action == "remove-remote":
-            if not _confirm(f"Remove this capsule from {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}?", default=False):
+            if not _confirm(
+                f"Remove {selected.get('capsule_id')} from {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}?",
+                default=False,
+            ):
                 raise SystemExit("Target edit canceled by user.")
             try:
                 removed = remove_target_repo_capsule(target=target_repo, folder=str(selected.get("path", "")))
@@ -1134,12 +1112,13 @@ def _cmd_detach(argv: list[str]) -> int:
         description="Detach one capsule from a configured GitHub target.",
     )
     parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Capsule id or alias")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
+    if not str(args.capsule_ref or "").strip():
+        raise SystemExit("Missing capsule. Use `lelabo targets detach <target> <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
     settings = _effective_settings()
-    caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
+    caps_dir = _resolved_capsules_dir(None, settings)
     group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Target detach")
     attachments = list(group.get("attachments", []))
     if args.capsule_ref:
@@ -1191,15 +1170,13 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_list(rest)
     if cmd == "create":
         return _cmd_create(rest)
-    if cmd == "attach":
-        return _cmd_attach(rest)
     if cmd == "edit":
         return _cmd_edit(rest)
     if cmd == "detach":
         return _cmd_detach(rest)
     raise SystemExit(
         f"Unknown targets subcommand: {cmd}\n\n"
-        "Use one of: list, create, attach, edit, detach.\n"
+        "Use one of: list, create, edit, detach.\n"
         "Run `lelabo targets -h` for usage."
     )
 

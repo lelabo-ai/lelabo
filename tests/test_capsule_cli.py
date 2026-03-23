@@ -912,106 +912,11 @@ def test_capsule_cli_install_github_repo_interactive_picker_is_used(tmp_path, mo
     assert payload["capsule"]["capsule_id"] == "cap_b"
 
 
-def test_capsule_cli_share_forwards_to_push_backend(tmp_path, monkeypatch, capsys) -> None:
-    workspace = tmp_path / "share_repo"
-    workspace.mkdir()
-    capsule_root = capsule_create.create_capsule_scaffold(
-        capsule_name="share_capsule",
-        base_dir=workspace,
-        register=False,
-    )
-    monkeypatch.chdir(workspace)
-    monkeypatch.setattr(capsule_cli, "find_active_capsule_root", lambda start=None: capsule_root)
-
-    calls: list[list[str]] = []
-
-    def _fake_run_push(argv, *, prog="lelabo push"):
-        calls.append(list(argv))
-        return 0, {
-            "schema_version": "lelabo.cli.push/v1",
-            "command": "push",
-            "capsule": {"capsule_id": "share_capsule", "path": str(capsule_root)},
-            "result": {
-                "target_name": "github",
-                "target_kind": "github",
-                "owner": "acme",
-                "repo": "demo",
-                "branch": "main",
-                "pushed": True,
-            },
-        }
-
-    monkeypatch.setattr(capsule_cli, "run_push_command", _fake_run_push)
-
-    rc = capsule_cli.main(["share", "--owner", "acme", "--repo", "demo", "--branch", "main", "--public", "--yes", "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == "lelabo.cli.capsule/v1"
-    assert payload["command"] == "share"
-    assert payload["target"] == "github"
-    assert payload["result"]["owner"] == "acme"
-    assert calls == [[
-        "--owner",
-        "acme",
-        "--repo",
-        "demo",
-        "--branch",
-        "main",
-        "--public",
-        "--yes",
-        "--json",
-    ]]
-
-
-def test_capsule_cli_share_local_is_redirected_to_export(tmp_path, monkeypatch) -> None:
-    capsule_root = capsule_create.create_capsule_scaffold(
-        capsule_name="local_share_capsule",
-        base_dir=tmp_path,
-        register=False,
-    )
-    monkeypatch.chdir(capsule_root)
-
+def test_capsule_cli_share_is_unknown() -> None:
     with pytest.raises(SystemExit) as exc:
-        capsule_cli.main(["share", "--mode", "local", "--json"])
+        capsule_cli.main(["share"])
 
-    assert "Local bundle export moved to `lelabo export`." in str(exc.value)
-
-
-def test_capsule_cli_share_accepts_capsule_name_from_workspace(tmp_path, monkeypatch, capsys) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    capsule_create.create_capsule_scaffold(
-        capsule_name="caps_a",
-        base_dir=workspace,
-        register=False,
-    )
-    monkeypatch.chdir(workspace)
-
-    calls: list[list[str]] = []
-
-    def _fake_run_push(argv, *, prog="lelabo push"):
-        calls.append(list(argv))
-        return 0, {
-            "schema_version": "lelabo.cli.push/v1",
-            "command": "push",
-            "capsule": {"capsule_id": "caps_a", "path": str(workspace / "caps_a")},
-            "result": {
-                "target_name": "github",
-                "target_kind": "github",
-                "owner": "acme",
-                "repo": "caps_a_repo",
-                "branch": "main",
-                "pushed": True,
-            },
-        }
-
-    monkeypatch.setattr(capsule_cli, "run_push_command", _fake_run_push)
-
-    rc = capsule_cli.main(["share", "caps_a", "--owner", "acme", "--repo", "caps_a_repo", "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["target"] == "github"
-    assert calls == [["caps_a", "--owner", "acme", "--repo", "caps_a_repo", "--json"]]
+    assert "Unknown capsule subcommand: share" in str(exc.value)
 
 
 def test_capsule_cli_uses_store_dir_from_settings_when_capsules_dir_not_provided(
