@@ -41,7 +41,7 @@ Uncomment `@register_scheduler("my_cosine")`.
 
 How to test
 -----------
-lelabo registries schedulers
+lelabo list schedulers
 lelabo train supervised --config configs/train/supervised.detailed.toml --scheduler my_cosine
 
 Common errors

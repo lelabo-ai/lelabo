@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -29,6 +30,7 @@ from ...capsule.discovery import (
 )
 from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
+from ...capsule.registry import default_capsules_dir, remove_capsule_entry
 from ..interactive_picker import pick_many_with_checkboxes
 from ..ui import print_block, print_list_block, print_status
 from ...config.user_settings import load_effective_settings
@@ -48,7 +50,7 @@ Subcommands:
   install    Import an external capsule bundle or GitHub repo into the local store
   list       List visible capsules from the workspace and store
   show       Show one visible capsule entry
-  remove     Remove one stored capsule entry (and files by default)
+  remove     Remove one visible capsule entry (and files by default)
 
 Help:
   lelabo capsule -h
@@ -181,6 +183,45 @@ def _looks_like_remote_source(raw: str) -> bool:
 
 def _is_interactive_tty() -> bool:
     return bool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _confirm(question: str, *, default: bool = False) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = input(f"{question} {suffix}: ").strip().lower()
+    if not answer:
+        return bool(default)
+    return answer in {"y", "yes"}
+
+
+def _stored_capsule_entry_for_root(root: Path, caps_dir: Path | None) -> dict[str, Any] | None:
+    resolved = root.expanduser().resolve()
+    for row in list_capsules(caps_dir):
+        raw_path = str(row.get("path", "")).strip()
+        if not raw_path:
+            continue
+        try:
+            candidate = Path(raw_path).expanduser().resolve()
+        except OSError:
+            continue
+        if candidate == resolved:
+            return dict(row)
+    return None
+
+
+def _delete_capsule_path(capsule_path: Path, *, caps_dir: Path | None) -> bool:
+    resolved = capsule_path.expanduser().resolve()
+    store_root = (caps_dir or default_capsules_dir()).expanduser().resolve()
+    if resolved == store_root:
+        raise SystemExit(f"Refusing to delete capsules store root '{store_root}'.")
+    if resolved == Path(resolved.anchor):
+        raise SystemExit(f"Refusing to delete filesystem root path: {resolved}")
+    if resolved.is_dir():
+        shutil.rmtree(resolved)
+        return True
+    if resolved.exists():
+        resolved.unlink()
+        return True
+    return False
 
 
 def _select_repo_capsules(
@@ -842,65 +883,103 @@ def _cmd_show(argv: list[str]) -> int:
 def _cmd_remove(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule remove",
-        description="Remove one stored capsule entry from the local capsule store.",
-        epilog="Examples:\n  lelabo capsule remove my_capsule\n  lelabo capsule remove my_capsule --keep-files",
+        description="Remove one visible capsule from the workspace or local store.",
+        epilog=(
+            "Examples:\n"
+            "  lelabo capsule remove my_capsule\n"
+            "  lelabo capsule remove ./my_capsule\n"
+            "  lelabo capsule remove my_capsule --keep-files"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("id_or_alias", help="Stored capsule id or alias to remove")
+    parser.add_argument("id_or_alias", help="Visible capsule id, alias, or local capsule path to remove")
     parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--keep-files",
         action="store_true",
         help="Only remove from capsule registry, keep capsule files on disk",
     )
-    parser.add_argument(
-        "-r",
-        action="store_true",
-        dest="rm_recursive",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "-f",
-        action="store_true",
-        dest="rm_force",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--force-external-delete",
-        action="store_true",
-        help="Allow deleting capsule files even when stored outside capsules cache.",
-    )
+    parser.add_argument("--yes", action="store_true", help="Accept deletion confirmations non-interactively")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    allow_external_delete = bool(args.force_external_delete or (args.rm_recursive and args.rm_force))
-    if (args.rm_recursive or args.rm_force) and not allow_external_delete:
-        raise SystemExit("Use '-rf' together to allow external capsule deletion.")
-
     try:
-        removed = remove_capsule(
-            capsule_or_alias=args.id_or_alias,
+        visible = resolve_visible_capsule_ref(
+            args.id_or_alias,
+            start=Path.cwd(),
             capsules_dir=caps_dir,
-            delete_files=not bool(args.keep_files),
-            allow_external_delete=allow_external_delete,
+            command="lelabo capsule remove",
+            usage="lelabo capsule remove <capsule>",
         )
     except ValueError as exc:
-        raise SystemExit(str(exc))
+        raise SystemExit(str(exc)) from exc
+
+    stored_entry = _stored_capsule_entry_for_root(visible.root, caps_dir)
+    removed: dict[str, Any]
+    if visible.status == "store" and stored_entry is not None:
+        try:
+            removed = remove_capsule(
+                capsule_or_alias=str(stored_entry.get("capsule_id", visible.capsule_id)),
+                capsules_dir=caps_dir,
+                delete_files=not bool(args.keep_files),
+                allow_external_delete=False,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        removed["status"] = visible.status
+    else:
+        if bool(args.keep_files):
+            if stored_entry is None:
+                raise SystemExit(
+                    "`--keep-files` only applies to stored or attached capsules that have a local registry entry."
+                )
+            try:
+                removed = remove_capsule_entry(str(stored_entry.get("capsule_id", visible.capsule_id)), caps_dir)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            deleted_files = False
+        else:
+            question = (
+                f"This will delete capsule files outside the local store: {visible.path}. Continue?"
+            )
+            if not bool(args.yes):
+                if not _is_interactive_tty():
+                    raise SystemExit(
+                        "Removing a workspace or external capsule deletes files outside the local store. "
+                        "Re-run with `--yes` or use an interactive terminal to confirm."
+                    )
+                if not _confirm(question, default=False):
+                    raise SystemExit("Capsule removal canceled by user.")
+            deleted_files = _delete_capsule_path(visible.root, caps_dir=caps_dir)
+            if stored_entry is not None:
+                try:
+                    removed = remove_capsule_entry(str(stored_entry.get("capsule_id", visible.capsule_id)), caps_dir)
+                except ValueError as exc:
+                    raise SystemExit(str(exc)) from exc
+            else:
+                removed = {
+                    "capsule_id": visible.capsule_id,
+                    "aliases": list(visible.aliases),
+                    "path": visible.path,
+                }
+        removed["deleted_files"] = bool(deleted_files)
+        removed["delete_files_requested"] = not bool(args.keep_files)
+        removed["status"] = visible.status
 
     if bool(args.json):
         _print_json(
             _capsule_command_json(
                 "remove",
                 removed,
-                result_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
+                result_fields=("deleted_files", "delete_files_requested"),
             )
         )
     else:
         _print_action_block(
             "Removed capsule",
             removed,
-            extra_fields=("deleted_files", "delete_files_requested", "allow_external_delete"),
+            extra_fields=("deleted_files", "delete_files_requested"),
         )
     return 0
 

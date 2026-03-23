@@ -128,7 +128,7 @@ def test_root_help_prints_and_returns_zero(capsys) -> None:
     assert "LeLabo command-line interface" in out
     assert "train" in out
     assert "audit" in out
-    assert "registries" in out
+    assert "list" in out
     assert "capsule" in out
 
 
@@ -181,15 +181,15 @@ def test_audit_help_is_dispatched_to_audit_cli(monkeypatch) -> None:
     assert seen["argv"] == ["-h"]
 
 
-def test_registries_help_is_dispatched_to_registries_cli(monkeypatch) -> None:
+def test_list_help_is_dispatched_to_list_cli(monkeypatch) -> None:
     seen = {}
 
-    def _fake_run_registries(argv):
+    def _fake_run_list(argv):
         seen["argv"] = list(argv)
         return 0
 
-    monkeypatch.setattr(cli_main, "_run_registries_cli", _fake_run_registries)
-    rc = cli_main.main(["registries", "-h"])
+    monkeypatch.setattr(cli_main, "_run_list_cli", _fake_run_list)
+    rc = cli_main.main(["list", "-h"])
     assert rc == 0
     assert seen["argv"] == ["--help"]
 

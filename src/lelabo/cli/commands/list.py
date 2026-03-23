@@ -27,7 +27,7 @@ LIST_HELP = """\
 List available LeLabo registries (update_rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks).
 
 Usage:
-  lelabo registries [target] [--json]
+  lelabo list [target] [--json]
 
 Targets:
   all        Show all registries (default)
@@ -42,13 +42,13 @@ Targets:
   callbacks  Show callback names
 
 Examples:
-  lelabo registries
-  lelabo registries update-rules
-  lelabo registries datasets --json
-  lelabo registries models --capsule my_capsule_alias
+  lelabo list
+  lelabo list update-rules
+  lelabo list datasets --json
+  lelabo list models --capsule my_capsule_alias
 
 Notes:
-  - `lelabo registries` includes built-ins plus capsules visible from the current workspace.
+  - `lelabo list` includes built-ins plus capsules visible from the current workspace.
   - Stored capsules do not affect registries until checkout or explicit `--capsule ...`.
   - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
@@ -114,7 +114,7 @@ def _normalized_target(raw: str) -> str:
     target = _TARGET_ALIASES.get(key)
     if target is None:
         raise ValueError(
-            "Unknown registries target "
+            "Unknown list target "
             f"'{raw}'. Use one of: all, update-rules, datasets, models, initializers, optimizers, losses, metrics, schedulers, callbacks."
         )
     return target
@@ -241,7 +241,7 @@ def _list_json_payload(target: str, rows: dict[str, dict[str, Any]]) -> dict[str
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="lelabo registries")
+    parser = argparse.ArgumentParser(prog="lelabo list")
     parser.add_argument(
         "target",
         nargs="?",

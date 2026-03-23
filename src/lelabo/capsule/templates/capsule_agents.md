@@ -9,7 +9,7 @@ LeLabo internals.
 ## Official first path
 
 1. Uncomment `@register_optimizer("capsule_sgd")` in `optimizers/example.py`
-2. Run `lelabo registries optimizers`
+2. Run `lelabo list optimizers`
 3. Run `lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml`
 4. Run `pytest -q tests`
 
@@ -75,7 +75,7 @@ pytest -q tests
 ```
 
 ```bash
-lelabo registries optimizers
+lelabo list optimizers
 ```
 
 ```bash
@@ -85,11 +85,11 @@ lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 Useful follow-up commands:
 
 ```bash
-lelabo registries models
+lelabo list models
 ```
 
 ```bash
-lelabo registries update-rules
+lelabo list update-rules
 ```
 
 ```bash
@@ -98,7 +98,7 @@ lelabo train supervised --config configs/train/supervised.paper_pack.toml
 
 ## Common failure modes
 
-- Plugin does not appear in `lelabo registries`
+- Plugin does not appear in `lelabo list`
   The `@register_*` line is still commented, or the file has an import error.
 
 - Params look missing at runtime

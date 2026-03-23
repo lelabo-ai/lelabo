@@ -37,7 +37,7 @@ Uncomment `@register_metric("example_error_rate", kind="classification")`.
 
 How to test
 -----------
-lelabo registries metrics
+lelabo list metrics
 lelabo train supervised --config configs/train/supervised.detailed.toml --metrics example_error_rate
 
 Common errors

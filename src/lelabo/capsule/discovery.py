@@ -235,6 +235,33 @@ def _candidate_visible_capsule_for_path(
     return None
 
 
+def _capsule_from_local_path(
+    token: str,
+    *,
+    start: Path | None = None,
+    capsules_dir: Path | None = None,
+) -> DiscoveredCapsule | None:
+    raw = str(token).strip()
+    if not raw:
+        return None
+    base = (start or Path.cwd()).expanduser().resolve()
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+    capsule_root = find_capsule_root(resolved)
+    if capsule_root is None:
+        return None
+    capsule_root = capsule_root.expanduser().resolve()
+    for item in discover_visible_capsules(start=start, capsules_dir=capsules_dir):
+        if item.root == capsule_root:
+            return item
+    return _workspace_entry(capsule_root)
+
+
 def resolve_visible_capsule_ref(
     capsule_ref: str | None,
     *,
@@ -249,16 +276,10 @@ def resolve_visible_capsule_ref(
             f"Missing capsule. Use `{usage}`. Run `lelabo capsule list` to inspect available capsules."
         )
     if _looks_like_local_path(token):
-        suggested = _candidate_visible_capsule_for_path(token, start=start, capsules_dir=capsules_dir)
-        if suggested is not None:
-            raise ValueError(
-                f"Local paths are not accepted by `{command}` in v1. "
-                f"Use `{command} {suggested.capsule_id}`."
-            )
-        raise ValueError(
-            f"Local paths are not accepted by `{command}` in v1. "
-            "Pass a capsule id or alias from `lelabo capsule list`."
-        )
+        resolved = _capsule_from_local_path(token, start=start, capsules_dir=capsules_dir)
+        if resolved is not None:
+            return resolved
+        raise ValueError(f"Path '{token}' is not inside a capsule (missing capsule.toml or manifest.json).")
 
     visible = [
         item

@@ -31,9 +31,9 @@ Usage:
   lelabo push <capsule> [--target NAME] [--all-targets] [-m MESSAGE] [--preview] [--yes] [--json]
 
 Notes:
-  - pass a capsule id or alias from `lelabo capsule list`
+  - pass a visible capsule id/alias from `lelabo capsule list`
+  - local capsule paths are also accepted, e.g. `./my_capsule`
   - `lelabo push` publishes to saved remote targets
-  - local filesystem paths are not accepted by `lelabo push` in v1
   - use `lelabo export` for local exports
 """
 
@@ -173,7 +173,7 @@ def push_capsule(
         if not targets:
             raise SystemExit(
                 "No publish target is configured for this capsule. "
-                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets edit <owner/repo>`."
+                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets attach <owner/repo> <capsule>`."
             )
         chosen = targets
     elif target_name:
@@ -201,7 +201,7 @@ def push_capsule(
         elif not targets:
             raise SystemExit(
                 "No publish target is configured for this capsule. "
-                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets edit <owner/repo>`."
+                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets attach <owner/repo> <capsule>`."
             )
         else:
             if assume_yes and len(targets) == 1:
@@ -250,12 +250,13 @@ def _build_parser(*, prog: str) -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             f"  {prog} my_capsule\n"
+            f"  {prog} ./my_capsule\n"
             f"  {prog} my_capsule --target github\n"
             f"  {prog} my_capsule --all-targets --preview"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Capsule id or alias")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Visible capsule id, alias, or local capsule path")
     parser.add_argument("--target", default=None, help="Publish target name")
     parser.add_argument("--all-targets", action="store_true", help="Publish to all configured targets")
     parser.add_argument("-m", "--message", default=None, help="Commit message (defaults to `Update <capsule_id>`)")

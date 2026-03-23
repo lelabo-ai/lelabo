@@ -40,7 +40,7 @@ def test_push_cli_requires_explicit_capsule_ref() -> None:
     assert "Missing capsule. Use `lelabo push <capsule>`." in str(exc.value)
 
 
-def test_push_cli_rejects_local_path_with_actionable_capsule_id(tmp_path, monkeypatch) -> None:
+def test_push_cli_accepts_local_path(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_path_push"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -50,11 +50,32 @@ def test_push_cli_rejects_local_path_with_actionable_capsule_id(tmp_path, monkey
     )
     monkeypatch.chdir(workspace)
 
-    with pytest.raises(SystemExit) as exc:
-        push_cli.main([f"./{capsule_root.name}"])
+    monkeypatch.setattr(
+        push_cli,
+        "available_targets",
+        lambda _: [{"name": "github", "kind": "github", "owner": "acme", "repo": "lelabo-capsules", "branch": "main", "path": "demo_capsule", "visibility": "private"}],
+    )
+    monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (["github"], None))
+    monkeypatch.setattr(
+        push_cli,
+        "push_github_target",
+        lambda **kwargs: {
+            "target_name": "github",
+            "target_kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "demo_capsule",
+            "commit_message": "Update demo_capsule",
+            "committed": False,
+            "pushed": True,
+        },
+    )
 
-    assert "Local paths are not accepted by `lelabo push` in v1." in str(exc.value)
-    assert "Use `lelabo push demo_capsule`." in str(exc.value)
+    rc = push_cli.main([f"./{capsule_root.name}", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule"]["capsule_id"] == "demo_capsule"
 
 
 def test_push_cli_without_target_guides_to_targets_commands(tmp_path, monkeypatch) -> None:
@@ -73,7 +94,7 @@ def test_push_cli_without_target_guides_to_targets_commands(tmp_path, monkeypatc
     message = str(exc.value)
     assert "No publish target is configured for this capsule." in message
     assert "`lelabo targets create`" in message
-    assert "`lelabo targets edit <owner/repo>`" in message
+    assert "`lelabo targets attach <owner/repo> <capsule>`" in message
 
 
 def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypatch, capsys) -> None:
@@ -499,7 +520,7 @@ def test_repo_cli_create_registers_existing_remote_repo_without_creation(tmp_pat
     assert len(repo_cli.list_global_targets()) == 1
 
 
-def test_repo_cli_edit_can_attach_capsule_to_existing_target_roundtrip(tmp_path, monkeypatch, capsys) -> None:
+def test_repo_cli_attach_and_defaults_roundtrip(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_repo"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -536,10 +557,10 @@ def test_repo_cli_edit_can_attach_capsule_to_existing_target_roundtrip(tmp_path,
     empty_payload = json.loads(capsys.readouterr().out)
     assert empty_payload["targets"] == []
 
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["attach"])
-    rc = repo_cli.main(["edit", "acme/method-zoo", "demo_capsule", "--json"])
+    rc = repo_cli.main(["attach", "acme/method-zoo", "demo_capsule", "--json"])
     assert rc == 0
     add_payload = json.loads(capsys.readouterr().out)
+    assert add_payload["command"] == "attach"
     assert add_payload["target"]["repo"] == "method-zoo"
     assert add_payload["target"]["owner"] == "acme"
     assert add_payload["target"]["default"] is True
@@ -550,12 +571,10 @@ def test_repo_cli_edit_can_attach_capsule_to_existing_target_roundtrip(tmp_path,
     assert [item["repo"] for item in list_payload["targets"]] == ["method-zoo"]
     assert list_payload["targets"][0]["capsules"] == ["demo_capsule"]
 
-    edit_selections = iter([["default-add"], [f"{capsule_root.resolve()}::github"]])
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: next(edit_selections))
-    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    rc = repo_cli.main(["defaults", "add", "demo_capsule", "acme/method-zoo", "--json"])
     assert rc == 0
     edit_payload = json.loads(capsys.readouterr().out)
-    assert edit_payload["command"] == "edit-default-add"
+    assert edit_payload["command"] == "defaults-add"
     assert edit_payload["target"]["default"] is True
 
     rc = repo_cli.main(["detach", "acme/method-zoo", "demo_capsule", "--json"])
@@ -565,7 +584,7 @@ def test_repo_cli_edit_can_attach_capsule_to_existing_target_roundtrip(tmp_path,
     assert detach_payload["target"]["name"] == "github"
 
 
-def test_repo_cli_edit_attach_single_capsule_prints_context_and_does_not_prompt_visibility_for_existing_target(
+def test_repo_cli_attach_single_capsule_prints_context_and_does_not_prompt_visibility_for_existing_target(
     tmp_path, monkeypatch, capsys
 ) -> None:
     workspace = tmp_path / "workspace_attach_context"
@@ -595,11 +614,10 @@ def test_repo_cli_edit_attach_single_capsule_prints_context_and_does_not_prompt_
     )
     prompts: list[str] = []
 
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["attach"])
     monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "")
     monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
 
-    rc = repo_cli.main(["edit", "acme/method-zoo", "demo_capsule"])
+    rc = repo_cli.main(["attach", "acme/method-zoo", "demo_capsule"])
     assert rc == 0
     out = capsys.readouterr().out
     assert "Capsule" in out
@@ -608,20 +626,17 @@ def test_repo_cli_edit_attach_single_capsule_prints_context_and_does_not_prompt_
     assert not any(prompt.startswith("Visibility") for prompt in prompts)
 
 
-def test_repo_cli_edit_attach_requires_explicit_capsule_ref() -> None:
+def test_repo_cli_attach_requires_explicit_capsule_ref() -> None:
     repo_cli.save_global_target(
         {"kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "visibility": "private"}
     )
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["attach"])
     with pytest.raises(SystemExit) as exc:
-        repo_cli.main(["edit", "acme/method-zoo"])
-    monkeypatch.undo()
+        repo_cli.main(["attach", "acme/method-zoo"])
 
-    assert "Missing capsule." in str(exc.value)
+    assert exc.value.code == 2
 
 
-def test_repo_cli_edit_import_capsule_from_target_repo(tmp_path, monkeypatch, capsys) -> None:
+def test_repo_cli_import_capsule_from_target_repo(tmp_path, monkeypatch, capsys) -> None:
     publish_state = tmp_path / "publish_targets_import.json"
     monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
     repo_cli.save_global_target(
@@ -647,16 +662,14 @@ def test_repo_cli_edit_import_capsule_from_target_repo(tmp_path, monkeypatch, ca
             "install_action": "installed",
         },
     )
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["import"])
-
-    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    rc = repo_cli.main(["import", "acme/method-zoo", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["command"] == "edit-import"
+    assert payload["command"] == "import"
     assert payload["target"]["imported_capsule_id"] == "colleague_capsule"
 
 
-def test_repo_cli_edit_import_failure_is_human_readable(tmp_path, monkeypatch) -> None:
+def test_repo_cli_import_failure_is_human_readable(tmp_path, monkeypatch) -> None:
     publish_state = tmp_path / "publish_targets_import_error.json"
     monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
     repo_cli.save_global_target(
@@ -668,15 +681,13 @@ def test_repo_cli_edit_import_failure_is_human_readable(tmp_path, monkeypatch) -
         lambda target: [{"capsule_id": "colleague_capsule", "root": str((tmp_path / "remote_capsule").resolve()), "folder": "colleague_capsule"}],
     )
     monkeypatch.setattr(repo_cli, "install_capsule_from_directory", lambda **kwargs: (_ for _ in ()).throw(ValueError("source.path must be non-empty.")))
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["import"])
-
     with pytest.raises(SystemExit) as exc:
-        repo_cli.main(["edit", "acme/method-zoo"])
+        repo_cli.main(["import", "acme/method-zoo"])
 
     assert "Failed to import capsule from acme/method-zoo." in str(exc.value)
 
 
-def test_repo_cli_edit_remove_capsule_from_target_repo_and_detach_locally(tmp_path, monkeypatch, capsys) -> None:
+def test_repo_cli_remove_capsule_from_target_repo_and_detach_locally(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_remove_remote"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -691,7 +702,6 @@ def test_repo_cli_edit_remove_capsule_from_target_repo_and_detach_locally(tmp_pa
         {"name": "github", "kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "path": "demo_capsule", "visibility": "private"},
         make_default=True,
     )
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["remove-remote"])
     monkeypatch.setattr(
         repo_cli,
         "remove_target_repo_capsule",
@@ -705,11 +715,12 @@ def test_repo_cli_edit_remove_capsule_from_target_repo_and_detach_locally(tmp_pa
         },
     )
     monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
+    monkeypatch.chdir(workspace)
 
-    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    rc = repo_cli.main(["remove-capsule", "acme/method-zoo", "demo_capsule", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["command"] == "edit-remove-remote"
+    assert payload["command"] == "remove-capsule"
     assert payload["target"]["remote_remove"]["folder"] == "demo_capsule"
 
     rc = repo_cli.main(["list", "--json"])
@@ -718,7 +729,7 @@ def test_repo_cli_edit_remove_capsule_from_target_repo_and_detach_locally(tmp_pa
     assert listed["targets"][0]["capsules"] == []
 
 
-def test_repo_cli_edit_can_delete_target_from_local_catalog(tmp_path, monkeypatch, capsys) -> None:
+def test_repo_cli_delete_target_from_local_catalog(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_delete_target"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -733,13 +744,12 @@ def test_repo_cli_edit_can_delete_target_from_local_catalog(tmp_path, monkeypatc
         {"name": "github", "kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "path": "demo_capsule", "visibility": "private"},
         make_default=True,
     )
-    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["delete-target"])
     monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
 
-    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    rc = repo_cli.main(["delete", "acme/method-zoo", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["command"] == "edit-delete-target"
+    assert payload["command"] == "delete"
 
     rc = repo_cli.main(["list", "--json"])
     assert rc == 0

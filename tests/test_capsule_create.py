@@ -154,7 +154,7 @@ def test_create_capsule_scaffold_creates_expected_layout(tmp_path) -> None:
     assert "Short appendix: secondary extension types" in extension_recipes
     assert "Core done criteria" in extension_recipes
     assert "Extra done criteria" in extension_recipes
-    assert "appears in `lelabo registries" in extension_recipes
+    assert "appears in `lelabo list" in extension_recipes
     assert "ModelContext" in lelabo_reference
     assert "OptimizerContext" in lelabo_reference
     assert "SchedulerContext" in lelabo_reference

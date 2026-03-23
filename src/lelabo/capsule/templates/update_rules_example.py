@@ -40,7 +40,7 @@ Uncomment `@register_update_rule("local_head")`.
 
 How to test
 -----------
-lelabo registries update-rules
+lelabo list update-rules
 lelabo train supervised --config configs/train/supervised.quickstart.toml --rule local_head
 
 Common errors

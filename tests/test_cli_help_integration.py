@@ -47,11 +47,11 @@ def test_audit_help_displays_audit_parser_usage() -> None:
     assert "usage: lelabo audit" in proc.stdout
     assert "Run warn-only local update-rule audit" in proc.stdout
 
-def test_registries_help_displays_registries_usage() -> None:
-    proc = _run_cli_help("registries", "-h")
+def test_list_help_displays_list_usage() -> None:
+    proc = _run_cli_help("list", "-h")
     assert proc.returncode == 0
     assert "List available LeLabo registries" in proc.stdout
-    assert "lelabo registries [target] [--json]" in proc.stdout
+    assert "lelabo list [target] [--json]" in proc.stdout
     assert "update-rules" in proc.stdout
     assert "datasets" in proc.stdout
     assert "initializers" in proc.stdout
@@ -88,8 +88,12 @@ def test_targets_help_displays_targets_subcommands() -> None:
     assert "Manage GitHub publish targets for capsules." in proc.stdout
     assert "list" in proc.stdout
     assert "create" in proc.stdout
-    assert "  attach       " not in proc.stdout
-    assert "edit" in proc.stdout
+    assert "attach" in proc.stdout
+    assert "defaults" in proc.stdout
+    assert "import" in proc.stdout
+    assert "remove-capsule" in proc.stdout
+    assert "delete" in proc.stdout
+    assert "edit" not in proc.stdout
     assert "detach" in proc.stdout
 
 
@@ -149,8 +153,8 @@ def test_capsule_show_help_documents_positionals_and_examples() -> None:
 def test_capsule_remove_help_documents_positionals_and_examples() -> None:
     proc = _run_cli_help("capsule", "remove", "-h")
     assert proc.returncode == 0
-    assert "Remove one stored capsule entry" in proc.stdout
-    assert "Stored capsule id or alias to remove" in proc.stdout
+    assert "Remove one visible capsule from the workspace or local store." in proc.stdout
+    assert "Visible capsule id, alias, or local capsule path to remove" in proc.stdout
     assert "Examples:" in proc.stdout
 
 
@@ -218,3 +222,9 @@ def test_repo_command_is_unknown() -> None:
     proc = _run_cli_help("repo", "-h")
     assert proc.returncode != 0
     assert "Unknown command: repo" in proc.stderr
+
+
+def test_registries_command_is_unknown() -> None:
+    proc = _run_cli_help("registries", "-h")
+    assert proc.returncode != 0
+    assert "Unknown command: registries" in proc.stderr

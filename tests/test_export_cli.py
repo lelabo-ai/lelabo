@@ -59,7 +59,7 @@ def test_export_cli_visible_workspace_capsule_roundtrips_with_capsule_list(tmp_p
     assert payload["capsule"]["capsule_id"] == "demo_capsule"
 
 
-def test_export_cli_rejects_local_path_with_actionable_capsule_id(tmp_path, monkeypatch) -> None:
+def test_export_cli_accepts_local_path(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_path_export"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -69,11 +69,11 @@ def test_export_cli_rejects_local_path_with_actionable_capsule_id(tmp_path, monk
     )
     monkeypatch.chdir(workspace)
 
-    with pytest.raises(SystemExit) as exc:
-        export_cli.main([f"./{capsule_root.name}"])
-
-    assert "Local paths are not accepted by `lelabo export` in v1." in str(exc.value)
-    assert "Use `lelabo export demo_capsule`." in str(exc.value)
+    rc = export_cli.main([f"./{capsule_root.name}", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["capsule"]["capsule_id"] == "demo_capsule"
+    assert payload["capsule"]["path"] == str(capsule_root.resolve())
 
 
 def test_export_cli_unknown_capsule_is_guided(tmp_path, monkeypatch) -> None:

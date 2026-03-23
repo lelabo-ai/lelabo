@@ -23,8 +23,8 @@ Usage:
   lelabo export <capsule> [--out PATH] [--json]
 
 Notes:
-  - pass a capsule id or alias from `lelabo capsule list`
-  - local filesystem paths are not accepted by `lelabo export` in v1
+  - pass a visible capsule id/alias from `lelabo capsule list`
+  - local capsule paths are also accepted, e.g. `./my_capsule`
 """
 
 
@@ -80,10 +80,10 @@ def _build_parser(*, prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="Export one capsule as a local tar.gz bundle.",
-        epilog=f"Examples:\n  {prog} my_capsule\n  {prog} my_capsule --out ./my_capsule.tar.gz",
+        epilog=f"Examples:\n  {prog} my_capsule\n  {prog} ./my_capsule\n  {prog} my_capsule --out ./my_capsule.tar.gz",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("capsule_ref", help="Capsule id or alias")
+    parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
     parser.add_argument("--out", default=None, help="Output bundle path (.tar.gz)")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     return parser

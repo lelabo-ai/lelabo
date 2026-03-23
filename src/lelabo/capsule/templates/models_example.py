@@ -39,7 +39,7 @@ Uncomment `@register_model("example_mlp")`.
 
 How to test
 -----------
-lelabo registries models
+lelabo list models
 lelabo train supervised --config configs/train/supervised.quickstart.toml --model example_mlp
 
 Common errors

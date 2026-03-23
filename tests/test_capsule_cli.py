@@ -446,7 +446,7 @@ def test_capsule_install_rename_to_allows_side_by_side(tmp_path, capsys) -> None
     assert payload["result"]["install_action"] == "installed"
 
 
-def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
+def test_capsule_cli_remove_requires_confirmation_for_external_paths(tmp_path) -> None:
     caps_dir = tmp_path / "capsules"
     external = tmp_path / "external_capsule"
     external.mkdir()
@@ -463,12 +463,13 @@ def test_capsule_cli_remove_rejects_external_paths(tmp_path) -> None:
     try:
         capsule_cli.main(["remove", "external_alias", "--capsules-dir", str(caps_dir)])
     except SystemExit as exc:
-        assert "Refusing to delete capsule path outside capsules store" in str(exc)
+        assert "deletes files outside the local store" in str(exc)
+        assert "--yes" in str(exc)
     else:
-        raise AssertionError("Expected SystemExit for unsafe external capsule deletion.")
+        raise AssertionError("Expected SystemExit for unconfirmed external capsule deletion.")
 
 
-def test_capsule_cli_remove_allows_external_paths_with_rf(tmp_path) -> None:
+def test_capsule_cli_remove_allows_external_paths_with_yes(tmp_path) -> None:
     caps_dir = tmp_path / "capsules"
     external = tmp_path / "external_capsule_force"
     external.mkdir()
@@ -482,13 +483,13 @@ def test_capsule_cli_remove_allows_external_paths_with_rf(tmp_path) -> None:
         capsules_dir=caps_dir,
     )
 
-    rc = capsule_cli.main(["remove", "external_alias_force", "--capsules-dir", str(caps_dir), "-r", "-f"])
+    rc = capsule_cli.main(["remove", "external_alias_force", "--capsules-dir", str(caps_dir), "--yes"])
     assert rc == 0
     assert not external.exists()
     assert capsule_registry.get_capsule("external_alias_force", caps_dir) is None
 
 
-def test_capsule_cli_remove_rejects_half_rf_flag(tmp_path) -> None:
+def test_capsule_cli_remove_rejects_legacy_force_flags(tmp_path) -> None:
     caps_dir = tmp_path / "capsules"
     external = tmp_path / "external_capsule_half_rf"
     external.mkdir()
@@ -505,9 +506,9 @@ def test_capsule_cli_remove_rejects_half_rf_flag(tmp_path) -> None:
     try:
         capsule_cli.main(["remove", "external_alias_half_rf", "--capsules-dir", str(caps_dir), "-f"])
     except SystemExit as exc:
-        assert "Use '-rf' together" in str(exc)
+        assert str(exc) == "2"
     else:
-        raise AssertionError("Expected SystemExit when only one of -r/-f is provided.")
+        raise AssertionError("Expected SystemExit when legacy force flags are provided.")
 
     assert external.exists()
     assert capsule_registry.get_capsule("external_alias_half_rf", caps_dir) is not None

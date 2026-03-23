@@ -54,8 +54,12 @@ Usage:
 Subcommands:
   list         List configured GitHub targets
   create       Create or register one shared GitHub target
-  edit         Manage one target: capsules, defaults, import/remove repo content
+  attach       Attach one capsule to a configured GitHub target
   detach       Detach one capsule from a configured GitHub target
+  defaults     Manage default targets for one capsule
+  import       Import capsule(s) from a target repo
+  remove-capsule Remove one capsule from a target repo and detach it locally
+  delete       Delete one local target entry and clean its attachments
 """
 
 
@@ -148,12 +152,24 @@ def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None, pur
     normalized = str(purpose).strip().lower()
     command = "lelabo targets edit"
     usage = "lelabo targets edit <owner/repo> <capsule>"
+    if normalized == "target attach":
+        command = "lelabo targets attach"
+        usage = "lelabo targets attach <target> <capsule>"
     if normalized == "target detach":
         command = "lelabo targets detach"
         usage = "lelabo targets detach <target> <capsule>"
     elif normalized == "target listing":
         command = "lelabo targets list"
         usage = "lelabo targets list <capsule>"
+    elif normalized == "target defaults":
+        command = "lelabo targets defaults"
+        usage = "lelabo targets defaults <subcommand> ..."
+    elif normalized == "target import":
+        command = "lelabo targets import"
+        usage = "lelabo targets import <target>"
+    elif normalized == "target remove-capsule":
+        command = "lelabo targets remove-capsule"
+        usage = "lelabo targets remove-capsule <target> <capsule>"
     try:
         return resolve_visible_capsule_ref(
             capsule_ref,
@@ -462,6 +478,21 @@ def _pick_attachment(rows: Sequence[dict[str, Any]], *, title: str, cancel_messa
         if str(row.get("capsule_path")) == capsule_path and str(row.get("name")) == name:
             return dict(row)
     raise SystemExit(cancel_message)
+
+
+def _resolve_attachment_for_target(*, repo_ref: str, capsule_root: Path) -> dict[str, Any]:
+    owner, repo = _parse_repo_full_name(repo_ref)
+    rows = _configured_target_rows(capsule_root=capsule_root)
+    matches = [
+        row
+        for row in rows
+        if str(row.get("owner", "")).strip() == owner and str(row.get("repo", "")).strip() == repo
+    ]
+    if not matches:
+        raise SystemExit(
+            f"Capsule '{_capsule_id_for_path(capsule_root)}' is not attached to {owner}/{repo}."
+        )
+    return dict(matches[0])
 
 
 def _resolve_repo_group(repo_ref: str | None, capsule_ref: str | None, *, caps_dir: Path | None, purpose: str) -> dict[str, Any]:
@@ -879,6 +910,306 @@ def _cmd_create(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_attach(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo targets attach",
+        description="Attach one capsule to a configured GitHub target.",
+    )
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(None, settings)
+    group = _resolve_repo_group(args.repo_ref, None, caps_dir=caps_dir, purpose="Target attach")
+    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target attach")
+    if not bool(args.json):
+        _print_target_context(group)
+        _print_capsule_context(capsule_root)
+    target_repo = {
+        "kind": str(group.get("kind", "")).strip() or "github",
+        "owner": str(group.get("owner", "")).strip(),
+        "repo": str(group.get("repo", "")).strip(),
+        "branch": str(group.get("branch", "")).strip() or _default_branch(settings),
+        "visibility": str(group.get("visibility", "")).strip().lower() or _default_visibility(settings),
+    }
+    target = _attach_capsule_to_target(
+        capsule_root,
+        selected_target=target_repo,
+        settings=settings,
+        persist=True,
+        make_default_default=True,
+        show_summary=not bool(args.json),
+    )
+    payload = {
+        "schema_version": TARGET_JSON_SCHEMA,
+        "command": "attach",
+        "capsule_path": str(capsule_root),
+        "target": target,
+    }
+    if bool(args.json):
+        _print_json(payload)
+    else:
+        print_status("success", "Capsule attached to target.")
+        print_block(
+            "Target",
+            (
+                ("capsule", _capsule_id_for_path(capsule_root)),
+                ("target", _repo_label(str(target.get("owner", "")), str(target.get("repo", "")))),
+                ("folder", target.get("path")),
+                ("default", target.get("default")),
+            ),
+        )
+    return 0
+
+
+def _cmd_defaults(argv: list[str]) -> int:
+    args = list(argv)
+    if not args or args[0] in {"-h", "--help", "help"}:
+        print(
+            "Manage default publish targets for one capsule.\n\n"
+            "Usage:\n"
+            "  lelabo targets defaults list <capsule>\n"
+            "  lelabo targets defaults add <capsule> <target>\n"
+            "  lelabo targets defaults remove <capsule> <target>\n"
+        )
+        return 0
+    cmd = str(args[0]).strip().lower()
+    rest = args[1:]
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(None, settings)
+
+    if cmd == "list":
+        parser = argparse.ArgumentParser(prog="lelabo targets defaults list")
+        parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
+        parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+        parsed = parser.parse_args(rest)
+        capsule_root = _resolve_capsule_root(parsed.capsule_ref, caps_dir=caps_dir, purpose="Target defaults")
+        rows = [row for row in _configured_target_rows(capsule_root=capsule_root) if bool(row.get("default"))]
+        payload = {
+            "schema_version": TARGETS_JSON_SCHEMA,
+            "command": "defaults-list",
+            "capsule_path": str(capsule_root),
+            "targets": [
+                {
+                    "target": _repo_label(str(row.get("owner", "")), str(row.get("repo", ""))),
+                    "name": row.get("name"),
+                    "folder": row.get("path"),
+                }
+                for row in rows
+            ],
+        }
+        if bool(parsed.json):
+            _print_json(payload)
+        else:
+            if not rows:
+                print_status("info", "This capsule has no default targets.")
+            else:
+                print_block("Capsule", (("name", _capsule_id_for_path(capsule_root)),))
+                for row in rows:
+                    print(f"- {_repo_label(str(row.get('owner', '')), str(row.get('repo', '')))} | folder: {row.get('path')}")
+        return 0
+
+    parser = argparse.ArgumentParser(prog=f"lelabo targets defaults {cmd}")
+    parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    parsed = parser.parse_args(rest)
+    capsule_root = _resolve_capsule_root(parsed.capsule_ref, caps_dir=caps_dir, purpose="Target defaults")
+    attachment = _resolve_attachment_for_target(repo_ref=parsed.repo_ref, capsule_root=capsule_root)
+    if cmd == "add":
+        target = set_default_target(capsule_root, str(attachment.get("name", "")))
+        success_message = "Default targets updated."
+        command_name = "defaults-add"
+    elif cmd == "remove":
+        target = unset_default_target(capsule_root, str(attachment.get("name", "")))
+        success_message = "Default targets updated."
+        command_name = "defaults-remove"
+    else:
+        raise SystemExit("Unknown targets defaults subcommand. Use one of: list, add, remove.")
+    payload = {
+        "schema_version": TARGET_JSON_SCHEMA,
+        "command": command_name,
+        "capsule_path": str(capsule_root),
+        "target": target,
+    }
+    if bool(parsed.json):
+        _print_json(payload)
+    else:
+        print_status("success", success_message)
+        print_block(
+            "Target",
+            (
+                ("capsule", _capsule_id_for_path(capsule_root)),
+                ("target", _repo_label(str(attachment.get("owner", "")), str(attachment.get("repo", "")))),
+                ("folder", attachment.get("path")),
+                ("default", target.get("default")),
+            ),
+        )
+    return 0
+
+
+def _cmd_import(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo targets import",
+        description="Import capsule(s) from a configured target repo.",
+    )
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("--capsule", default=None, help="Specific capsule id to import from the target repo")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(None, settings)
+    group = _resolve_repo_group(args.repo_ref, None, caps_dir=caps_dir, purpose="Target import")
+    target_repo = {
+        "kind": str(group.get("kind", "")).strip() or "github",
+        "owner": str(group.get("owner", "")).strip(),
+        "repo": str(group.get("repo", "")).strip(),
+        "branch": str(group.get("branch", "")).strip() or _default_branch(settings),
+        "visibility": str(group.get("visibility", "")).strip().lower() or _default_visibility(settings),
+    }
+    if not bool(args.json):
+        _print_target_context(group)
+    repo_capsules = inspect_target_repo_capsules(target_repo)
+    if args.capsule:
+        matches = [row for row in repo_capsules if str(row.get("capsule_id", "")).strip() == str(args.capsule).strip()]
+        if not matches:
+            raise SystemExit(f"Capsule '{args.capsule}' was not found in {args.repo_ref}.")
+        imported = dict(matches[0])
+    elif len(repo_capsules) == 1:
+        imported = dict(repo_capsules[0])
+    elif _is_interactive_tty():
+        imported = _pick_repo_capsule(repo_capsules, title="Select target repo capsule", cancel_message="Target import canceled by user.")
+    else:
+        raise SystemExit("This target repo contains multiple capsules. Re-run interactively or pass `--capsule <capsule_id>`.")
+    try:
+        entry = install_capsule_from_directory(
+            source_dir=Path(str(imported.get("root", ""))).expanduser().resolve(),
+            capsules_dir=caps_dir,
+            source_meta={
+                "type": "github_repo",
+                "path": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
+                "target": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
+                "folder": str(imported.get("folder", "")),
+            },
+        )
+    except Exception as exc:
+        raise SystemExit(
+            f"Failed to import capsule from {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}.\n{exc}"
+        ) from exc
+    payload = {
+        "schema_version": TARGET_JSON_SCHEMA,
+        "command": "import",
+        "target": {
+            "owner": group.get("owner"),
+            "repo": group.get("repo"),
+            "imported_capsule_id": entry.get("capsule_id"),
+            "install_action": entry.get("install_action"),
+        },
+    }
+    if bool(args.json):
+        _print_json(payload)
+    else:
+        print_status("success", "Capsule imported from target repo.")
+        print_block(
+            "Target",
+            (
+                ("capsule", entry.get("capsule_id")),
+                ("target", _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))),
+                ("folder", imported.get("folder")),
+            ),
+        )
+    return 0
+
+
+def _cmd_remove_capsule(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo targets remove-capsule",
+        description="Remove one capsule from a target repo and detach it locally.",
+    )
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(None, settings)
+    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target remove-capsule")
+    attachment = _resolve_attachment_for_target(repo_ref=args.repo_ref, capsule_root=capsule_root)
+    if not _confirm(
+        f"Remove {_capsule_id_for_path(capsule_root)} from {args.repo_ref}?",
+        default=False,
+    ):
+        raise SystemExit("Target remove-capsule canceled by user.")
+    removed = remove_target_repo_capsule(
+        target={
+            "kind": str(attachment.get("kind", "")).strip() or "github",
+            "owner": str(attachment.get("owner", "")).strip(),
+            "repo": str(attachment.get("repo", "")).strip(),
+            "branch": str(attachment.get("branch", "")).strip() or _default_branch(settings),
+            "visibility": str(attachment.get("visibility", "")).strip().lower() or _default_visibility(settings),
+        },
+        folder=str(attachment.get("path", "")),
+    )
+    target = remove_configured_target(capsule_root, str(attachment.get("name", "")))
+    if isinstance(target, dict):
+        target["remote_remove"] = removed
+    payload = {
+        "schema_version": TARGET_JSON_SCHEMA,
+        "command": "remove-capsule",
+        "capsule_path": str(capsule_root),
+        "target": target,
+    }
+    if bool(args.json):
+        _print_json(payload)
+    else:
+        print_status("success", "Capsule removed from target repo.")
+        print_block(
+            "Target",
+            (
+                ("capsule", _capsule_id_for_path(capsule_root)),
+                ("target", args.repo_ref),
+                ("folder", attachment.get("path")),
+                ("default", target.get("default") if isinstance(target, dict) else None),
+            ),
+        )
+    return 0
+
+
+def _cmd_delete(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo targets delete",
+        description="Delete one local target entry and clean its attachments.",
+    )
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    args = parser.parse_args(argv)
+    settings = _effective_settings()
+    caps_dir = _resolved_capsules_dir(None, settings)
+    group = _resolve_repo_group(args.repo_ref, None, caps_dir=caps_dir, purpose="Target edit")
+    if not bool(args.json):
+        _print_target_context(group)
+    target_name = _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))
+    capsules = ", ".join(list(group.get("capsules", []))) or "-"
+    if not _confirm(f"Delete local target {target_name}? Attached capsules: {capsules}.", default=False):
+        raise SystemExit("Target delete canceled by user.")
+    target = remove_global_target(
+        owner=str(group.get("owner", "")).strip(),
+        repo=str(group.get("repo", "")).strip(),
+        kind=str(group.get("kind", "")).strip() or "github",
+    )
+    payload = {
+        "schema_version": TARGET_JSON_SCHEMA,
+        "command": "delete",
+        "target": target,
+    }
+    if bool(args.json):
+        _print_json(payload)
+    else:
+        print_status("success", "Target deleted from local catalog.")
+        print_block("Target", (("target", target_name), ("capsules", capsules)))
+    return 0
+
+
 def _cmd_edit(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo targets edit",
@@ -1103,12 +1434,10 @@ def _cmd_detach(argv: list[str]) -> int:
         prog="lelabo targets detach",
         description="Detach one capsule from a configured GitHub target.",
     )
-    parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Capsule id or alias")
+    parser.add_argument("repo_ref", help="Configured GitHub target as owner/repo")
+    parser.add_argument("capsule_ref", help="Visible capsule id, alias, or local capsule path")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
-    if not str(args.capsule_ref or "").strip():
-        raise SystemExit("Missing capsule. Use `lelabo targets detach <target> <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(None, settings)
     group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Target detach")
@@ -1162,13 +1491,23 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_list(rest)
     if cmd == "create":
         return _cmd_create(rest)
+    if cmd == "attach":
+        return _cmd_attach(rest)
+    if cmd == "defaults":
+        return _cmd_defaults(rest)
+    if cmd == "import":
+        return _cmd_import(rest)
+    if cmd == "remove-capsule":
+        return _cmd_remove_capsule(rest)
+    if cmd == "delete":
+        return _cmd_delete(rest)
     if cmd == "edit":
         return _cmd_edit(rest)
     if cmd == "detach":
         return _cmd_detach(rest)
     raise SystemExit(
         f"Unknown targets subcommand: {cmd}\n\n"
-        "Use one of: list, create, edit, detach.\n"
+        "Use one of: list, create, attach, detach, defaults, import, remove-capsule, delete.\n"
         "Run `lelabo targets -h` for usage."
     )
 

@@ -33,7 +33,7 @@ def remove_capsule(
         if is_outside_store and not allow_external_delete:
             raise ValueError(
                 f"Refusing to delete capsule path outside capsules store '{root}': {capsule_path}. "
-                "Use '-rf' (or '--force-external-delete') to allow external deletion."
+                "Allow external deletion explicitly before retrying."
             )
         if allow_external_delete and capsule_path == Path(capsule_path.anchor):
             raise ValueError(f"Refusing to delete filesystem root path: {capsule_path}")

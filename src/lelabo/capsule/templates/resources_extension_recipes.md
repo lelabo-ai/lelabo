@@ -58,7 +58,7 @@ lr = 0.01
 ### Validation commands
 
 ```bash
-lelabo registries optimizers
+lelabo list optimizers
 ```
 
 ```bash
@@ -77,7 +77,7 @@ pytest -q tests/test_capsule_optimizer_smoke.py
 
 ### Core done criteria
 
-- appears in `lelabo registries optimizers`
+- appears in `lelabo list optimizers`
 - config runs
 - params are read from the documented source
 
@@ -128,7 +128,7 @@ hidden = 128
 ### Validation commands
 
 ```bash
-lelabo registries models
+lelabo list models
 ```
 
 ```bash
@@ -143,7 +143,7 @@ lelabo train supervised --config configs/train/supervised.quickstart.toml --mode
 
 ### Core done criteria
 
-- appears in `lelabo registries models`
+- appears in `lelabo list models`
 - config runs
 - params are read from the documented source
 
@@ -194,7 +194,7 @@ grad_clip = 1.0
 ### Validation commands
 
 ```bash
-lelabo registries update-rules
+lelabo list update-rules
 ```
 
 ```bash
@@ -213,7 +213,7 @@ pytest -q tests/test_paper_pack_smoke.py
 
 ### Core done criteria
 
-- appears in `lelabo registries update-rules`
+- appears in `lelabo list update-rules`
 - config runs
 - params are read from the documented source
 
@@ -262,7 +262,7 @@ batch_size = 128
 ### Validation commands
 
 ```bash
-lelabo registries datasets
+lelabo list datasets
 ```
 
 ```bash
@@ -277,7 +277,7 @@ lelabo train supervised --dataset my_dataset --model mlp
 
 ### Core done criteria
 
-- appears in `lelabo registries datasets`
+- appears in `lelabo list datasets`
 - config runs
 - params are read from the documented source
 

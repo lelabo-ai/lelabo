@@ -10,11 +10,14 @@ from .commands.audit import main as run_audit_command
 from .commands.capsule import main as run_capsule_command
 from .commands.config import main as run_config_command
 from .commands.export import main as run_export_command
-from .commands.list import main as run_registries_command
+from .commands.list import main as run_list_command
 from .commands.push import main as run_push_command
 from .commands.repo import main as run_targets_command
 from .commands.sweep import main as run_sweep_command
 from .commands.train import main as run_train_command
+
+# Internal compatibility aliases for tests and old helper names.
+run_registries_command = run_list_command
 
 
 def _run_command(fn, argv: Sequence[str]) -> int:
@@ -40,8 +43,12 @@ def _run_capsule_cli(argv: Sequence[str]) -> int:
 def _run_config_cli(argv: Sequence[str]) -> int:
     return _run_command(run_config_command, argv)
 
+def _run_list_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_list_command, argv)
+
+
 def _run_registries_cli(argv: Sequence[str]) -> int:
-    return _run_command(run_registries_command, argv)
+    return _run_list_cli(argv)
 
 def _run_push_cli(argv: Sequence[str]) -> int:
     return _run_command(run_push_command, argv)
@@ -71,7 +78,7 @@ Commands:
   export     Export a capsule as a local tar.gz bundle
   targets    Manage GitHub publish targets
   config     Manage user settings and defaults
-  registries List available registries and active-capsule exports
+  list       List available registries and active-capsule exports
   capsule    Create, install, store, inspect, and manage capsules
 
 Help:
@@ -82,7 +89,7 @@ Help:
   lelabo export -h
   lelabo targets -h
   lelabo config -h
-  lelabo registries -h
+  lelabo list -h
   lelabo capsule -h
 
 Examples:
@@ -92,10 +99,10 @@ Examples:
   lelabo push my_capsule
   lelabo export my_capsule --out ./my_capsule.tar.gz
   lelabo targets create
-  lelabo targets edit your-org/lelabo-capsules
+  lelabo targets attach your-org/lelabo-capsules my_capsule
   lelabo config set github.owner your-org
   lelabo capsule init my_capsule
-  lelabo registries update-rules
+  lelabo list update-rules
 """
 
 
@@ -148,10 +155,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_config_cli(["-h"])
         return _run_config_cli(rest)
 
-    if cmd == "registries":
+    if cmd == "list":
         if rest and is_help_token(rest[0]):
-            return _run_registries_cli(["--help"])
-        return _run_registries_cli(rest)
+            return _run_list_cli(["--help"])
+        return _run_list_cli(rest)
 
     if cmd == "sweep":
         if rest and is_help_token(rest[0]):
@@ -166,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, sweep, audit, push, export, targets, config, registries, capsule.\n"
+        "Use one of: train, sweep, audit, push, export, targets, config, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2

@@ -87,7 +87,7 @@ def _readme_template(name: str) -> str:
         "This capsule is designed so you can add LeLabo extensions locally without starting from LeLabo internals.\n\n"
         "## Fastest official path\n\n"
         "1. Uncomment `@register_optimizer(\"capsule_sgd\")` in `optimizers/example.py`.\n"
-        "2. Run `lelabo registries optimizers`.\n"
+        "2. Run `lelabo list optimizers`.\n"
         "3. Run `lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml`.\n\n"
         "## Where to go next\n\n"
         "Open `AGENTS.md` for the task map, decision guide, and the right local reference file for your extension.\n\n"

@@ -41,7 +41,7 @@ Uncomment `@register_initializer("row_sum_one")`.
 
 How to test
 -----------
-lelabo registries initializers
+lelabo list initializers
 lelabo train supervised --config configs/train/supervised.quickstart.toml --initializer row_sum_one
 
 Common errors

@@ -39,13 +39,13 @@ Uncomment `@register_optimizer("capsule_sgd")`.
 
 How to test
 -----------
-lelabo registries optimizers
+lelabo list optimizers
 lelabo train supervised --config configs/train/supervised.capsule_optimizer.toml
 pytest -q tests
 
 Common errors
 -------------
-- The optimizer does not appear in `lelabo registries optimizers`: the decorator is still commented.
+- The optimizer does not appear in `lelabo list optimizers`: the decorator is still commented.
 - The builder must return a real `torch.optim.Optimizer`.
 """
 
