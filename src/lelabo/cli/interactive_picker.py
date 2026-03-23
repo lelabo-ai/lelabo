@@ -34,13 +34,10 @@ def pick_many_with_checkboxes(
 
     try:
         from prompt_toolkit.application import Application
-        from prompt_toolkit.filters import has_focus
-        from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
-        from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
-        from prompt_toolkit.key_binding.defaults import load_key_bindings
-        from prompt_toolkit.layout import HSplit, Layout
-        from prompt_toolkit.shortcuts.dialogs import _return_none
-        from prompt_toolkit.widgets import Button, CheckboxList, Dialog, Label
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.widgets import Label
     except Exception as exc:
         raise RuntimeError(
             "`prompt_toolkit` is required for interactive capsule selection. "
@@ -48,16 +45,42 @@ def pick_many_with_checkboxes(
         ) from exc
 
     values = [(key, label) for key, label in options]
-    checkbox = CheckboxList(values=values, default_values=list(default_values or []))
+    option_keys = [str(key) for key, _ in values]
+    selected: list[str] = []
+    for key in list(default_values or []):
+        token = str(key)
+        if token in option_keys and token not in selected:
+            selected.append(token)
+    cursor = 0
     state = {"error": ""}
 
     def _set_error(message: str) -> None:
         state["error"] = str(message).strip()
 
     def _selected() -> list[str]:
-        return [str(item) for item in list(checkbox.current_values)]
+        return list(selected)
+
+    def _move(step: int) -> None:
+        nonlocal cursor
+        cursor = max(0, min(len(values) - 1, cursor + step))
+
+    def _current_key() -> str:
+        return str(values[cursor][0])
+
+    def _toggle_current() -> None:
+        token = _current_key()
+        if token in selected:
+            selected.remove(token)
+            return
+        if max_selection_count is not None and int(max_selection_count) == 1:
+            selected[:] = [token]
+            return
+        selected.append(token)
 
     def _selection_label() -> str:
+        if max_selection_count is not None and int(max_selection_count) == 1:
+            singular = str(selection_noun).strip() or "item"
+            return f"Current: {cursor + 1}/{len(values)} {singular}"
         count = len(_selected())
         total = len(values)
         singular = str(selection_noun).strip() or "item"
@@ -66,12 +89,15 @@ def pick_many_with_checkboxes(
         return f"Selected: {count}/{total} {suffix}"
 
     def _confirm() -> None:
-        selected = _selected()
-        if not selected:
+        current_selected = _selected()
+        if not current_selected and max_selection_count is not None and int(max_selection_count) == 1:
+            current_selected = [_current_key()]
+            selected[:] = list(current_selected)
+        if not current_selected:
             _set_error(empty_selection_message)
             app.invalidate()
             return
-        if max_selection_count is not None and len(selected) > int(max_selection_count):
+        if max_selection_count is not None and len(current_selected) > int(max_selection_count):
             _set_error(
                 str(max_selection_message).strip()
                 if str(max_selection_message or "").strip()
@@ -79,75 +105,95 @@ def pick_many_with_checkboxes(
             )
             app.invalidate()
             return
-        app.exit(result=selected)
+        app.exit(result=list(current_selected))
 
     def _cancel() -> None:
         app.exit(result=None)
 
     kb = KeyBindings()
 
-    @kb.add("tab")
-    def _tab(event) -> None:
-        focus_next(event)
+    @kb.add("up")
+    @kb.add("k")
+    def _up(event) -> None:
+        _move(-1)
+        _set_error("")
+        event.app.invalidate()
 
-    @kb.add("s-tab")
-    def _s_tab(event) -> None:
-        focus_previous(event)
+    @kb.add("down")
+    @kb.add("j")
+    def _down(event) -> None:
+        _move(1)
+        _set_error("")
+        event.app.invalidate()
 
-    @kb.add("enter", filter=has_focus(checkbox), eager=True)
+    @kb.add(" ")
+    def _space(event) -> None:
+        _toggle_current()
+        _set_error("")
+        event.app.invalidate()
+
+    @kb.add("enter", eager=True)
     def _enter_confirm(event) -> None:
         _confirm()
 
-    @kb.add("a", filter=has_focus(checkbox))
+    @kb.add("a")
     def _toggle_all(event) -> None:
-        all_keys = [value for value, _ in values]
-        current = set(_selected())
-        if len(current) == len(all_keys):
-            checkbox.current_values = []
+        if max_selection_count is not None and int(max_selection_count) == 1:
+            selected[:] = [_current_key()]
         else:
-            checkbox.current_values = list(all_keys)
+            all_keys = [value for value, _ in values]
+            current = set(_selected())
+            if len(current) == len(all_keys):
+                selected.clear()
+            else:
+                selected[:] = list(all_keys)
         _set_error("")
         event.app.invalidate()
 
     @kb.add("escape", eager=True)
     @kb.add("c-c", eager=True)
+    @kb.add("q", eager=True)
     def _cancel_keys(event) -> None:
         _cancel()
 
-    dialog = Dialog(
-        title=title,
-        body=HSplit(
-            [
-                Label(text=text, dont_extend_height=True),
-                Label(
-                    text=lambda: _selection_label(),
-                    style="class:accent",
-                    dont_extend_height=True,
-                ),
-                Label(
-                    text=lambda: state["error"],
-                    style="class:error",
-                    dont_extend_height=True,
-                ),
-                checkbox,
-                Label(
-                    text="Keys: Up/Down move | Space toggle | a toggle all | Enter confirm | Esc cancel",
-                    style="class:muted",
-                    dont_extend_height=True,
-                ),
-            ],
-            padding=1,
-        ),
-        buttons=[
-            Button(text=confirm_button_text, handler=_confirm),
-            Button(text="Cancel", handler=_return_none),
+    def _render_lines():
+        fragments: list[tuple[str, str]] = []
+        for idx, (key, label) in enumerate(values):
+            token = str(key)
+            marker = "[x]" if token in selected else "[ ]"
+            prefix = "› " if idx == cursor else "  "
+            style = "class:checkbox-list.current" if idx == cursor else "class:checkbox-list"
+            fragments.append((style, f"{prefix}{marker} {label}\n"))
+        if state["error"]:
+            fragments.append(("class:error", f"\n{state['error']}\n"))
+        return fragments
+
+    help_text = (
+        f"Keys: Up/Down move | Space toggle | a toggle all | Enter {confirm_button_text.lower()} | Esc/q cancel"
+        if max_selection_count is None or int(max_selection_count) != 1
+        else "Keys: Up/Down move | Enter selects current option | Esc/q cancel"
+    )
+
+    body = Window(
+        content=FormattedTextControl(_render_lines),
+        always_hide_cursor=True,
+        wrap_lines=True,
+    )
+
+    root = HSplit(
+        [
+            Label(text=title, style="class:accent"),
+            Label(text=text, dont_extend_height=True),
+            Label(text=lambda: _selection_label(), style="class:accent", dont_extend_height=True),
+            body,
+            Label(text=help_text, style="class:muted"),
         ],
-        with_background=True,
+        padding=1,
     )
 
     app: Application[list[str] | None] = Application(
-        layout=Layout(dialog),
-        key_bindings=merge_key_bindings([load_key_bindings(), kb]),
+        layout=Layout(root),
+        key_bindings=kb,
         mouse_support=True,
         full_screen=True,
         style=build_prompt_style(),

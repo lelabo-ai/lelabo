@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .gitspace import find_gitspace_root, load_gitspace
 from .install import inspect_capsule_directory
 from .registry import default_capsules_dir, list_capsules
 
@@ -32,9 +31,7 @@ class DiscoveredCapsule:
     root: Path
     path: str
     status: str
-    source_kind: str
     aliases: tuple[str, ...] = ()
-    gitspace_root: str | None = None
     from_store: bool = False
     from_registry: bool = False
 
@@ -58,9 +55,6 @@ def find_capsule_root(start: Path | None = None) -> Path | None:
 
 def current_workspace_root(start: Path | None = None) -> Path:
     cursor = (start or Path.cwd()).expanduser().resolve()
-    gitspace_root = find_gitspace_root(cursor)
-    if gitspace_root is not None:
-        return gitspace_root.resolve()
     active = find_capsule_root(cursor)
     if active is not None:
         return active.resolve()
@@ -111,10 +105,8 @@ def _capsule_id_for_root(root: Path) -> str:
 def _workspace_entry(
     root: Path,
     *,
-    source_kind: str,
     capsule_id: str | None = None,
     aliases: tuple[str, ...] = (),
-    gitspace_root: Path | None = None,
     from_registry: bool = False,
 ) -> DiscoveredCapsule:
     resolved = root.expanduser().resolve()
@@ -123,24 +115,20 @@ def _workspace_entry(
         root=resolved,
         path=str(resolved),
         status="workspace",
-        source_kind=source_kind,
         aliases=tuple(sorted({str(item).strip() for item in aliases if str(item).strip()})),
-        gitspace_root=str(gitspace_root.resolve()) if gitspace_root is not None else None,
         from_store=False,
         from_registry=bool(from_registry),
     )
 
 
-def _store_entry(root: Path, *, capsule_id: str, aliases: tuple[str, ...], source_kind: str) -> DiscoveredCapsule:
+def _store_entry(root: Path, *, capsule_id: str, aliases: tuple[str, ...]) -> DiscoveredCapsule:
     resolved = root.expanduser().resolve()
     return DiscoveredCapsule(
         capsule_id=str(capsule_id).strip() or resolved.name,
         root=resolved,
         path=str(resolved),
         status="store",
-        source_kind=source_kind,
         aliases=tuple(sorted({str(item).strip() for item in aliases if str(item).strip()})),
-        gitspace_root=None,
         from_store=True,
         from_registry=True,
     )
@@ -148,35 +136,11 @@ def _store_entry(root: Path, *, capsule_id: str, aliases: tuple[str, ...], sourc
 
 def discover_workspace_capsules(start: Path | None = None) -> tuple[DiscoveredCapsule, ...]:
     cursor = (start or Path.cwd()).expanduser().resolve()
-    gitspace_root = find_gitspace_root(cursor)
-    if gitspace_root is not None:
-        try:
-            gitspace = load_gitspace(gitspace_root)
-        except Exception:
-            gitspace = None
-        if gitspace is not None:
-            out: list[DiscoveredCapsule] = []
-            for item in list(gitspace.get("capsules", []) or []):
-                rel_path = Path(str(item.get("path", "")).strip())
-                capsule_root = (gitspace_root / rel_path).resolve()
-                if not is_capsule_root(capsule_root):
-                    continue
-                out.append(
-                    _workspace_entry(
-                        capsule_root,
-                        source_kind="gitspace_manifest",
-                        capsule_id=str(item.get("id", "")).strip() or None,
-                        gitspace_root=gitspace_root,
-                    )
-                )
-            if out:
-                return tuple(sorted(out, key=lambda item: (item.capsule_id, item.path)))
-
     active = find_capsule_root(cursor)
     if active is not None:
-        return (_workspace_entry(active, source_kind="active"),)
+        return (_workspace_entry(active),)
 
-    rows = [_workspace_entry(root, source_kind="workspace_descendant") for root in _scan_descendant_capsules(cursor)]
+    rows = [_workspace_entry(root) for root in _scan_descendant_capsules(cursor)]
     return tuple(rows)
 
 
@@ -195,21 +159,16 @@ def discover_visible_capsules(
             return
         aliases = tuple(sorted({*existing.aliases, *entry.aliases}))
         status = existing.status
-        source_kind = existing.source_kind
         from_store = existing.from_store or entry.from_store
         from_registry = existing.from_registry or entry.from_registry
-        gitspace_root = existing.gitspace_root or entry.gitspace_root
         if existing.status != "workspace" and entry.status == "workspace":
             status = entry.status
-            source_kind = entry.source_kind
         merged[key] = DiscoveredCapsule(
             capsule_id=existing.capsule_id or entry.capsule_id,
             root=existing.root,
             path=existing.path,
             status=status,
-            source_kind=source_kind,
             aliases=aliases,
-            gitspace_root=gitspace_root,
             from_store=from_store,
             from_registry=from_registry,
         )
@@ -226,12 +185,11 @@ def discover_visible_capsules(
         aliases = tuple(str(item).strip() for item in list(row.get("aliases", []) or []) if str(item).strip())
         capsule_id = str(row.get("capsule_id", "")).strip() or root.name
         if _path_within(store_root, root):
-            _merge(_store_entry(root, capsule_id=capsule_id, aliases=aliases, source_kind="store_registry"))
+            _merge(_store_entry(root, capsule_id=capsule_id, aliases=aliases))
             continue
         _merge(
             _workspace_entry(
                 root,
-                source_kind="attached_registry",
                 capsule_id=capsule_id,
                 aliases=aliases,
                 from_registry=True,

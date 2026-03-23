@@ -70,6 +70,7 @@ def test_capsule_help_displays_lifecycle_subcommands() -> None:
     assert "checkout" in proc.stdout
     assert "install" in proc.stdout
     assert "share" in proc.stdout
+    assert "pack" not in proc.stdout
     assert "lelabo capsule sweep" not in proc.stdout
 
 
@@ -84,11 +85,12 @@ def test_push_help_displays_publish_usage() -> None:
 def test_repo_help_displays_repo_subcommands() -> None:
     proc = _run_cli_help("repo", "-h")
     assert proc.returncode == 0
-    assert "Manage advanced publish targets" in proc.stdout
+    assert "Manage publish repos and targets for capsules." in proc.stdout
     assert "list" in proc.stdout
-    assert "add" in proc.stdout
-    assert "use" in proc.stdout
-    assert "remove" in proc.stdout
+    assert "create" in proc.stdout
+    assert "add capsule" in proc.stdout
+    assert "edit" in proc.stdout
+    assert "detach" in proc.stdout
 
 
 def test_config_help_displays_config_subcommands() -> None:
@@ -134,10 +136,10 @@ def test_export_help_displays_local_bundle_usage() -> None:
     assert "--out" in proc.stdout
 
 
-def test_removed_gitspace_command_is_actionable() -> None:
+def test_gitspace_command_is_unknown() -> None:
     proc = _run_cli_help("gitspace", "-h")
     assert proc.returncode != 0
-    assert "`lelabo gitspace` has been removed" in proc.stderr
+    assert "Unknown command: gitspace" in proc.stderr
 
 
 def test_capsule_show_help_documents_positionals_and_examples() -> None:

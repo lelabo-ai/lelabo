@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .gitspace import add_capsule_to_gitspace, find_gitspace_root, init_gitspace, load_gitspace
 from .github import parse_owner_repo_from_url
 from .install import inspect_capsule_directory
 
@@ -277,6 +276,12 @@ def create_repo(owner: str, repo: str, visibility: str) -> None:
     try:
         _run(["gh", "repo", "create", f"{owner}/{repo}", flag])
     except RuntimeError as exc:
+        err_text = str(exc)
+        if "Name already exists on this account" in err_text:
+            raise RuntimeError(
+                f"GitHub repo '{owner}/{repo}' already exists. "
+                "Use the existing repo flow instead of creating a new repo."
+            ) from exc
         login = current_github_login()
         who = f"Authenticated GitHub user: {login}. " if login else ""
         hint = (
@@ -284,19 +289,6 @@ def create_repo(owner: str, repo: str, visibility: str) -> None:
             "or update `lelabo config set github.owner <your-github-login>`."
         )
         raise RuntimeError(f"{exc}\n{hint}") from exc
-
-
-def ensure_repo_manifest_for_capsule(capsule_root: Path) -> dict[str, Any]:
-    root = capsule_root.expanduser().resolve()
-    try:
-        repo_root = git_repo_root(root)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            "This capsule is not inside a git repository. Create a publish target instead of using the workspace target."
-        ) from exc
-    init_gitspace(repo_root, name=repo_root.name)
-    add_capsule_to_gitspace(root, gitspace_root=repo_root)
-    return load_gitspace(repo_root)
 
 
 def infer_workspace_target(capsule_root: Path) -> dict[str, Any] | None:
@@ -403,7 +395,7 @@ def push_workspace_target(
 ) -> dict[str, Any]:
     root = capsule_root.expanduser().resolve()
     repo_root = Path(str(target.get("repo_root") or "")).expanduser().resolve() if str(target.get("repo_root") or "").strip() else git_repo_root(root)
-    rel_paths = [root.relative_to(repo_root).as_posix(), ".lelabo/gitspace.toml"]
+    rel_paths = [root.relative_to(repo_root).as_posix()]
     target_branch = str(target.get("branch", "")).strip() or git_current_branch(repo_root) or "main"
     result = {
         "target_name": str(target.get("name", "workspace")),
@@ -424,9 +416,6 @@ def push_workspace_target(
     if preview:
         result["scoped_changes"] = _git_status_for_paths(repo_root, [rel_paths[0]])
         return result
-    manifest = ensure_repo_manifest_for_capsule(root)
-    repo_root = Path(str(manifest["root"])).resolve()
-    rel_paths = [root.relative_to(repo_root).as_posix(), ".lelabo/gitspace.toml"]
     if _git_has_staged_changes(repo_root):
         raise RuntimeError("The git index already has staged changes. Commit or unstage them before `lelabo push`.")
     scoped_dirty = _git_status_for_paths(repo_root, rel_paths)
@@ -508,6 +497,24 @@ def _copy_capsule_tree(source: Path, dest: Path) -> None:
     shutil.copytree(source, dest, ignore=ignore)
 
 
+def _copy_capsule_into_repo_root(source: Path, repo_root: Path) -> None:
+    ignore = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.pyo")
+    for child in list(repo_root.iterdir()):
+        if child.name == ".git":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    for child in source.iterdir():
+        if child.name == ".git":
+            continue
+        if child.is_dir():
+            shutil.copytree(child, repo_root / child.name, ignore=ignore)
+        else:
+            shutil.copy2(child, repo_root / child.name)
+
+
 def push_github_target(
     *,
     capsule_root: Path,
@@ -523,9 +530,10 @@ def push_github_target(
     if not owner or not repo:
         raise ValueError("GitHub target requires owner and repo.")
     branch = str(target.get("branch", "")).strip() or "main"
-    rel_path = str(target.get("path", "")).strip() or str(capsule_info.get("capsule_id", root.name))
-    if rel_path in {"", "."}:
-        raise ValueError("GitHub target path cannot be empty or '.'.")
+    raw_path = str(target.get("path", "")).strip()
+    rel_path = raw_path if raw_path else str(capsule_info.get("capsule_id", root.name))
+    if rel_path == "":
+        raise ValueError("GitHub target path cannot be empty.")
     visibility = str(target.get("visibility", "private")).strip().lower() or "private"
     result = {
         "target_name": str(target.get("name", "")),
@@ -552,17 +560,15 @@ def push_github_target(
         visibility=visibility,
         create_repo_if_missing=create_repo_if_missing,
     )
-    target_capsule_root = (checkout / rel_path).resolve()
-    init_gitspace(checkout, name=repo)
+    target_capsule_root = checkout.resolve() if rel_path == "." else (checkout / rel_path).resolve()
     result["repo_root"] = str(checkout)
     result["created_repo"] = bool(created_repo)
-    _copy_capsule_tree(root, target_capsule_root)
-    add_capsule_to_gitspace(
-        target_capsule_root,
-        gitspace_root=checkout,
-        capsule_id=str(capsule_info.get("capsule_id", root.name)),
-    )
-    rel_paths = [rel_path, ".lelabo/gitspace.toml"]
+    if rel_path == ".":
+        _copy_capsule_into_repo_root(root, checkout)
+        rel_paths = ["."]
+    else:
+        _copy_capsule_tree(root, target_capsule_root)
+        rel_paths = [rel_path]
     _git_stage_paths(checkout, rel_paths)
     try:
         result["committed"] = _git_commit(checkout, result["commit_message"])
@@ -583,7 +589,6 @@ __all__ = [
     "capsule_state_key",
     "current_github_login",
     "ensure_gh_auth",
-    "ensure_repo_manifest_for_capsule",
     "get_target_preferences",
     "git_origin_url",
     "git_repo_root",

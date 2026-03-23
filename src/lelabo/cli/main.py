@@ -91,11 +91,11 @@ Examples:
   lelabo audit --all --modes supervised,rl
   lelabo push my_capsule
   lelabo export my_capsule --out ./my_capsule.tar.gz
-  lelabo repo add my_capsule --name public --owner your-org --repo method-zoo
+  lelabo repo create
+  lelabo repo add capsule my_capsule
   lelabo config set github.owner your-org
   lelabo capsule init my_capsule
   lelabo list update-rules
-  lelabo capsule pack --from outputs/runs/demo/run1
 """
 
 
@@ -147,9 +147,6 @@ def main(argv: list[str] | None = None) -> int:
         if not rest or is_help_token(rest[0]):
             return _run_config_cli(["-h"])
         return _run_config_cli(rest)
-
-    if cmd == "gitspace":
-        raise SystemExit("`lelabo gitspace` has been removed. Use `lelabo push` or `lelabo repo`.")
 
     if cmd in {"list", "ls"}:
         if rest and is_help_token(rest[0]):

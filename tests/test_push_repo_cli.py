@@ -15,7 +15,7 @@ repo_cli = importlib.import_module("lelabo.cli.commands.repo")
 capsule_create = importlib.import_module("lelabo.capsule.create")
 
 
-def test_push_cli_uses_workspace_target_when_available(tmp_path, monkeypatch, capsys) -> None:
+def test_push_cli_rejects_workspace_target(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace_push"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -24,38 +24,11 @@ def test_push_cli_uses_workspace_target_when_available(tmp_path, monkeypatch, ca
         register=False,
     )
 
-    target = {
-        "name": "workspace",
-        "kind": "workspace",
-        "owner": "acme",
-        "repo": "research",
-        "branch": "main",
-        "path": "demo_capsule",
-    }
-    monkeypatch.setattr(push_cli, "available_targets", lambda _: [target])
-    monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: ("workspace", None))
-    monkeypatch.setattr(
-        push_cli,
-        "push_workspace_target",
-        lambda **kwargs: {
-            "target_name": "workspace",
-            "target_kind": "workspace",
-            "owner": "acme",
-            "repo": "research",
-            "branch": "main",
-            "path": "demo_capsule",
-            "commit_message": "Update demo_capsule",
-            "committed": True,
-            "pushed": True,
-        },
-    )
+    with pytest.raises(SystemExit) as exc:
+        push_cli.main([str(capsule_root), "--target", "workspace"])
 
-    rc = push_cli.main([str(capsule_root), "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == "lelabo.cli.push/v1"
-    assert payload["result"]["target_kind"] == "workspace"
-    assert payload["result"]["repo"] == "research"
+    assert "does not support the workspace target" in str(exc.value)
+    assert "lelabo export" in str(exc.value)
 
 
 def test_push_cli_resolves_single_child_capsule_from_workspace(tmp_path, monkeypatch, capsys) -> None:
@@ -72,10 +45,10 @@ def test_push_cli_resolves_single_child_capsule_from_workspace(tmp_path, monkeyp
         captured.update(kwargs)
         return [
             {
-                "target_name": "workspace",
-                "target_kind": "workspace",
+                "target_name": "github",
+                "target_kind": "github",
                 "owner": "acme",
-                "repo": "research",
+                "repo": "lelabo-capsules",
                 "branch": "main",
                 "path": "demo_capsule",
                 "commit_message": "Update demo_capsule",
@@ -209,6 +182,55 @@ def test_push_cli_bootstraps_github_target_with_yes(tmp_path, monkeypatch, capsy
     assert "github" in entry["targets"]
 
 
+def test_push_cli_no_target_uses_repo_target_setup_flow(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_bootstrap_flow"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [])
+    monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, None))
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(
+        push_cli,
+        "configure_github_target_for_capsule",
+        lambda *args, **kwargs: {
+            "name": "github",
+            "kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "demo_capsule",
+            "visibility": "private",
+            "_ephemeral": True,
+        },
+    )
+    monkeypatch.setattr(
+        push_cli,
+        "push_github_target",
+        lambda **kwargs: {
+            "target_name": "github",
+            "target_kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "demo_capsule",
+            "commit_message": "Update demo_capsule",
+            "created_repo": False,
+            "committed": False,
+            "pushed": False,
+        },
+    )
+
+    rc = push_cli.main([str(capsule_root), "--preview", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["target_name"] == "github"
+    assert payload["result"]["repo"] == "lelabo-capsules"
+
+
 def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_last_used"
     workspace.mkdir()
@@ -217,14 +239,6 @@ def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypa
         base_dir=workspace,
         register=False,
     )
-    workspace_target = {
-        "name": "workspace",
-        "kind": "workspace",
-        "owner": "acme",
-        "repo": "research",
-        "branch": "main",
-        "path": "demo_capsule",
-    }
     github_target = {
         "name": "github",
         "kind": "github",
@@ -236,7 +250,16 @@ def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypa
     }
     prompts: list[str] = []
 
-    monkeypatch.setattr(push_cli, "available_targets", lambda _: [workspace_target, github_target])
+    archive_target = {
+        "name": "archive",
+        "kind": "github",
+        "owner": "lab",
+        "repo": "team-capsules",
+        "branch": "main",
+        "path": "demo_capsule",
+        "visibility": "private",
+    }
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [github_target, archive_target])
     monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, "github"))
     monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
     monkeypatch.setattr(
@@ -244,15 +267,15 @@ def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypa
         "_confirm",
         lambda question, default=False: prompts.append(question) or False,
     )
-    monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: ["workspace"])
+    monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: ["archive"])
     monkeypatch.setattr(
         push_cli,
-        "push_workspace_target",
+        "push_github_target",
         lambda **kwargs: {
-            "target_name": "workspace",
-            "target_kind": "workspace",
-            "owner": "acme",
-            "repo": "research",
+            "target_name": "archive",
+            "target_kind": "github",
+            "owner": "lab",
+            "repo": "team-capsules",
             "branch": "main",
             "path": "demo_capsule",
             "commit_message": "Update demo_capsule",
@@ -264,7 +287,7 @@ def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypa
     rc = push_cli.main([str(capsule_root), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["result"]["target_name"] == "workspace"
+    assert payload["result"]["target_name"] == "archive"
     assert prompts
     assert prompts[0].startswith("Last used publish target:")
 
@@ -278,12 +301,13 @@ def test_push_cli_single_non_default_target_uses_picker(tmp_path, monkeypatch, c
         register=False,
     )
     target = {
-        "name": "workspace",
-        "kind": "workspace",
+        "name": "github",
+        "kind": "github",
         "owner": "acme",
-        "repo": "research",
+        "repo": "lelabo-capsules",
         "branch": "main",
         "path": "demo_capsule",
+        "visibility": "private",
     }
     calls: list[str] = []
 
@@ -293,16 +317,16 @@ def test_push_cli_single_non_default_target_uses_picker(tmp_path, monkeypatch, c
     monkeypatch.setattr(
         push_cli,
         "pick_many_with_checkboxes",
-        lambda **kwargs: calls.append(kwargs["title"]) or ["workspace"],
+        lambda **kwargs: calls.append(kwargs["title"]) or ["github"],
     )
     monkeypatch.setattr(
         push_cli,
-        "push_workspace_target",
+        "push_github_target",
         lambda **kwargs: {
-            "target_name": "workspace",
-            "target_kind": "workspace",
+            "target_name": "github",
+            "target_kind": "github",
             "owner": "acme",
-            "repo": "research",
+            "repo": "lelabo-capsules",
             "branch": "main",
             "path": "demo_capsule",
             "commit_message": "Update demo_capsule",
@@ -315,17 +339,18 @@ def test_push_cli_single_non_default_target_uses_picker(tmp_path, monkeypatch, c
     assert rc == 0
     assert calls == ["Select publish targets"]
     payload = json.loads(capsys.readouterr().out)
-    assert payload["result"]["target_name"] == "workspace"
+    assert payload["result"]["target_name"] == "github"
 
 
-def test_push_cli_picker_can_select_multiple_targets(tmp_path, monkeypatch, capsys) -> None:
-    workspace = tmp_path / "workspace_multi_targets"
+def test_push_cli_picker_filters_out_workspace_targets(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_remote_only"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
         capsule_name="demo_capsule",
         base_dir=workspace,
         register=False,
     )
+    seen_options: list[tuple[str, str]] = []
     workspace_target = {
         "name": "workspace",
         "kind": "workspace",
@@ -347,21 +372,10 @@ def test_push_cli_picker_can_select_multiple_targets(tmp_path, monkeypatch, caps
     monkeypatch.setattr(push_cli, "available_targets", lambda _: [workspace_target, github_target])
     monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, None))
     monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
-    monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: ["workspace", "github"])
     monkeypatch.setattr(
         push_cli,
-        "push_workspace_target",
-        lambda **kwargs: {
-            "target_name": "workspace",
-            "target_kind": "workspace",
-            "owner": "acme",
-            "repo": "research",
-            "branch": "main",
-            "path": "demo_capsule",
-            "commit_message": "Update demo_capsule",
-            "committed": False,
-            "pushed": True,
-        },
+        "pick_many_with_checkboxes",
+        lambda **kwargs: seen_options.extend(kwargs["options"]) or ["github"],
     )
     monkeypatch.setattr(
         push_cli,
@@ -382,9 +396,73 @@ def test_push_cli_picker_can_select_multiple_targets(tmp_path, monkeypatch, caps
 
     rc = push_cli.main([str(capsule_root), "--json"])
     assert rc == 0
+    assert [name for name, _ in seen_options] == ["github", push_cli._CREATE_TARGET_OPTION]
     payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == "lelabo.cli.pushes/v1"
-    assert [row["target_name"] for row in payload["results"]] == ["workspace", "github"]
+    assert payload["result"]["target_name"] == "github"
+
+
+def test_push_cli_picker_can_select_multiple_targets(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_multi_targets"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    github_target = {
+        "name": "github",
+        "kind": "github",
+        "owner": "acme",
+        "repo": "lelabo-capsules",
+        "branch": "main",
+        "path": "demo_capsule",
+        "visibility": "private",
+    }
+    archive_target = {
+        "name": "archive",
+        "kind": "github",
+        "owner": "lab",
+        "repo": "team-capsules",
+        "branch": "main",
+        "path": "papers/demo_capsule",
+        "visibility": "private",
+    }
+    confirms: list[str] = []
+
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [github_target, archive_target])
+    monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, None))
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: ["github", "archive"])
+    monkeypatch.setattr(
+        push_cli,
+        "_confirm",
+        lambda question, default=False: confirms.append(question) or True,
+    )
+    monkeypatch.setattr(
+        push_cli,
+        "push_github_target",
+        lambda **kwargs: {
+            "target_name": kwargs["target"]["name"],
+            "target_kind": "github",
+            "owner": kwargs["target"]["owner"],
+            "repo": kwargs["target"]["repo"],
+            "branch": kwargs["target"]["branch"],
+            "path": kwargs["target"]["path"],
+            "commit_message": "Update demo_capsule",
+            "created_repo": False,
+            "committed": False,
+            "pushed": True,
+        },
+    )
+
+    rc = push_cli.main([str(capsule_root)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Publish targets" in out
+    assert "github | repo: acme/lelabo-capsules | folder: demo_capsule" in out
+    assert "github | repo: lab/team-capsules | folder: papers/demo_capsule" in out
+    assert "Success: Pushed 2 targets." in out
+    assert confirms == ["Continue?"]
 
 
 def test_push_cli_picker_can_create_new_target_and_return_to_selection(tmp_path, monkeypatch, capsys) -> None:
@@ -395,20 +473,21 @@ def test_push_cli_picker_can_create_new_target_and_return_to_selection(tmp_path,
         base_dir=workspace,
         register=False,
     )
-    workspace_target = {
-        "name": "workspace",
-        "kind": "workspace",
+    existing_target = {
+        "name": "public",
+        "kind": "github",
         "owner": "acme",
-        "repo": "research",
+        "repo": "method-zoo",
         "branch": "main",
         "path": "demo_capsule",
+        "visibility": "public",
     }
     selections = [
         [push_cli._CREATE_TARGET_OPTION],
         ["github"],
     ]
 
-    monkeypatch.setattr(push_cli, "available_targets", lambda _: [workspace_target])
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [existing_target])
     monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, None))
     monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
     monkeypatch.setattr(push_cli, "pick_many_with_checkboxes", lambda **kwargs: selections.pop(0))
@@ -458,13 +537,8 @@ def test_push_cli_preview_no_target_custom_flow_uses_folder_wording_without_savi
         base_dir=workspace,
         register=False,
     )
-    publish_state = tmp_path / "publish_targets_preview.json"
-    answers = iter(["2", "", "", "", "papers/demo_capsule", "", ""])
-
-    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
     monkeypatch.setattr(push_cli, "available_targets", lambda _: [])
     monkeypatch.setattr(push_cli, "get_target_preferences", lambda _: (None, None))
-    monkeypatch.setattr(push_cli, "current_github_login", lambda: "acme")
     monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
     monkeypatch.setattr(
         push_cli,
@@ -479,7 +553,20 @@ def test_push_cli_preview_no_target_custom_flow_uses_folder_wording_without_savi
             "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
         },
     )
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(
+        push_cli,
+        "configure_github_target_for_capsule",
+        lambda *args, **kwargs: {
+            "name": "github",
+            "kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "papers/demo_capsule",
+            "visibility": "private",
+            "_ephemeral": True,
+        },
+    )
     monkeypatch.setattr(
         push_cli,
         "push_github_target",
@@ -501,15 +588,39 @@ def test_push_cli_preview_no_target_custom_flow_uses_folder_wording_without_savi
     assert rc == 0
     out = capsys.readouterr().out
     assert "Info: No saved publish target for demo_capsule." in out
-    assert "Proposed GitHub target: acme/lelabo-capsules" in out
-    assert "Folder: papers/demo_capsule" in out
-    assert "Target name" not in out
     assert "folder: papers/demo_capsule" in out
     assert "path:" not in out
-    assert not publish_state.exists()
 
 
-def test_repo_cli_add_list_use_remove_roundtrip(tmp_path, monkeypatch, capsys) -> None:
+def test_repo_cli_create_shared_repo(tmp_path, monkeypatch, capsys) -> None:
+    created: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
+    monkeypatch.setattr(repo_cli, "create_repo", lambda owner, repo, visibility: created.append((owner, repo, visibility)))
+    monkeypatch.setattr(
+        repo_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+            }
+        },
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
+
+    rc = repo_cli.main(["create", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "create"
+    assert payload["repo"]["owner"] == "acme"
+    assert payload["repo"]["repo"] == "lelabo-capsules"
+    assert created == [("acme", "lelabo-capsules", "private")]
+
+
+def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_repo"
     workspace.mkdir()
     capsule_root = capsule_create.create_capsule_scaffold(
@@ -520,6 +631,7 @@ def test_repo_cli_add_list_use_remove_roundtrip(tmp_path, monkeypatch, capsys) -
     publish_state = tmp_path / "publish_targets.json"
     monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
     monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
+    monkeypatch.setattr(repo_cli, "_list_github_repos", lambda owner: ["acme/method-zoo"])
     monkeypatch.setattr(
         repo_cli,
         "_effective_settings",
@@ -533,29 +645,123 @@ def test_repo_cli_add_list_use_remove_roundtrip(tmp_path, monkeypatch, capsys) -
             "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
         },
     )
+    selections = iter([[repo_cli._REPO_ACTION_EXISTING], ["acme/method-zoo"]])
+    answers = iter(["", "", ""])
+    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: next(selections))
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
 
     rc = repo_cli.main(["list", str(capsule_root), "--json"])
     assert rc == 0
     empty_payload = json.loads(capsys.readouterr().out)
-    assert empty_payload["targets"] == []
+    assert empty_payload["repos"] == []
 
-    rc = repo_cli.main(["add", str(capsule_root), "--name", "public", "--owner", "acme", "--repo", "method-zoo", "--default", "--json"])
+    rc = repo_cli.main(["add", "capsule", str(capsule_root), "--json"])
     assert rc == 0
     add_payload = json.loads(capsys.readouterr().out)
-    assert add_payload["target"]["name"] == "public"
+    assert add_payload["target"]["repo"] == "method-zoo"
+    assert add_payload["target"]["owner"] == "acme"
     assert add_payload["target"]["default"] is True
 
     rc = repo_cli.main(["list", str(capsule_root), "--json"])
     assert rc == 0
     list_payload = json.loads(capsys.readouterr().out)
-    assert [item["name"] for item in list_payload["targets"]] == ["public"]
+    assert [item["repo"] for item in list_payload["repos"]] == ["method-zoo"]
+    assert list_payload["repos"][0]["capsules"] == ["demo_capsule"]
 
-    rc = repo_cli.main(["use", "public", str(capsule_root), "--json"])
+    edit_selections = iter([["default"], [f"{capsule_root.resolve()}::github"]])
+    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: next(edit_selections))
+    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
     assert rc == 0
-    use_payload = json.loads(capsys.readouterr().out)
-    assert use_payload["target"]["default"] is True
+    edit_payload = json.loads(capsys.readouterr().out)
+    assert edit_payload["command"] == "edit-default"
+    assert edit_payload["target"]["default"] is True
 
-    rc = repo_cli.main(["remove", "public", str(capsule_root), "--json"])
+    rc = repo_cli.main(["detach", "acme/method-zoo", str(capsule_root), "--json"])
     assert rc == 0
-    remove_payload = json.loads(capsys.readouterr().out)
-    assert remove_payload["target"]["name"] == "public"
+    detach_payload = json.loads(capsys.readouterr().out)
+    assert detach_payload["command"] == "detach"
+    assert detach_payload["target"]["name"] == "github"
+
+
+def test_repo_cli_list_without_capsule_shows_all_configured_targets(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_repo_list"
+    workspace.mkdir()
+    caps_a = capsule_create.create_capsule_scaffold(capsule_name="caps_a", base_dir=workspace, register=False)
+    caps_b = capsule_create.create_capsule_scaffold(capsule_name="caps_b", base_dir=workspace, register=False)
+    publish_state = tmp_path / "publish_targets_list.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+
+    repo_cli.save_configured_target(
+        caps_a,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "caps-a", "branch": "main", "path": "caps_a", "visibility": "private"},
+        make_default=True,
+    )
+    repo_cli.save_configured_target(
+        caps_b,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "caps-b", "branch": "main", "path": "caps_b", "visibility": "private"},
+        make_default=True,
+    )
+
+    rc = repo_cli.main(["list", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [item["repo"] for item in payload["repos"]] == ["caps-a", "caps-b"]
+    assert [item["capsules"] for item in payload["repos"]] == [["caps_a"], ["caps_b"]]
+
+
+def test_repo_cli_list_groups_multiple_capsules_under_same_repo(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_repo_grouped"
+    workspace.mkdir()
+    caps_a = capsule_create.create_capsule_scaffold(capsule_name="caps_a", base_dir=workspace, register=False)
+    caps_b = capsule_create.create_capsule_scaffold(capsule_name="caps_b", base_dir=workspace, register=False)
+    publish_state = tmp_path / "publish_targets_grouped.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+
+    repo_cli.save_configured_target(
+        caps_a,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "shared", "branch": "main", "path": "caps_a", "visibility": "private"},
+        make_default=True,
+    )
+    repo_cli.save_configured_target(
+        caps_b,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "shared", "branch": "main", "path": "caps_b", "visibility": "private"},
+        make_default=True,
+    )
+
+    rc = repo_cli.main(["list", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["repos"]) == 1
+    assert payload["repos"][0]["repo"] == "shared"
+    assert payload["repos"][0]["capsules"] == ["caps_a", "caps_b"]
+
+
+def test_repo_cli_detach_accepts_owner_repo_globally(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_repo_global"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(capsule_name="caps_g", base_dir=workspace, register=False)
+    publish_state = tmp_path / "publish_targets_global.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+
+    repo_cli.save_configured_target(
+        capsule_root,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "caps-g", "branch": "main", "path": "caps_g", "visibility": "private"},
+        make_default=False,
+    )
+    monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
+
+    rc = repo_cli.main(["detach", "acme/caps-g", str(capsule_root), "--json"])
+    assert rc == 0
+    detach_payload = json.loads(capsys.readouterr().out)
+    assert detach_payload["target"]["name"] == "github"
+
+
+def test_repo_cli_use_and_remove_are_unknown(tmp_path) -> None:
+    with pytest.raises(SystemExit) as use_exc:
+        repo_cli.main(["use"])
+    assert "Unknown repo subcommand: use" in str(use_exc.value)
+
+    with pytest.raises(SystemExit) as remove_exc:
+        repo_cli.main(["remove"])
+    assert "Unknown repo subcommand: remove" in str(remove_exc.value)
