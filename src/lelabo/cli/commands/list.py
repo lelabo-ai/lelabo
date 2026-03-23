@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Sequence
 
+from ...capsule import inspect_capsule_directory
 from ...capsule.discovery import discover_workspace_capsules, find_capsule_root
 from ...capsule.registry import get_capsule
 from ...config.user_settings import load_effective_settings
@@ -53,7 +54,7 @@ Notes:
   - Use `--capsule` to additionally include a local capsule path or a stored capsule id/alias.
 """
 
-LIST_JSON_SCHEMA = "lelabo.cli.list/v1"
+LIST_JSON_SCHEMA = "lelabo.cli.list/v2"
 
 
 _TARGET_ALIASES = {
@@ -148,12 +149,20 @@ def _resolve_explicit_capsule_roots(
     return [_resolve_capsule_root(ref, capsules_dir) for ref in refs]
 
 
+def _capsule_name_for_root(root: str) -> str:
+    path = Path(str(root)).expanduser().resolve()
+    try:
+        return str(inspect_capsule_directory(path).get("capsule_id", path.name)).strip() or path.name
+    except Exception:
+        return path.name
+
+
 def _snapshot_rows(
     target: str,
     *,
     capsules_dir: Path | None,
     explicit_capsule_roots: Sequence[Path] | None = None,
-) -> dict[str, dict[str, list[str]]]:
+) -> dict[str, dict[str, Any]]:
     extra_roots: list[Path] = []
     seen: set[str] = set()
 
@@ -169,15 +178,22 @@ def _snapshot_rows(
     for root in list(explicit_capsule_roots or []):
         _add_root(root)
 
-    def _grouped_row(name: str) -> dict[str, list[str]]:
+    def _grouped_row(name: str) -> dict[str, Any]:
         snapshot_builder = _REGISTRY_SPECS[name]
         snapshot = snapshot_builder(
             capsules_dir=capsules_dir,
             extra_capsule_roots=extra_roots,
         )
+        capsule_rows: dict[str, list[str]] = {}
+        for export in snapshot.capsule_exports.values():
+            capsule_name = _capsule_name_for_root(export.capsule_root)
+            capsule_rows.setdefault(capsule_name, []).append(str(export.name))
         return {
             "builtins": sorted(snapshot.builtins.keys()),
-            "capsule": sorted(snapshot.capsule_exports.keys()),
+            "capsules": {
+                key: sorted(set(values))
+                for key, values in sorted(capsule_rows.items(), key=lambda item: item[0])
+            },
         }
 
     if target == "all":
@@ -185,7 +201,7 @@ def _snapshot_rows(
     return {target: _grouped_row(target)}
 
 
-def _print_grouped_text(rows: dict[str, dict[str, list[str]]]) -> None:
+def _print_grouped_text(rows: dict[str, dict[str, Any]]) -> None:
     order = (
         "update_rules",
         "datasets",
@@ -206,11 +222,12 @@ def _print_grouped_text(rows: dict[str, dict[str, list[str]]]) -> None:
         first_section = False
         print(f"{key}:")
         grouped = rows[key]
-        for source in ("builtins", "capsule"):
-            print_list_block(f"{source}:", list(grouped.get(source, []) or []))
+        print_list_block("builtins:", list(grouped.get("builtins", []) or []))
+        for capsule_name, items in dict(grouped.get("capsules", {}) or {}).items():
+            print_list_block(f"{capsule_name}:", list(items or []))
 
 
-def _list_json_payload(target: str, rows: dict[str, dict[str, list[str]]]) -> dict[str, Any]:
+def _list_json_payload(target: str, rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
     if target == "all":
         return {
             "schema_version": LIST_JSON_SCHEMA,

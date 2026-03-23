@@ -594,9 +594,12 @@ def test_push_cli_preview_no_target_custom_flow_uses_folder_wording_without_savi
 
 def test_repo_cli_create_shared_repo(tmp_path, monkeypatch, capsys) -> None:
     created: list[tuple[str, str, str]] = []
+    publish_state = tmp_path / "publish_targets_create.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
 
     monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
     monkeypatch.setattr(repo_cli, "create_repo", lambda owner, repo, visibility: created.append((owner, repo, visibility)))
+    monkeypatch.setattr(repo_cli, "repo_exists", lambda owner, repo: False)
     monkeypatch.setattr(
         repo_cli,
         "_effective_settings",
@@ -615,9 +618,74 @@ def test_repo_cli_create_shared_repo(tmp_path, monkeypatch, capsys) -> None:
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["command"] == "create"
-    assert payload["repo"]["owner"] == "acme"
-    assert payload["repo"]["repo"] == "lelabo-capsules"
+    assert payload["target"]["owner"] == "acme"
+    assert payload["target"]["repo"] == "lelabo-capsules"
     assert created == [("acme", "lelabo-capsules", "private")]
+
+
+def test_repo_cli_create_is_idempotent_when_target_already_configured(tmp_path, monkeypatch, capsys) -> None:
+    publish_state = tmp_path / "publish_targets_create_existing.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+    repo_cli.save_global_target(
+        {"kind": "github", "owner": "acme", "repo": "lelabo-capsules", "branch": "main", "visibility": "private"}
+    )
+    monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
+    monkeypatch.setattr(
+        repo_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+            }
+        },
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+    rc = repo_cli.main(["create", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "unchanged"
+    assert payload["target"]["repo"] == "lelabo-capsules"
+    assert len(repo_cli.list_global_targets()) == 1
+
+
+def test_repo_cli_create_registers_existing_remote_repo_without_creation(tmp_path, monkeypatch, capsys) -> None:
+    publish_state = tmp_path / "publish_targets_create_register.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+    monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
+    monkeypatch.setattr(
+        repo_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "",
+                "default_visibility": "private",
+                "default_branch": "main",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        repo_cli,
+        "github_repo_metadata",
+        lambda owner, repo: {
+            "kind": "github",
+            "owner": owner,
+            "repo": repo,
+            "branch": "main",
+            "visibility": "public",
+        },
+    )
+    monkeypatch.setattr(repo_cli, "create_repo", lambda owner, repo, visibility: pytest.fail("create_repo should not be called"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+    rc = repo_cli.main(["create", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "registered"
+    assert payload["target"]["visibility"] == "public"
+    assert len(repo_cli.list_global_targets()) == 1
 
 
 def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, capsys) -> None:
@@ -631,7 +699,9 @@ def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, cap
     publish_state = tmp_path / "publish_targets.json"
     monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
     monkeypatch.setattr(repo_cli, "current_github_login", lambda: "acme")
-    monkeypatch.setattr(repo_cli, "_list_github_repos", lambda owner: ["acme/method-zoo"])
+    repo_cli.save_global_target(
+        {"kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "visibility": "private"}
+    )
     monkeypatch.setattr(
         repo_cli,
         "_effective_settings",
@@ -654,9 +724,9 @@ def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, cap
     rc = repo_cli.main(["list", str(capsule_root), "--json"])
     assert rc == 0
     empty_payload = json.loads(capsys.readouterr().out)
-    assert empty_payload["repos"] == []
+    assert empty_payload["targets"] == []
 
-    rc = repo_cli.main(["add", "capsule", str(capsule_root), "--json"])
+    rc = repo_cli.main(["attach", str(capsule_root), "--json"])
     assert rc == 0
     add_payload = json.loads(capsys.readouterr().out)
     assert add_payload["target"]["repo"] == "method-zoo"
@@ -666,8 +736,8 @@ def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, cap
     rc = repo_cli.main(["list", str(capsule_root), "--json"])
     assert rc == 0
     list_payload = json.loads(capsys.readouterr().out)
-    assert [item["repo"] for item in list_payload["repos"]] == ["method-zoo"]
-    assert list_payload["repos"][0]["capsules"] == ["demo_capsule"]
+    assert [item["repo"] for item in list_payload["targets"]] == ["method-zoo"]
+    assert list_payload["targets"][0]["capsules"] == ["demo_capsule"]
 
     edit_selections = iter([["default"], [f"{capsule_root.resolve()}::github"]])
     monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: next(edit_selections))
@@ -682,6 +752,127 @@ def test_repo_cli_add_capsule_existing_repo_roundtrip(tmp_path, monkeypatch, cap
     detach_payload = json.loads(capsys.readouterr().out)
     assert detach_payload["command"] == "detach"
     assert detach_payload["target"]["name"] == "github"
+
+
+def test_repo_cli_attach_single_capsule_prints_context_and_does_not_prompt_visibility_for_existing_target(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    workspace = tmp_path / "workspace_attach_context"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    publish_state = tmp_path / "publish_targets_attach_context.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+    repo_cli.save_global_target(
+        {"kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "visibility": "private"}
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(
+        repo_cli,
+        "_effective_settings",
+        lambda: {
+            "github": {
+                "owner": "acme",
+                "default_visibility": "private",
+                "default_branch": "main",
+            },
+            "capsules": {"store_dir": "", "default_checkout_dir": ".", "install_checkout": False},
+        },
+    )
+    selections = iter([[repo_cli._REPO_ACTION_EXISTING], ["acme/method-zoo"]])
+    prompts: list[str] = []
+
+    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: next(selections))
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "")
+    monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
+
+    rc = repo_cli.main(["attach"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Capsule" in out
+    assert "name: demo_capsule" in out
+    assert str(capsule_root.resolve()) in out
+    assert not any(prompt.startswith("Visibility") for prompt in prompts)
+
+
+def test_repo_cli_edit_import_capsule_from_target_repo(tmp_path, monkeypatch, capsys) -> None:
+    publish_state = tmp_path / "publish_targets_import.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+    repo_cli.save_global_target(
+        {"kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "visibility": "private"}
+    )
+    monkeypatch.setattr(
+        repo_cli,
+        "inspect_target_repo_capsules",
+        lambda target: [
+            {
+                "capsule_id": "colleague_capsule",
+                "root": str((tmp_path / "remote_capsule").resolve()),
+                "folder": "colleague_capsule",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        repo_cli,
+        "install_capsule_from_directory",
+        lambda **kwargs: {
+            "capsule_id": "colleague_capsule",
+            "path": str((tmp_path / "store" / "colleague_capsule").resolve()),
+            "install_action": "installed",
+        },
+    )
+    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["import"])
+
+    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "edit-import"
+    assert payload["target"]["imported_capsule_id"] == "colleague_capsule"
+
+
+def test_repo_cli_edit_remove_capsule_from_target_repo_and_detach_locally(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_remove_remote"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    publish_state = tmp_path / "publish_targets_remove_remote.json"
+    monkeypatch.setenv("LELABO_PUBLISH_STATE", str(publish_state))
+    repo_cli.save_configured_target(
+        capsule_root,
+        {"name": "github", "kind": "github", "owner": "acme", "repo": "method-zoo", "branch": "main", "path": "demo_capsule", "visibility": "private"},
+        make_default=True,
+    )
+    monkeypatch.setattr(repo_cli, "pick_many_with_checkboxes", lambda **kwargs: ["remove-remote"])
+    monkeypatch.setattr(
+        repo_cli,
+        "remove_target_repo_capsule",
+        lambda **kwargs: {
+            "owner": "acme",
+            "repo": "method-zoo",
+            "branch": "main",
+            "folder": "demo_capsule",
+            "committed": True,
+            "pushed": True,
+        },
+    )
+    monkeypatch.setattr(repo_cli, "_confirm", lambda question, default=False: True)
+
+    rc = repo_cli.main(["edit", "acme/method-zoo", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "edit-remove-remote"
+    assert payload["target"]["remote_remove"]["folder"] == "demo_capsule"
+
+    rc = repo_cli.main(["list", "--json"])
+    assert rc == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["targets"][0]["capsules"] == []
 
 
 def test_repo_cli_list_without_capsule_shows_all_configured_targets(tmp_path, monkeypatch, capsys) -> None:
@@ -706,8 +897,8 @@ def test_repo_cli_list_without_capsule_shows_all_configured_targets(tmp_path, mo
     rc = repo_cli.main(["list", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert [item["repo"] for item in payload["repos"]] == ["caps-a", "caps-b"]
-    assert [item["capsules"] for item in payload["repos"]] == [["caps_a"], ["caps_b"]]
+    assert [item["repo"] for item in payload["targets"]] == ["caps-a", "caps-b"]
+    assert [item["capsules"] for item in payload["targets"]] == [["caps_a"], ["caps_b"]]
 
 
 def test_repo_cli_list_groups_multiple_capsules_under_same_repo(tmp_path, monkeypatch, capsys) -> None:
@@ -732,9 +923,9 @@ def test_repo_cli_list_groups_multiple_capsules_under_same_repo(tmp_path, monkey
     rc = repo_cli.main(["list", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert len(payload["repos"]) == 1
-    assert payload["repos"][0]["repo"] == "shared"
-    assert payload["repos"][0]["capsules"] == ["caps_a", "caps_b"]
+    assert len(payload["targets"]) == 1
+    assert payload["targets"][0]["repo"] == "shared"
+    assert payload["targets"][0]["capsules"] == ["caps_a", "caps_b"]
 
 
 def test_repo_cli_detach_accepts_owner_repo_globally(tmp_path, monkeypatch, capsys) -> None:
@@ -760,8 +951,8 @@ def test_repo_cli_detach_accepts_owner_repo_globally(tmp_path, monkeypatch, caps
 def test_repo_cli_use_and_remove_are_unknown(tmp_path) -> None:
     with pytest.raises(SystemExit) as use_exc:
         repo_cli.main(["use"])
-    assert "Unknown repo subcommand: use" in str(use_exc.value)
+    assert "Unknown targets subcommand: use" in str(use_exc.value)
 
     with pytest.raises(SystemExit) as remove_exc:
         repo_cli.main(["remove"])
-    assert "Unknown repo subcommand: remove" in str(remove_exc.value)
+    assert "Unknown targets subcommand: remove" in str(remove_exc.value)

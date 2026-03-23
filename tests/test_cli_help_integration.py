@@ -82,13 +82,13 @@ def test_push_help_displays_publish_usage() -> None:
     assert "--all-targets" in proc.stdout
 
 
-def test_repo_help_displays_repo_subcommands() -> None:
-    proc = _run_cli_help("repo", "-h")
+def test_targets_help_displays_targets_subcommands() -> None:
+    proc = _run_cli_help("targets", "-h")
     assert proc.returncode == 0
-    assert "Manage publish repos and targets for capsules." in proc.stdout
+    assert "Manage GitHub publish targets for capsules." in proc.stdout
     assert "list" in proc.stdout
     assert "create" in proc.stdout
-    assert "add capsule" in proc.stdout
+    assert "attach" in proc.stdout
     assert "edit" in proc.stdout
     assert "detach" in proc.stdout
 
@@ -218,3 +218,7 @@ def test_train_rl_rejects_legacy_rl_specific_flag() -> None:
     proc = _run_cli_help("train", "rl", "--env", "CartPole-v1", "--gamma", "0.95")
     assert proc.returncode != 0
     assert "unrecognized arguments: --gamma 0.95" in proc.stderr
+def test_repo_command_is_unknown() -> None:
+    proc = _run_cli_help("repo", "-h")
+    assert proc.returncode != 0
+    assert "Unknown command: repo" in proc.stderr

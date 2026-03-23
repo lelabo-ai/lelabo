@@ -11,11 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .discovery import discover_workspace_capsules
 from .github import parse_owner_repo_from_url
 from .install import inspect_capsule_directory
 
 
-PUBLISH_STATE_SCHEMA_VERSION = "1.0"
+PUBLISH_STATE_SCHEMA_VERSION = "2.0"
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None) -> str:
@@ -79,8 +80,66 @@ def _empty_publish_state() -> dict[str, Any]:
     return {
         "schema_version": PUBLISH_STATE_SCHEMA_VERSION,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "targets": {},
         "capsules": {},
     }
+
+
+def _target_registry_key(*, kind: str, owner: str, repo: str) -> str:
+    return f"{str(kind).strip().lower()}:{str(owner).strip().lower()}/{str(repo).strip().lower()}"
+
+
+def _normalize_global_target_payload(target: dict[str, Any]) -> dict[str, Any]:
+    kind = str(target.get("kind", "")).strip().lower() or "github"
+    owner = str(target.get("owner", "")).strip()
+    repo = str(target.get("repo", "")).strip()
+    if not owner or not repo:
+        raise ValueError("GitHub target requires owner and repo.")
+    branch = str(target.get("branch", "")).strip() or "main"
+    visibility = str(target.get("visibility", "")).strip().lower() or "private"
+    if visibility not in {"public", "private"}:
+        raise ValueError("Visibility must be 'public' or 'private'.")
+    return {
+        "key": _target_registry_key(kind=kind, owner=owner, repo=repo),
+        "kind": kind,
+        "owner": owner,
+        "repo": repo,
+        "branch": branch,
+        "visibility": visibility,
+    }
+
+
+def _ensure_global_target_catalog(state: dict[str, Any]) -> dict[str, Any]:
+    targets = state.setdefault("targets", {})
+    if not isinstance(targets, dict):
+        state["targets"] = {}
+        targets = state["targets"]
+    capsules = state.get("capsules", {})
+    if not isinstance(capsules, dict):
+        return targets
+    for entry in capsules.values():
+        if not isinstance(entry, dict):
+            continue
+        attached = entry.get("targets", {})
+        if not isinstance(attached, dict):
+            continue
+        for target in attached.values():
+            if not isinstance(target, dict):
+                continue
+            kind = str(target.get("kind", "")).strip().lower()
+            owner = str(target.get("owner", "")).strip()
+            repo = str(target.get("repo", "")).strip()
+            if kind != "github" or not owner or not repo:
+                continue
+            payload = _normalize_global_target_payload(target)
+            existing = targets.get(payload["key"])
+            if isinstance(existing, dict):
+                merged = dict(existing)
+                merged.update({k: v for k, v in payload.items() if str(v).strip()})
+                targets[payload["key"]] = merged
+            else:
+                targets[payload["key"]] = payload
+    return targets
 
 
 def load_publish_state() -> dict[str, Any]:
@@ -95,9 +154,13 @@ def load_publish_state() -> dict[str, Any]:
         return _empty_publish_state()
     data.setdefault("schema_version", PUBLISH_STATE_SCHEMA_VERSION)
     data.setdefault("updated_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    data.setdefault("targets", {})
     data.setdefault("capsules", {})
+    if not isinstance(data["targets"], dict):
+        data["targets"] = {}
     if not isinstance(data["capsules"], dict):
         data["capsules"] = {}
+    _ensure_global_target_catalog(data)
     return data
 
 
@@ -105,6 +168,7 @@ def save_publish_state(state: dict[str, Any]) -> Path:
     out = dict(state)
     out["schema_version"] = PUBLISH_STATE_SCHEMA_VERSION
     out["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _ensure_global_target_catalog(out)
     target = publish_state_path()
     _atomic_write_text(target, json.dumps(out, indent=2, ensure_ascii=False))
     return target
@@ -138,6 +202,18 @@ def list_configured_targets(capsule_root: Path) -> list[dict[str, Any]]:
         if not isinstance(target, dict):
             continue
         row = dict(target)
+        kind = str(row.get("kind", "")).strip().lower()
+        owner = str(row.get("owner", "")).strip()
+        repo = str(row.get("repo", "")).strip()
+        if kind == "github" and owner and repo:
+            global_target = get_global_target(owner, repo, kind=kind)
+            if global_target is not None:
+                row["branch"] = str(global_target.get("branch", "")).strip() or str(row.get("branch", "")).strip() or "main"
+                row["visibility"] = (
+                    str(global_target.get("visibility", "")).strip().lower()
+                    or str(row.get("visibility", "")).strip().lower()
+                    or "private"
+                )
         row["name"] = str(name)
         row["default"] = str(entry.get("default_target") or "") == str(name)
         row["last_used"] = str(entry.get("last_used_target") or "") == str(name)
@@ -145,13 +221,69 @@ def list_configured_targets(capsule_root: Path) -> list[dict[str, Any]]:
     return targets
 
 
+def list_global_targets() -> list[dict[str, Any]]:
+    state = load_publish_state()
+    targets = _ensure_global_target_catalog(state)
+    rows: list[dict[str, Any]] = []
+    for key, target in sorted(targets.items()):
+        if not isinstance(target, dict):
+            continue
+        row = dict(target)
+        row["key"] = str(key)
+        rows.append(row)
+    return rows
+
+
+def get_global_target(owner: str, repo: str, *, kind: str = "github") -> dict[str, Any] | None:
+    state = load_publish_state()
+    targets = _ensure_global_target_catalog(state)
+    key = _target_registry_key(kind=kind, owner=owner, repo=repo)
+    payload = targets.get(key)
+    if not isinstance(payload, dict):
+        return None
+    row = dict(payload)
+    row["key"] = key
+    return row
+
+
+def save_global_target(target: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_global_target_payload(target)
+    state = load_publish_state()
+    targets = _ensure_global_target_catalog(state)
+    existing = targets.get(payload["key"])
+    if isinstance(existing, dict):
+        merged = dict(existing)
+        merged.update(payload)
+        payload = merged
+    targets[payload["key"]] = payload
+    save_publish_state(state)
+    return dict(payload)
+
+
 def save_configured_target(capsule_root: Path, target: dict[str, Any], *, make_default: bool = False) -> dict[str, Any]:
     name = str(target.get("name", "")).strip()
     if not name:
         raise ValueError("Target name cannot be empty.")
     state = load_publish_state()
-    entry = _capsule_state_entry(state, capsule_root)
+    kind = str(target.get("kind", "")).strip().lower()
+    owner = str(target.get("owner", "")).strip()
+    repo = str(target.get("repo", "")).strip()
     payload = dict(target)
+    if kind == "github" and owner and repo:
+        global_payload = _normalize_global_target_payload(payload)
+        targets = _ensure_global_target_catalog(state)
+        existing = targets.get(global_payload["key"])
+        if isinstance(existing, dict):
+            merged = dict(existing)
+            merged.update(global_payload)
+            targets[global_payload["key"]] = merged
+            payload["branch"] = str(merged.get("branch", "")).strip() or "main"
+            payload["visibility"] = str(merged.get("visibility", "")).strip().lower() or "private"
+        else:
+            targets[global_payload["key"]] = global_payload
+            payload["branch"] = str(global_payload.get("branch", "")).strip() or "main"
+            payload["visibility"] = str(global_payload.get("visibility", "")).strip().lower() or "private"
+    entry = _capsule_state_entry(state, capsule_root)
     payload["name"] = name
     entry["targets"][name] = payload
     if make_default or len(entry["targets"]) == 1:
@@ -289,6 +421,34 @@ def create_repo(owner: str, repo: str, visibility: str) -> None:
             "or update `lelabo config set github.owner <your-github-login>`."
         )
         raise RuntimeError(f"{exc}\n{hint}") from exc
+
+
+def github_repo_metadata(owner: str, repo: str) -> dict[str, Any] | None:
+    proc = subprocess.run(
+        ["gh", "repo", "view", f"{owner}/{repo}", "--json", "nameWithOwner,visibility,defaultBranchRef"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    branch = ""
+    default_branch_ref = payload.get("defaultBranchRef")
+    if isinstance(default_branch_ref, dict):
+        branch = str(default_branch_ref.get("name", "")).strip()
+    visibility = str(payload.get("visibility", "")).strip().lower() or "private"
+    return {
+        "owner": owner,
+        "repo": repo,
+        "branch": branch or "main",
+        "visibility": visibility,
+    }
 
 
 def infer_workspace_target(capsule_root: Path) -> dict[str, Any] | None:
@@ -515,6 +675,87 @@ def _copy_capsule_into_repo_root(source: Path, repo_root: Path) -> None:
             shutil.copy2(child, repo_root / child.name)
 
 
+def ensure_target_checkout(target: dict[str, Any]) -> dict[str, Any]:
+    owner = str(target.get("owner", "")).strip()
+    repo = str(target.get("repo", "")).strip()
+    if not owner or not repo:
+        raise ValueError("GitHub target requires owner and repo.")
+    branch = str(target.get("branch", "")).strip() or "main"
+    visibility = str(target.get("visibility", "")).strip().lower() or "private"
+    checkout, created_repo = _clone_or_prepare_target_repo(
+        owner=owner,
+        repo=repo,
+        branch=branch,
+        visibility=visibility,
+        create_repo_if_missing=False,
+    )
+    return {
+        "checkout": str(checkout),
+        "owner": owner,
+        "repo": repo,
+        "branch": branch,
+        "created_repo": created_repo,
+    }
+
+
+def inspect_target_repo_capsules(target: dict[str, Any]) -> list[dict[str, Any]]:
+    checkout_info = ensure_target_checkout(target)
+    checkout = Path(str(checkout_info.get("checkout", ""))).expanduser().resolve()
+    rows: list[dict[str, Any]] = []
+    for item in discover_workspace_capsules(start=checkout):
+        folder = item.root.relative_to(checkout).as_posix() or "."
+        rows.append(
+            {
+                "capsule_id": item.capsule_id,
+                "root": str(item.root),
+                "folder": folder,
+                "owner": checkout_info["owner"],
+                "repo": checkout_info["repo"],
+                "branch": checkout_info["branch"],
+            }
+        )
+    rows.sort(key=lambda item: (str(item.get("capsule_id", "")), str(item.get("folder", ""))))
+    return rows
+
+
+def remove_target_repo_capsule(
+    *,
+    target: dict[str, Any],
+    folder: str,
+    message: str | None = None,
+) -> dict[str, Any]:
+    folder_token = str(folder).strip()
+    if not folder_token:
+        raise ValueError("Folder cannot be empty.")
+    if folder_token == ".":
+        raise ValueError("Removing a repo-root capsule is blocked. Remove it manually if you really want to wipe the target repo root.")
+    checkout_info = ensure_target_checkout(target)
+    checkout = Path(str(checkout_info.get("checkout", ""))).expanduser().resolve()
+    target_path = (checkout / folder_token).resolve()
+    if not target_path.exists():
+        raise ValueError(f"Target repo folder does not exist: {folder_token}")
+    if checkout not in target_path.parents:
+        raise ValueError(f"Unsafe target repo folder: {folder_token}")
+    if target_path.is_dir():
+        shutil.rmtree(target_path)
+    else:
+        target_path.unlink()
+    commit_message = str(message or "").strip() or f"Remove {folder_token}"
+    _git_stage_paths(checkout, [folder_token])
+    committed = _git_commit(checkout, commit_message)
+    _run(["git", "-C", str(checkout), "push", "-u", "origin", f"HEAD:{checkout_info['branch']}"])
+    return {
+        "owner": checkout_info["owner"],
+        "repo": checkout_info["repo"],
+        "branch": checkout_info["branch"],
+        "folder": folder_token,
+        "commit_message": commit_message,
+        "committed": committed,
+        "pushed": True,
+        "repo_root": str(checkout),
+    }
+
+
 def push_github_target(
     *,
     capsule_root: Path,
@@ -589,11 +830,16 @@ __all__ = [
     "capsule_state_key",
     "current_github_login",
     "ensure_gh_auth",
+    "ensure_target_checkout",
     "get_target_preferences",
+    "get_global_target",
     "git_origin_url",
     "git_repo_root",
+    "github_repo_metadata",
     "infer_workspace_target",
+    "inspect_target_repo_capsules",
     "list_configured_targets",
+    "list_global_targets",
     "load_publish_state",
     "mark_last_used_target",
     "parse_owner_repo_from_origin",
@@ -601,9 +847,11 @@ __all__ = [
     "push_github_target",
     "push_workspace_target",
     "remove_configured_target",
+    "remove_target_repo_capsule",
     "repo_checkout_cache_dir",
     "resolve_target",
     "save_configured_target",
+    "save_global_target",
     "save_publish_state",
     "set_default_target",
 ]

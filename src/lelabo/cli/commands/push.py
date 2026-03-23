@@ -351,7 +351,7 @@ def _bootstrap_github_target(
         if not _is_interactive_tty():
             raise SystemExit(
                 "No saved publish target is available for this capsule. "
-                "Run interactively to add a repo target, or pass `--yes` to accept the proposed GitHub target."
+                "Run interactively to add a GitHub target, or pass `--yes` to accept the proposed GitHub target."
             )
         capsule_id = str(inspect_capsule_directory(capsule_root).get("capsule_id", capsule_root.name)).strip() or capsule_root.name
         if show_status:

@@ -52,7 +52,25 @@ def pick_many_with_checkboxes(
         if token in option_keys and token not in selected:
             selected.append(token)
     cursor = 0
-    state = {"error": ""}
+    state = {"error": "", "filter": ""}
+
+    def _filtered_values() -> list[tuple[str, str]]:
+        token = str(state["filter"]).strip().lower()
+        if not token:
+            return list(values)
+        return [
+            (key, label)
+            for key, label in values
+            if token in str(key).lower() or token in str(label).lower()
+        ]
+
+    def _clamp_cursor() -> None:
+        nonlocal cursor
+        visible = _filtered_values()
+        if not visible:
+            cursor = 0
+            return
+        cursor = max(0, min(len(visible) - 1, cursor))
 
     def _set_error(message: str) -> None:
         state["error"] = str(message).strip()
@@ -62,13 +80,22 @@ def pick_many_with_checkboxes(
 
     def _move(step: int) -> None:
         nonlocal cursor
-        cursor = max(0, min(len(values) - 1, cursor + step))
+        visible = _filtered_values()
+        if not visible:
+            cursor = 0
+            return
+        cursor = max(0, min(len(visible) - 1, cursor + step))
 
     def _current_key() -> str:
-        return str(values[cursor][0])
+        visible = _filtered_values()
+        if not visible:
+            return ""
+        return str(visible[cursor][0])
 
     def _toggle_current() -> None:
         token = _current_key()
+        if not token:
+            return
         if token in selected:
             selected.remove(token)
             return
@@ -78,20 +105,27 @@ def pick_many_with_checkboxes(
         selected.append(token)
 
     def _selection_label() -> str:
+        visible = _filtered_values()
+        filter_token = str(state["filter"]).strip()
         if max_selection_count is not None and int(max_selection_count) == 1:
             singular = str(selection_noun).strip() or "item"
-            return f"Current: {cursor + 1}/{len(values)} {singular}"
+            if not visible:
+                return f"Current: 0/0 {singular}"
+            prefix = f"Filter: {filter_token} | " if filter_token else ""
+            return f"{prefix}Current: {cursor + 1}/{len(visible)} {singular}"
         count = len(_selected())
-        total = len(values)
+        total = len(visible)
         singular = str(selection_noun).strip() or "item"
         plural = singular if singular.endswith("s") else f"{singular}s"
         suffix = singular if count == 1 else plural
-        return f"Selected: {count}/{total} {suffix}"
+        prefix = f"Filter: {filter_token} | " if filter_token else ""
+        return f"{prefix}Selected: {count}/{total} visible {suffix}"
 
     def _confirm() -> None:
         current_selected = _selected()
         if not current_selected and max_selection_count is not None and int(max_selection_count) == 1:
-            current_selected = [_current_key()]
+            current = _current_key()
+            current_selected = [current] if current else []
             selected[:] = list(current_selected)
         if not current_selected:
             _set_error(empty_selection_message)
@@ -132,6 +166,21 @@ def pick_many_with_checkboxes(
         _set_error("")
         event.app.invalidate()
 
+    @kb.add("backspace")
+    def _backspace(event) -> None:
+        token = str(state["filter"])
+        state["filter"] = token[:-1]
+        _clamp_cursor()
+        _set_error("")
+        event.app.invalidate()
+
+    @kb.add("c-u")
+    def _clear_filter(event) -> None:
+        state["filter"] = ""
+        _clamp_cursor()
+        _set_error("")
+        event.app.invalidate()
+
     @kb.add("enter", eager=True)
     def _enter_confirm(event) -> None:
         _confirm()
@@ -139,14 +188,15 @@ def pick_many_with_checkboxes(
     @kb.add("a")
     def _toggle_all(event) -> None:
         if max_selection_count is not None and int(max_selection_count) == 1:
-            selected[:] = [_current_key()]
+            current = _current_key()
+            selected[:] = [current] if current else []
         else:
-            all_keys = [value for value, _ in values]
+            all_keys = [value for value, _ in _filtered_values()]
             current = set(_selected())
             if len(current) == len(all_keys):
-                selected.clear()
+                selected[:] = [token for token in selected if token not in all_keys]
             else:
-                selected[:] = list(all_keys)
+                selected[:] = [*selected, *(token for token in all_keys if token not in current)]
         _set_error("")
         event.app.invalidate()
 
@@ -158,7 +208,10 @@ def pick_many_with_checkboxes(
 
     def _render_lines():
         fragments: list[tuple[str, str]] = []
-        for idx, (key, label) in enumerate(values):
+        visible = _filtered_values()
+        if not visible:
+            fragments.append(("class:muted", "  No matches for the current filter.\n"))
+        for idx, (key, label) in enumerate(visible):
             token = str(key)
             marker = "[x]" if token in selected else "[ ]"
             prefix = "› " if idx == cursor else "  "
@@ -168,10 +221,18 @@ def pick_many_with_checkboxes(
             fragments.append(("class:error", f"\n{state['error']}\n"))
         return fragments
 
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789/-_.":
+        @kb.add(ch)
+        def _append_filter(event, ch=ch) -> None:
+            state["filter"] = f"{state['filter']}{ch}"
+            _clamp_cursor()
+            _set_error("")
+            event.app.invalidate()
+
     help_text = (
-        f"Keys: Up/Down move | Space toggle | a toggle all | Enter {confirm_button_text.lower()} | Esc/q cancel"
+        f"Keys: Up/Down move | Type to filter | Backspace clears | Space toggle | a toggle all | Enter {confirm_button_text.lower()} | Esc/q cancel"
         if max_selection_count is None or int(max_selection_count) != 1
-        else "Keys: Up/Down move | Enter selects current option | Esc/q cancel"
+        else "Keys: Up/Down move | Type to filter | Backspace clears | Enter selects current option | Esc/q cancel"
     )
 
     body = Window(

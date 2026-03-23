@@ -1,4 +1,4 @@
-"""Publish repo management flows."""
+"""Publish target management flows."""
 
 from __future__ import annotations
 
@@ -9,43 +9,55 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from ...capsule import get_capsule, inspect_capsule_directory
-from ...capsule.discovery import DiscoveredCapsule, discover_workspace_capsules, find_capsule_root, is_capsule_root
+from ...capsule import get_capsule, inspect_capsule_directory, install_capsule_from_directory
+from ...capsule.discovery import (
+    DiscoveredCapsule,
+    discover_visible_capsules,
+    discover_workspace_capsules,
+    find_capsule_root,
+    is_capsule_root,
+)
 from ...capsule.publish import (
     create_repo,
     current_github_login,
+    github_repo_metadata,
+    get_global_target,
+    inspect_target_repo_capsules,
     list_configured_targets,
+    list_global_targets,
     load_publish_state,
     remove_configured_target,
+    remove_target_repo_capsule,
+    repo_exists,
     save_configured_target,
+    save_global_target,
     set_default_target,
 )
 from ...config.user_settings import load_effective_settings
 from ..interactive_picker import pick_many_with_checkboxes
-from ..ui import print_block, print_list_block, print_status
+from ..ui import print_block, print_status
 
 
-REPO_JSON_SCHEMA = "lelabo.cli.repo/v1"
-REPOS_JSON_SCHEMA = "lelabo.cli.repos/v1"
+TARGET_JSON_SCHEMA = "lelabo.cli.target/v1"
+TARGETS_JSON_SCHEMA = "lelabo.cli.targets/v1"
 _REPO_ACTION_EXISTING = "__existing_repo__"
+_REPO_ACTION_EXISTING_REMOTE = "__existing_remote_repo__"
 _REPO_ACTION_CREATE = "__create_repo__"
 _REPO_ACTION_CANCEL = "__cancel__"
-_REPO_KIND_SHARED = "__shared_repo__"
-_REPO_KIND_DEDICATED = "__dedicated_repo__"
 
 
 REPO_HELP = """\
-Manage publish repos and targets for capsules.
+Manage GitHub publish targets for capsules.
 
 Usage:
-  lelabo repo <subcommand> [args]
+  lelabo targets <subcommand> [args]
 
 Subcommands:
-  list         List configured GitHub repos
-  create       Create a shared GitHub repo
-  add capsule  Add one capsule to an existing or new GitHub repo
-  edit         Edit repo attachments and defaults
-  detach       Detach one capsule from a configured GitHub repo
+  list         List configured GitHub targets
+  create       Create or register one shared GitHub target
+  attach       Attach one capsule to an existing or new GitHub target
+  edit         Edit target attachments and defaults
+  detach       Detach one capsule from a configured GitHub target
 """
 
 
@@ -176,14 +188,14 @@ def _parse_repo_full_name(token: str) -> tuple[str, str]:
     owner = owner.strip()
     repo = repo.strip()
     if not owner or not repo:
-        raise SystemExit("GitHub repo must be formatted as owner/repo.")
+        raise SystemExit("GitHub target must be formatted as owner/repo.")
     return owner, repo
 
 
 def _list_github_repos(owner: str) -> list[str]:
     owner_token = str(owner).strip()
     if not owner_token:
-        raise SystemExit("GitHub owner is required. Set --owner or `lelabo config set github.owner <owner>`.")
+        raise SystemExit("GitHub owner is required. Set `github.owner` or pass owner/repo explicitly.")
     proc = subprocess.run(
         ["gh", "repo", "list", owner_token, "--limit", "1000", "--json", "nameWithOwner"],
         capture_output=True,
@@ -201,42 +213,74 @@ def _list_github_repos(owner: str) -> list[str]:
     for item in payload if isinstance(payload, list) else []:
         if not isinstance(item, dict):
             continue
-        full_name = str(item.get("nameWithOwner", "")).strip()
-        if full_name:
-            repos.append(full_name)
+        token = str(item.get("nameWithOwner", "")).strip()
+        if token:
+            repos.append(token)
     return sorted(set(repos))
 
 
-def _pick_existing_repo_full_name(owner: str) -> str:
+def _prompt_owner_repo(settings: dict[str, Any], owner_repo_override: str | None = None) -> tuple[str, str]:
+    owner_default = _default_owner(settings)
+    combined_default = str(owner_repo_override or "").strip()
+    if not combined_default and owner_default:
+        combined_default = f"{owner_default}/lelabo-capsules"
+    token = _prompt_with_default("Target", combined_default)
+    owner, repo = _parse_repo_full_name(token)
+    return owner, repo
+
+
+def _pick_existing_target(global_targets: Sequence[dict[str, Any]], *, cancel_message: str) -> dict[str, Any]:
+    if not global_targets:
+        raise SystemExit("No configured GitHub targets were found. Create one first.")
+    token = _pick_one(
+        "Select GitHub target",
+        "Select one configured GitHub target.",
+        [
+            (
+                _repo_label(str(item.get("owner", "")), str(item.get("repo", ""))),
+                _repo_label(str(item.get("owner", "")), str(item.get("repo", ""))),
+            )
+            for item in global_targets
+        ]
+        + [(_REPO_ACTION_CANCEL, "Cancel")],
+        cancel_message=cancel_message,
+    )
+    if token == _REPO_ACTION_CANCEL:
+        raise SystemExit(cancel_message)
+    owner, repo = _parse_repo_full_name(token)
+    for item in global_targets:
+        if str(item.get("owner")) == owner and str(item.get("repo")) == repo:
+            return dict(item)
+    raise SystemExit(cancel_message)
+
+
+def _pick_existing_remote_repo(settings: dict[str, Any], *, owner_override: str | None = None, cancel_message: str) -> dict[str, Any]:
+    owner = str(owner_override or _default_owner(settings)).strip()
     repos = _list_github_repos(owner)
     if not repos:
-        raise SystemExit(f"No GitHub repos found for {owner}. Create a repo first.")
-    options = [(item, item) for item in repos] + [(_REPO_ACTION_CANCEL, "Cancel")]
-    selected = _pick_one(
+        raise SystemExit(f"No GitHub repos found for {owner}.")
+    token = _pick_one(
         "Select GitHub repo",
         "Select one existing GitHub repo.",
-        options,
-        cancel_message="Repo selection canceled by user.",
+        [(item, item) for item in repos] + [(_REPO_ACTION_CANCEL, "Cancel")],
+        cancel_message=cancel_message,
     )
-    if selected == _REPO_ACTION_CANCEL:
-        raise SystemExit("Repo selection canceled by user.")
-    return selected
-
-
-def _prompt_repo_kind() -> str:
-    selected = _pick_one(
-        "Select new repo type",
-        "Choose how this capsule should be published.",
-        (
-            (_REPO_KIND_SHARED, "Shared repo"),
-            (_REPO_KIND_DEDICATED, "Dedicated repo for this capsule"),
-            (_REPO_ACTION_CANCEL, "Cancel"),
-        ),
-        cancel_message="Repo creation canceled by user.",
-    )
-    if selected == _REPO_ACTION_CANCEL:
-        raise SystemExit("Repo creation canceled by user.")
-    return selected
+    if token == _REPO_ACTION_CANCEL:
+        raise SystemExit(cancel_message)
+    selected_owner, selected_repo = _parse_repo_full_name(token)
+    metadata = github_repo_metadata(selected_owner, selected_repo) or {
+        "owner": selected_owner,
+        "repo": selected_repo,
+        "branch": _default_branch(settings),
+        "visibility": _default_visibility(settings),
+    }
+    return {
+        "kind": "github",
+        "owner": selected_owner,
+        "repo": selected_repo,
+        "branch": str(metadata.get("branch", "")).strip() or _default_branch(settings),
+        "visibility": str(metadata.get("visibility", "")).strip().lower() or _default_visibility(settings),
+    }
 
 
 def _repo_label(owner: str, repo: str) -> str:
@@ -251,6 +295,37 @@ def _capsule_id_for_path(capsule_root: Path) -> str:
         except Exception:
             return root.name
     return root.name
+
+
+def _print_capsule_context(capsule_root: Path) -> None:
+    print_block(
+        "Capsule",
+        (
+            ("name", _capsule_id_for_path(capsule_root)),
+            ("path", str(capsule_root.expanduser().resolve())),
+        ),
+    )
+
+
+def _resolve_visible_capsule_root(*, caps_dir: Path | None, purpose: str) -> Path:
+    candidates = list(discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir))
+    if len(candidates) == 1:
+        return candidates[0].root
+    if not candidates:
+        raise SystemExit("No capsule found in the current workspace or store.")
+    if not _is_interactive_tty():
+        names = ", ".join(item.capsule_id for item in candidates)
+        raise SystemExit(f"Multiple capsules are available: {names}. Pass a capsule path/id.")
+    token = _pick_one(
+        "Select capsule",
+        "Select one capsule.",
+        [(str(item.root), f"{item.capsule_id} | path: {item.path}") for item in candidates],
+        cancel_message=f"{purpose} canceled by user.",
+    )
+    for item in candidates:
+        if str(item.root) == token:
+            return item.root
+    raise SystemExit(f"{purpose} canceled by user.")
 
 
 def _configured_target_rows(*, capsule_root: Path | None = None) -> list[dict[str, Any]]:
@@ -278,6 +353,18 @@ def _configured_target_rows(*, capsule_root: Path | None = None) -> list[dict[st
             if not isinstance(target, dict):
                 continue
             row = dict(target)
+            kind = str(row.get("kind", "")).strip().lower()
+            owner = str(row.get("owner", "")).strip()
+            repo = str(row.get("repo", "")).strip()
+            if kind == "github" and owner and repo:
+                global_target = get_global_target(owner, repo, kind=kind)
+                if global_target is not None:
+                    row["branch"] = str(global_target.get("branch", "")).strip() or str(row.get("branch", "")).strip() or "main"
+                    row["visibility"] = (
+                        str(global_target.get("visibility", "")).strip().lower()
+                        or str(row.get("visibility", "")).strip().lower()
+                        or "private"
+                    )
             row["name"] = str(name)
             row["capsule_path"] = str(root)
             row["capsule_id"] = capsule_id
@@ -296,8 +383,23 @@ def _configured_target_rows(*, capsule_root: Path | None = None) -> list[dict[st
     return rows
 
 
-def _group_repo_rows(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+def _group_repo_rows(rows: Sequence[dict[str, Any]], *, include_unattached: bool = True) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    if include_unattached:
+        for target in list_global_targets():
+            owner = str(target.get("owner", "")).strip()
+            repo = str(target.get("repo", "")).strip()
+            if not owner or not repo:
+                continue
+            grouped[(owner, repo)] = {
+                "owner": owner,
+                "repo": repo,
+                "kind": str(target.get("kind", "")).strip() or "github",
+                "branch": str(target.get("branch", "")).strip() or "main",
+                "visibility": str(target.get("visibility", "")).strip() or "private",
+                "capsules": [],
+                "attachments": [],
+            }
     for row in rows:
         owner = str(row.get("owner", "")).strip()
         repo = str(row.get("repo", "")).strip()
@@ -309,6 +411,9 @@ def _group_repo_rows(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "owner": owner,
                 "repo": repo,
+                "kind": str(row.get("kind", "")).strip() or "github",
+                "branch": str(row.get("branch", "")).strip() or "main",
+                "visibility": str(row.get("visibility", "")).strip() or "private",
                 "capsules": [],
                 "attachments": [],
             },
@@ -339,10 +444,10 @@ def _repo_group_label(group: dict[str, Any]) -> str:
 
 def _pick_repo_group(groups: Sequence[dict[str, Any]], *, title: str, cancel_message: str) -> dict[str, Any]:
     if not groups:
-        raise SystemExit("No configured GitHub repos were found.")
+        raise SystemExit("No configured GitHub targets were found.")
     token = _pick_one(
         title,
-        "Select one GitHub repo.",
+        "Select one GitHub target.",
         [
             (_repo_label(str(group.get("owner", "")), str(group.get("repo", ""))), _repo_group_label(group))
             for group in groups
@@ -365,7 +470,7 @@ def _attachment_label(row: dict[str, Any]) -> str:
 
 def _pick_attachment(rows: Sequence[dict[str, Any]], *, title: str, cancel_message: str) -> dict[str, Any]:
     if not rows:
-        raise SystemExit("No repo attachment was found.")
+        raise SystemExit("No target attachment was found.")
     if len(rows) == 1:
         return dict(rows[0])
     token = _pick_one(
@@ -391,17 +496,17 @@ def _resolve_repo_group(repo_ref: str | None, capsule_ref: str | None, *, caps_d
     rows = _configured_target_rows(
         capsule_root=_resolve_capsule_root(capsule_ref, caps_dir=caps_dir, purpose=purpose) if capsule_ref else None
     )
-    groups = _group_repo_rows(rows)
+    groups = _group_repo_rows(rows, include_unattached=capsule_ref is None)
     token = str(repo_ref or "").strip()
     if token:
         owner, repo = _parse_repo_full_name(token)
         matches = [group for group in groups if str(group.get("owner")) == owner and str(group.get("repo")) == repo]
         if len(matches) == 1:
             return matches[0]
-        raise SystemExit(f"Unknown configured GitHub repo '{owner}/{repo}'.")
+        raise SystemExit(f"Unknown configured GitHub target '{owner}/{repo}'.")
     if _is_interactive_tty():
-        return _pick_repo_group(groups, title="Select GitHub repo", cancel_message=f"{purpose} canceled by user.")
-    raise SystemExit("No repo was specified. Run interactively to pick one, or pass owner/repo.")
+        return _pick_repo_group(groups, title="Select GitHub target", cancel_message=f"{purpose} canceled by user.")
+    raise SystemExit("No GitHub target was specified. Run interactively to pick one, or pass owner/repo.")
 
 
 def _suggest_target_name(existing_targets: Sequence[dict[str, Any]], *, owner: str, repo: str) -> str:
@@ -435,16 +540,19 @@ def _build_target_payload(
     *,
     capsule_root: Path,
     existing_targets: Sequence[dict[str, Any]],
-    owner: str,
-    repo: str,
+    target_meta: dict[str, Any],
     folder: str,
-    visibility: str,
     settings: dict[str, Any],
 ) -> dict[str, Any]:
     folder_token = str(folder).strip() or inspect_capsule_directory(capsule_root).get("capsule_id") or capsule_root.name
     if folder_token == "":
         raise SystemExit("Folder cannot be empty.")
-    visibility_token = str(visibility).strip().lower() or "private"
+    owner = str(target_meta.get("owner", "")).strip()
+    repo = str(target_meta.get("repo", "")).strip()
+    if not owner or not repo:
+        raise SystemExit("GitHub target selection is incomplete.")
+    branch = str(target_meta.get("branch", "")).strip() or _default_branch(settings)
+    visibility_token = str(target_meta.get("visibility", "")).strip().lower() or _default_visibility(settings)
     if visibility_token not in {"public", "private"}:
         raise SystemExit("Visibility must be 'public' or 'private'.")
     return {
@@ -452,10 +560,60 @@ def _build_target_payload(
         "kind": "github",
         "owner": owner,
         "repo": repo,
-        "branch": _default_branch(settings),
+        "branch": branch,
         "path": folder_token,
         "visibility": visibility_token,
     }
+
+
+def _target_action_message(action: str) -> str:
+    if action == "created":
+        return "GitHub target created."
+    if action == "registered":
+        return "GitHub target registered."
+    return "GitHub target already configured."
+
+
+def _register_github_target(
+    *,
+    owner: str,
+    repo: str,
+    settings: dict[str, Any],
+    persist: bool,
+    create_remote_repo: bool,
+    visibility: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    existing = get_global_target(owner, repo, kind="github")
+    if existing is not None:
+        return dict(existing), "unchanged"
+
+    metadata = github_repo_metadata(owner, repo)
+    if metadata is not None:
+        payload = {
+            "kind": "github",
+            "owner": owner,
+            "repo": repo,
+            "branch": str(metadata.get("branch", "")).strip() or _default_branch(settings),
+            "visibility": str(metadata.get("visibility", "")).strip().lower() or _default_visibility(settings, visibility),
+        }
+        target = save_global_target(payload) if persist else dict(payload)
+        return target, "registered"
+
+    visibility_token = str(visibility or _default_visibility(settings)).strip().lower() or "private"
+    if visibility_token not in {"public", "private"}:
+        raise SystemExit("Visibility must be 'public' or 'private'.")
+    payload = {
+        "kind": "github",
+        "owner": owner,
+        "repo": repo,
+        "branch": _default_branch(settings),
+        "visibility": visibility_token,
+    }
+    if not create_remote_repo:
+        return (save_global_target(payload) if persist else dict(payload)), "registered"
+    create_repo(owner, repo, visibility_token)
+    target = save_global_target(payload) if persist else dict(payload)
+    return target, "created"
 
 
 def create_shared_repo_interactively(
@@ -464,32 +622,101 @@ def create_shared_repo_interactively(
     owner_override: str | None = None,
     repo_override: str | None = None,
     visibility_override: str | None = None,
+    persist: bool = True,
     create_remote_repo: bool = True,
     show_summary: bool = True,
 ) -> dict[str, Any]:
-    owner = _prompt_with_default("Owner", str(owner_override or _default_owner(settings)).strip())
-    if not owner:
-        raise SystemExit("GitHub owner is required.")
-    repo = _prompt_with_default("Repo", str(repo_override or "lelabo-capsules").strip() or "lelabo-capsules")
+    owner, repo = _prompt_owner_repo(
+        settings,
+        owner_repo_override=_repo_label(
+            str(owner_override or _default_owner(settings)).strip(),
+            str(repo_override or "lelabo-capsules").strip() or "lelabo-capsules",
+        ),
+    )
+    existing = get_global_target(owner, repo, kind="github")
+    if existing is not None:
+        target = dict(existing)
+        target["action"] = "unchanged"
+        target["created_repo"] = False
+        return target
+
+    remote = github_repo_metadata(owner, repo)
+    if remote is not None:
+        target = save_global_target(remote) if persist else dict(remote)
+        target["action"] = "registered"
+        target["created_repo"] = False
+        return target
+
     visibility = _prompt_with_default("Visibility", _default_visibility(settings, visibility_override))
     visibility = str(visibility).strip().lower() or "private"
     if visibility not in {"public", "private"}:
         raise SystemExit("Visibility must be 'public' or 'private'.")
     if show_summary:
         print_block(
-            "Repo",
+            "GitHub target",
             (
-                ("owner", owner),
-                ("repo", repo),
+                ("target", _repo_label(owner, repo)),
                 ("visibility", visibility),
             ),
         )
-    question = "Create repo?" if create_remote_repo else "Use this repo in preview?"
+    question = "Create target?" if create_remote_repo else "Register this target?"
     if not _confirm(question, default=True):
-        raise SystemExit("Repo creation canceled by user.")
-    if create_remote_repo:
-        create_repo(owner, repo, visibility)
-    return {"owner": owner, "repo": repo, "visibility": visibility}
+        raise SystemExit("Target creation canceled by user.")
+    target, action = _register_github_target(
+        owner=owner,
+        repo=repo,
+        settings=settings,
+        persist=persist,
+        create_remote_repo=create_remote_repo,
+        visibility=visibility,
+    )
+    target["action"] = action
+    target["created_repo"] = action == "created"
+    return target
+
+
+def _attach_capsule_to_target(
+    capsule_root: Path,
+    *,
+    selected_target: dict[str, Any],
+    settings: dict[str, Any],
+    persist: bool,
+    make_default_default: bool,
+    show_summary: bool,
+) -> dict[str, Any]:
+    info = inspect_capsule_directory(capsule_root)
+    capsule_id = str(info.get("capsule_id", capsule_root.name)).strip() or capsule_root.name
+    existing_targets = [item for item in list_configured_targets(capsule_root) if str(item.get("kind", "")).strip() == "github"]
+    folder = _prompt_with_default("Folder", capsule_id)
+    set_default = _confirm("Set as default target?", default=make_default_default)
+    target = _build_target_payload(
+        capsule_root=capsule_root,
+        existing_targets=existing_targets,
+        target_meta=selected_target,
+        folder=folder,
+        settings=settings,
+    )
+    if show_summary:
+        print_block(
+            "Publish target",
+            (
+                ("capsule", capsule_id),
+                ("target", _repo_label(str(target.get("owner", "")), str(target.get("repo", "")))),
+                ("folder", target.get("path")),
+                ("visibility", str(selected_target.get("visibility", "")).strip().lower() or str(target.get("visibility", ""))),
+                ("default", set_default),
+            ),
+        )
+    question = "Save target?" if persist else "Use this target in preview?"
+    if not _confirm(question, default=True):
+        raise SystemExit("Target setup canceled by user.")
+    if persist:
+        return save_configured_target(capsule_root, target, make_default=set_default)
+    ephemeral = dict(target)
+    ephemeral["default"] = False
+    ephemeral["last_used"] = False
+    ephemeral["_ephemeral"] = True
+    return ephemeral
 
 
 def configure_github_target_for_capsule(
@@ -504,108 +731,105 @@ def configure_github_target_for_capsule(
     create_remote_repo: bool | None = None,
     show_summary: bool = True,
 ) -> dict[str, Any]:
-    info = inspect_capsule_directory(capsule_root)
-    capsule_id = str(info.get("capsule_id", capsule_root.name)).strip() or capsule_root.name
-    default_owner = str(owner_override or _default_owner(settings)).strip()
-    default_visibility = _default_visibility(settings, visibility_override)
-    existing_targets = [item for item in list_configured_targets(capsule_root) if str(item.get("kind", "")).strip() == "github"]
+    if show_summary:
+        _print_capsule_context(capsule_root)
 
+    selected_target: dict[str, Any] | None = None
     selected_owner = str(owner_override or "").strip()
     selected_repo = str(repo_override or "").strip()
-    selected_visibility = default_visibility
-    default_folder = capsule_id
-
     if selected_owner and selected_repo:
-        pass
+        existing = get_global_target(selected_owner, selected_repo, kind="github")
+        if existing is not None:
+            selected_target = existing
+        else:
+            metadata = github_repo_metadata(selected_owner, selected_repo)
+            if metadata is not None:
+                selected_target = save_global_target(metadata) if persist else dict(metadata)
+            else:
+                selected_target = create_shared_repo_interactively(
+                    settings=settings,
+                    owner_override=selected_owner,
+                    repo_override=selected_repo,
+                    visibility_override=visibility_override,
+                    persist=persist,
+                    create_remote_repo=create_remote_repo is not False,
+                    show_summary=show_summary,
+                )
     else:
         action = _pick_one(
-            "Select repo action",
+            "Select target source",
             "Choose how to attach this capsule.",
             (
-                (_REPO_ACTION_EXISTING, "Existing GitHub repo"),
-                (_REPO_ACTION_CREATE, "Create new GitHub repo"),
+                (_REPO_ACTION_EXISTING, "Existing configured target"),
+                (_REPO_ACTION_EXISTING_REMOTE, "Existing GitHub repo"),
+                (_REPO_ACTION_CREATE, "Create new GitHub target"),
                 (_REPO_ACTION_CANCEL, "Cancel"),
             ),
-            cancel_message="Repo target setup canceled by user.",
+            cancel_message="Target setup canceled by user.",
         )
         if action == _REPO_ACTION_CANCEL:
-            raise SystemExit("Repo target setup canceled by user.")
+            raise SystemExit("Target setup canceled by user.")
         if action == _REPO_ACTION_EXISTING:
-            owner = _prompt_with_default("Owner", default_owner)
-            selected_owner, selected_repo = _parse_repo_full_name(_pick_existing_repo_full_name(owner))
+            selected_target = _pick_existing_target(list_global_targets(), cancel_message="Target selection canceled by user.")
+        elif action == _REPO_ACTION_EXISTING_REMOTE:
+            selected_target = _pick_existing_remote_repo(settings, owner_override=owner_override, cancel_message="Target selection canceled by user.")
+            existing = get_global_target(str(selected_target.get("owner", "")), str(selected_target.get("repo", "")), kind="github")
+            if existing is not None:
+                selected_target = existing
+            else:
+                selected_target = save_global_target(selected_target) if persist else dict(selected_target)
         else:
-            repo_kind = _prompt_repo_kind()
-            owner = _prompt_with_default("Owner", default_owner)
-            if not owner:
-                raise SystemExit("GitHub owner is required.")
-            repo_default = "lelabo-capsules" if repo_kind == _REPO_KIND_SHARED else capsule_id
-            folder_default = capsule_id if repo_kind == _REPO_KIND_SHARED else "."
-            repo = _prompt_with_default("Repo", repo_default)
-            visibility = _prompt_with_default("Visibility", default_visibility)
-            visibility = str(visibility).strip().lower() or "private"
-            if visibility not in {"public", "private"}:
-                raise SystemExit("Visibility must be 'public' or 'private'.")
-            if show_summary:
-                print_block(
-                    "Repo",
-                    (
-                        ("owner", owner),
-                        ("repo", repo),
-                        ("visibility", visibility),
-                    ),
-                )
-            question = "Create repo?" if create_remote_repo is not False else "Use this repo in preview?"
-            if not _confirm(question, default=True):
-                raise SystemExit("Repo creation canceled by user.")
-            if create_remote_repo is not False:
-                create_repo(owner, repo, visibility)
-            selected_owner = owner
-            selected_repo = repo
-            selected_visibility = visibility
-            default_folder = folder_default
+            selected_target = create_shared_repo_interactively(
+                settings=settings,
+                owner_override=owner_override,
+                repo_override=repo_override,
+                visibility_override=visibility_override,
+                persist=persist,
+                create_remote_repo=create_remote_repo is not False,
+                show_summary=show_summary,
+            )
 
-    if not selected_owner or not selected_repo:
-        raise SystemExit("GitHub repo selection is incomplete.")
+    if selected_target is None:
+        raise SystemExit("GitHub target selection is incomplete.")
 
-    folder = _prompt_with_default("Folder", default_folder)
-    visibility = _prompt_with_default("Visibility", selected_visibility)
-    set_default = _confirm("Set as default target?", default=make_default_default)
-    target = _build_target_payload(
-        capsule_root=capsule_root,
-        existing_targets=existing_targets,
-        owner=selected_owner,
-        repo=selected_repo,
-        folder=folder,
-        visibility=visibility,
+    return _attach_capsule_to_target(
+        capsule_root,
+        selected_target=selected_target,
         settings=settings,
+        persist=persist,
+        make_default_default=make_default_default,
+        show_summary=show_summary,
     )
-    if show_summary:
-        print_block(
-            "Publish target",
+
+
+def _pick_repo_capsule(rows: Sequence[dict[str, Any]], *, title: str, cancel_message: str) -> dict[str, Any]:
+    if not rows:
+        raise SystemExit("No capsule was found in this target repo.")
+    if len(rows) == 1:
+        return dict(rows[0])
+    token = _pick_one(
+        title,
+        "Select one capsule from the target repo.",
+        [
             (
-                ("capsule", capsule_id),
-                ("repo", _repo_label(selected_owner, selected_repo)),
-                ("folder", target.get("path")),
-                ("visibility", target.get("visibility")),
-                ("default", set_default),
-            ),
-        )
-    question = "Save target?" if persist else "Use this target in preview?"
-    if not _confirm(question, default=True):
-        raise SystemExit("Repo target setup canceled by user.")
-    if persist:
-        return save_configured_target(capsule_root, target, make_default=set_default)
-    ephemeral = dict(target)
-    ephemeral["default"] = False
-    ephemeral["last_used"] = False
-    ephemeral["_ephemeral"] = True
-    return ephemeral
+                f"{row.get('capsule_id')}::{row.get('folder')}",
+                f"{row.get('capsule_id')} | folder: {row.get('folder')}",
+            )
+            for row in rows
+        ],
+        cancel_message=cancel_message,
+    )
+    capsule_id, _, folder = token.partition("::")
+    for row in rows:
+        if str(row.get("capsule_id")) == capsule_id and str(row.get("folder")) == folder:
+            return dict(row)
+    raise SystemExit(cancel_message)
 
 
 def _cmd_list(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="lelabo repo list",
-        description="List configured GitHub repos.",
+        prog="lelabo targets list",
+        description="List configured GitHub targets.",
     )
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
@@ -613,93 +837,98 @@ def _cmd_list(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Repo listing") if args.capsule_ref else None
-    groups = _group_repo_rows(_configured_target_rows(capsule_root=capsule_root))
+    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target listing") if args.capsule_ref else None
+    groups = _group_repo_rows(_configured_target_rows(capsule_root=capsule_root), include_unattached=capsule_root is None)
     if bool(args.json):
         _print_json(
             {
-                "schema_version": REPOS_JSON_SCHEMA,
+                "schema_version": TARGETS_JSON_SCHEMA,
                 "command": "list",
                 "capsule_path": str(capsule_root) if capsule_root is not None else None,
-                "repos": groups,
+                "targets": groups,
             }
         )
     else:
         if not groups:
-            print_status("info", "No configured GitHub repos were found.")
+            print_status("info", "No configured GitHub targets were found.")
             return 0
-        print_list_block(
-            "GitHub repos",
-            [
-                f"{group.get('owner', '-')}/{group.get('repo', '-')} | capsules: {', '.join(group.get('capsules', []))}"
-                for group in groups
-            ],
-        )
+        print("GitHub targets")
+        for group in groups:
+            print(f"- {group.get('owner', '-')}/{group.get('repo', '-')}")
+            capsules = ", ".join(group.get("capsules", [])) or "-"
+            print(f"  capsules: {capsules}")
     return 0
 
 
 def _cmd_create(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="lelabo repo create",
-        description="Create one shared GitHub repo.",
+        prog="lelabo targets create",
+        description="Create or register one shared GitHub target.",
     )
-    parser.add_argument("--owner", default=None, help="GitHub owner")
-    parser.add_argument("--repo", default=None, help="GitHub repository name")
+    parser.add_argument("--target", default=None, help="GitHub target as owner/repo")
     vis = parser.add_mutually_exclusive_group()
-    vis.add_argument("--public", action="store_true", help="Create a public GitHub repo")
-    vis.add_argument("--private", action="store_true", help="Create a private GitHub repo")
+    vis.add_argument("--public", action="store_true", help="Create or register a public GitHub target")
+    vis.add_argument("--private", action="store_true", help="Create or register a private GitHub target")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
     settings = _effective_settings()
     visibility = "public" if bool(args.public) else "private" if bool(args.private) else None
+    owner_override, repo_override = (None, None)
+    if args.target:
+        owner_override, repo_override = _parse_repo_full_name(args.target)
     repo_info = create_shared_repo_interactively(
         settings=settings,
-        owner_override=args.owner,
-        repo_override=args.repo,
+        owner_override=owner_override,
+        repo_override=repo_override,
         visibility_override=visibility,
+        persist=True,
         create_remote_repo=True,
         show_summary=not bool(args.json),
     )
     if bool(args.json):
         _print_json(
             {
-                "schema_version": REPO_JSON_SCHEMA,
+                "schema_version": TARGET_JSON_SCHEMA,
                 "command": "create",
-                "repo": repo_info,
+                "action": repo_info.get("action"),
+                "target": repo_info,
             }
         )
     else:
-        print_status("success", "GitHub repo created.")
-        print_block("Repo", (("owner", repo_info["owner"]), ("repo", repo_info["repo"]), ("visibility", repo_info["visibility"])))
+        action = str(repo_info.get("action", "")).strip() or "created"
+        print_status("success", _target_action_message(action))
+        print_block("Target", (("target", _repo_label(repo_info["owner"], repo_info["repo"])), ("visibility", repo_info["visibility"])))
     return 0
 
 
-def _cmd_add_capsule(argv: list[str]) -> int:
+def _cmd_attach(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="lelabo repo add capsule",
-        description="Add one capsule to an existing or new GitHub repo.",
+        prog="lelabo targets attach",
+        description="Attach one capsule to an existing or new GitHub target.",
     )
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
-    parser.add_argument("--owner", default=None, help="GitHub owner")
-    parser.add_argument("--repo", default=None, help="GitHub repository name")
+    parser.add_argument("--target", default=None, help="GitHub target as owner/repo")
     vis = parser.add_mutually_exclusive_group()
-    vis.add_argument("--public", action="store_true", help="Use public visibility for a new repo or target")
-    vis.add_argument("--private", action="store_true", help="Use private visibility for a new repo or target")
+    vis.add_argument("--public", action="store_true", help="Use public visibility for a new target")
+    vis.add_argument("--private", action="store_true", help="Use private visibility for a new target")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
 
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Repo target setup")
+    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target attach")
     visibility = "public" if bool(args.public) else "private" if bool(args.private) else None
+    owner_override, repo_override = (None, None)
+    if args.target:
+        owner_override, repo_override = _parse_repo_full_name(args.target)
     target = configure_github_target_for_capsule(
         capsule_root,
         settings=settings,
         persist=True,
-        owner_override=args.owner,
-        repo_override=args.repo,
+        owner_override=owner_override,
+        repo_override=repo_override,
         visibility_override=visibility,
         make_default_default=True,
         create_remote_repo=True,
@@ -708,21 +937,20 @@ def _cmd_add_capsule(argv: list[str]) -> int:
     if bool(args.json):
         _print_json(
             {
-                "schema_version": REPO_JSON_SCHEMA,
-                "command": "add-capsule",
+                "schema_version": TARGET_JSON_SCHEMA,
+                "command": "attach",
                 "capsule_path": str(capsule_root),
                 "target": target,
             }
         )
     else:
-        print_status("success", "Publish target added.")
+        print_status("success", "Publish target attached.")
         print_block(
             "Target",
             (
                 ("name", target.get("name")),
                 ("kind", target.get("kind")),
-                ("owner", target.get("owner")),
-                ("repo", target.get("repo")),
+                ("target", _repo_label(str(target.get("owner", "")), str(target.get("repo", "")))),
                 ("branch", target.get("branch")),
                 ("folder", target.get("path")),
                 ("default", target.get("default")),
@@ -733,55 +961,156 @@ def _cmd_add_capsule(argv: list[str]) -> int:
 
 def _cmd_edit(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="lelabo repo edit",
-        description="Edit repo attachments and defaults.",
+        prog="lelabo targets edit",
+        description="Edit target attachments and defaults.",
     )
-    parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub repo as owner/repo")
-    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias to filter repos")
+    parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
+    parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias to filter targets")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Repo edit")
+    group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Target edit")
+    if not bool(args.json):
+        print_block(
+            "GitHub target",
+            (
+                ("target", _repo_label(str(group.get("owner", "")), str(group.get("repo", "")))),
+                ("capsules", ", ".join(list(group.get("capsules", []))) or "-"),
+            ),
+        )
     action = _pick_one(
-        "Edit repo",
-        "Choose one action for this repo.",
+        "Edit target",
+        "Choose one action for this target.",
         (
-            ("default", "Set default repo for a capsule"),
+            ("default", "Set default target for a capsule"),
+            ("attach", "Attach local capsule to this target"),
             ("detach", "Detach capsule"),
+            ("remove-remote", "Remove capsule from target repo"),
+            ("import", "Import capsule from this target repo"),
             (_REPO_ACTION_CANCEL, "Cancel"),
         ),
-        cancel_message="Repo edit canceled by user.",
+        cancel_message="Target edit canceled by user.",
     )
     if action == _REPO_ACTION_CANCEL:
-        raise SystemExit("Repo edit canceled by user.")
-    selected = _pick_attachment(
-        list(group.get("attachments", [])),
-        title="Select capsule",
-        cancel_message="Repo edit canceled by user.",
-    )
-    capsule_root = Path(str(selected.get("capsule_path", ""))).expanduser().resolve()
-    if action == "default":
-        try:
-            target = set_default_target(capsule_root, str(selected.get("name", "")))
-        except ValueError as exc:
-            raise SystemExit(str(exc))
-        command_name = "edit-default"
-        success_message = "Default repo updated."
+        raise SystemExit("Target edit canceled by user.")
+    selected: dict[str, Any] | None = None
+    target: dict[str, Any] | None = None
+    command_name = "edit"
+    success_message = "Target updated."
+    target_repo = {
+        "kind": str(group.get("kind", "")).strip() or "github",
+        "owner": str(group.get("owner", "")).strip(),
+        "repo": str(group.get("repo", "")).strip(),
+        "branch": str(group.get("branch", "")).strip() or _default_branch(settings),
+        "visibility": str(group.get("visibility", "")).strip().lower() or _default_visibility(settings),
+    }
+
+    if action == "attach":
+        capsule_root = _resolve_visible_capsule_root(caps_dir=caps_dir, purpose="Target edit")
+        if not bool(args.json):
+            _print_capsule_context(capsule_root)
+        target = _attach_capsule_to_target(
+            capsule_root,
+            selected_target=target_repo,
+            settings=settings,
+            persist=True,
+            make_default_default=False,
+            show_summary=not bool(args.json),
+        )
+        selected = {
+            "capsule_id": _capsule_id_for_path(capsule_root),
+            "owner": target.get("owner"),
+            "repo": target.get("repo"),
+            "path": target.get("path"),
+        }
+        command_name = "edit-attach"
+        success_message = "Capsule attached to target."
+    elif action == "import":
+        repo_capsules = inspect_target_repo_capsules(target_repo)
+        imported = _pick_repo_capsule(repo_capsules, title="Select target repo capsule", cancel_message="Target edit canceled by user.")
+        entry = install_capsule_from_directory(
+            source_dir=Path(str(imported.get("root", ""))).expanduser().resolve(),
+            capsules_dir=caps_dir,
+            source_meta={
+                "type": "github_repo",
+                "target": _repo_label(str(group.get("owner", "")), str(group.get("repo", ""))),
+                "folder": str(imported.get("folder", "")),
+            },
+        )
+        target = {
+            "owner": group.get("owner"),
+            "repo": group.get("repo"),
+            "imported_capsule_id": entry.get("capsule_id"),
+            "install_action": entry.get("install_action"),
+        }
+        selected = {
+            "capsule_id": entry.get("capsule_id"),
+            "owner": group.get("owner"),
+            "repo": group.get("repo"),
+            "path": imported.get("folder"),
+        }
+        command_name = "edit-import"
+        success_message = "Capsule imported from target repo."
     else:
-        try:
-            target = remove_configured_target(capsule_root, str(selected.get("name", "")))
-        except ValueError as exc:
-            raise SystemExit(str(exc))
-        command_name = "edit-detach"
-        success_message = "Capsule detached from repo."
+        attachments = list(group.get("attachments", []))
+        if not attachments:
+            raise SystemExit("No capsule is attached to this target.")
+        selected = _pick_attachment(
+            attachments,
+            title="Select capsule",
+            cancel_message="Target edit canceled by user.",
+        )
+        capsule_root = Path(str(selected.get("capsule_path", ""))).expanduser().resolve()
+        if action == "default":
+            try:
+                target = set_default_target(capsule_root, str(selected.get("name", "")))
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            command_name = "edit-default"
+            success_message = "Default target updated."
+        elif action == "detach":
+            try:
+                target = remove_configured_target(capsule_root, str(selected.get("name", "")))
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            command_name = "edit-detach"
+            success_message = "Capsule detached from target."
+        elif action == "remove-remote":
+            if not _confirm(f"Remove this capsule from {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}?", default=False):
+                raise SystemExit("Target edit canceled by user.")
+            try:
+                removed = remove_target_repo_capsule(target=target_repo, folder=str(selected.get("path", "")))
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            detach_locally = _confirm("Also detach this capsule locally?", default=True)
+            if detach_locally:
+                try:
+                    target = remove_configured_target(capsule_root, str(selected.get("name", "")))
+                except ValueError as exc:
+                    raise SystemExit(str(exc))
+            else:
+                target = {
+                    "name": selected.get("name"),
+                    "owner": selected.get("owner"),
+                    "repo": selected.get("repo"),
+                    "path": selected.get("path"),
+                    "default": bool(selected.get("default")),
+                    "detached": False,
+                }
+            if isinstance(target, dict):
+                target["remote_remove"] = removed
+            command_name = "edit-remove-remote"
+            success_message = "Capsule removed from target repo."
+        else:
+            raise SystemExit("Target edit canceled by user.")
     if bool(args.json):
         _print_json(
             {
-                "schema_version": REPO_JSON_SCHEMA,
+                "schema_version": TARGET_JSON_SCHEMA,
                 "command": command_name,
-                "capsule_path": str(capsule_root),
+                "capsule_path": str(capsule_root) if 'capsule_root' in locals() else None,
                 "target": target,
             }
         )
@@ -791,9 +1120,9 @@ def _cmd_edit(argv: list[str]) -> int:
             "Target",
             (
                 ("capsule", selected.get("capsule_id")),
-                ("repo", _repo_label(str(selected.get("owner", "")), str(selected.get("repo", "")))),
+                ("target", _repo_label(str(selected.get("owner", "")), str(selected.get("repo", "")))),
                 ("folder", selected.get("path")),
-                ("default", target.get("default")),
+                ("default", target.get("default") if isinstance(target, dict) else None),
             ),
         )
     return 0
@@ -801,29 +1130,29 @@ def _cmd_edit(argv: list[str]) -> int:
 
 def _cmd_detach(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="lelabo repo detach",
-        description="Detach one capsule from a configured GitHub repo.",
+        prog="lelabo targets detach",
+        description="Detach one capsule from a configured GitHub target.",
     )
-    parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub repo as owner/repo")
+    parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule path or stored id/alias")
     parser.add_argument("--capsules-dir", default=None, help="Override capsules store path for id/alias resolution")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
-    group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Repo detach")
+    group = _resolve_repo_group(args.repo_ref, args.capsule_ref, caps_dir=caps_dir, purpose="Target detach")
     attachments = list(group.get("attachments", []))
     if args.capsule_ref:
-        capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Repo detach")
+        capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir, purpose="Target detach")
         attachments = [row for row in attachments if Path(str(row.get("capsule_path", ""))).expanduser().resolve() == capsule_root]
         if not attachments:
             raise SystemExit(
                 f"Capsule '{_capsule_id_for_path(capsule_root)}' is not attached to {_repo_label(str(group.get('owner', '')), str(group.get('repo', '')))}."
             )
-    selected = _pick_attachment(attachments, title="Select capsule", cancel_message="Repo detach canceled by user.")
+    selected = _pick_attachment(attachments, title="Select capsule", cancel_message="Target detach canceled by user.")
     repo_name = _repo_label(str(selected.get("owner", "")), str(selected.get("repo", "")))
     if not _confirm(f"Detach this capsule from {repo_name}?", default=False):
-        raise SystemExit("Repo detach canceled by user.")
+        raise SystemExit("Target detach canceled by user.")
     capsule_root = Path(str(selected.get("capsule_path", ""))).expanduser().resolve()
     try:
         target = remove_configured_target(capsule_root, str(selected.get("name", "")))
@@ -832,19 +1161,19 @@ def _cmd_detach(argv: list[str]) -> int:
     if bool(args.json):
         _print_json(
             {
-                "schema_version": REPO_JSON_SCHEMA,
+                "schema_version": TARGET_JSON_SCHEMA,
                 "command": "detach",
                 "capsule_path": str(capsule_root),
                 "target": target,
             }
         )
     else:
-        print_status("success", "Capsule detached from repo.")
+        print_status("success", "Capsule detached from target.")
         print_block(
             "Target",
             (
                 ("capsule", selected.get("capsule_id")),
-                ("repo", repo_name),
+                ("target", repo_name),
                 ("folder", selected.get("path")),
             ),
         )
@@ -862,18 +1191,16 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_list(rest)
     if cmd == "create":
         return _cmd_create(rest)
-    if cmd == "add":
-        if rest and str(rest[0]).strip().lower() == "capsule":
-            return _cmd_add_capsule(rest[1:])
-        return _cmd_add_capsule(rest)
+    if cmd == "attach":
+        return _cmd_attach(rest)
     if cmd == "edit":
         return _cmd_edit(rest)
     if cmd == "detach":
         return _cmd_detach(rest)
     raise SystemExit(
-        f"Unknown repo subcommand: {cmd}\n\n"
-        "Use one of: list, create, add capsule, edit, detach.\n"
-        "Run `lelabo repo -h` for usage."
+        f"Unknown targets subcommand: {cmd}\n\n"
+        "Use one of: list, create, attach, edit, detach.\n"
+        "Run `lelabo targets -h` for usage."
     )
 
 

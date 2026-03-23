@@ -15,13 +15,13 @@ plugins = importlib.import_module("lelabo.capsule.plugins")
 capsule_registry = importlib.import_module("lelabo.capsule.registry")
 
 
-def test_list_cli_all_text_groups_builtins_and_capsule(monkeypatch, capsys) -> None:
+def test_list_cli_all_text_groups_builtins_and_capsules_by_name(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         list_cli,
         "_snapshot_rows",
         lambda *args, **kwargs: {
-            "models": {"builtins": ["cnn", "mlp"], "capsule": ["paper_model"]},
-            "optimizers": {"builtins": ["adamw"], "capsule": []},
+            "models": {"builtins": ["cnn", "mlp"], "capsules": {"paper_capsule": ["paper_model"]}},
+            "optimizers": {"builtins": ["adamw"], "capsules": {}},
         },
     )
 
@@ -31,7 +31,7 @@ def test_list_cli_all_text_groups_builtins_and_capsule(monkeypatch, capsys) -> N
     assert "models:" in out
     assert "builtins:" in out
     assert "- cnn" in out
-    assert "capsule:" in out
+    assert "paper_capsule:" in out
     assert "- paper_model" in out
     assert "optimizers:" in out
 
@@ -40,16 +40,16 @@ def test_list_cli_single_target_json_is_grouped(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         list_cli,
         "_snapshot_rows",
-        lambda *args, **kwargs: {"update_rules": {"builtins": ["bp"], "capsule": ["dfa"]}},
+        lambda *args, **kwargs: {"update_rules": {"builtins": ["bp"], "capsules": {"paper_capsule": ["dfa"]}}},
     )
 
     rc = list_cli.main(["update-rules", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == {
-        "schema_version": "lelabo.cli.list/v1",
+        "schema_version": "lelabo.cli.list/v2",
         "target": "update_rules",
-        "sources": {"builtins": ["bp"], "capsule": ["dfa"]},
+        "sources": {"builtins": ["bp"], "capsules": {"paper_capsule": ["dfa"]}},
     }
 
 
@@ -57,16 +57,16 @@ def test_list_cli_all_json_uses_registries_wrapper(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         list_cli,
         "_snapshot_rows",
-        lambda *args, **kwargs: {"models": {"builtins": ["cnn"], "capsule": ["paper_model"]}},
+        lambda *args, **kwargs: {"models": {"builtins": ["cnn"], "capsules": {"paper_capsule": ["paper_model"]}}},
     )
 
     rc = list_cli.main(["all", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == {
-        "schema_version": "lelabo.cli.list/v1",
+        "schema_version": "lelabo.cli.list/v2",
         "target": "all",
-        "registries": {"models": {"builtins": ["cnn"], "capsule": ["paper_model"]}},
+        "registries": {"models": {"builtins": ["cnn"], "capsules": {"paper_capsule": ["paper_model"]}}},
     }
 
 
@@ -74,7 +74,7 @@ def test_list_cli_algos_alias_maps_to_update_rules(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         list_cli,
         "_snapshot_rows",
-        lambda *args, **kwargs: {"update_rules": {"builtins": ["bp"], "capsule": ["dfa"]}},
+        lambda *args, **kwargs: {"update_rules": {"builtins": ["bp"], "capsules": {"paper_capsule": ["dfa"]}}},
     )
 
     rc = list_cli.main(["algos", "--json"])
@@ -108,7 +108,7 @@ def test_list_cli_can_include_capsule_models_from_path(tmp_path, capsys) -> None
         rc = list_cli.main(["models", "--capsule", str(capsule_root), "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_list_model" in payload["sources"]["capsule"]
+        assert "capsule_list_model" in payload["sources"]["capsules"]["capsule_models"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -152,7 +152,7 @@ def test_list_cli_can_include_capsule_datasets_from_alias(tmp_path, capsys) -> N
         )
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "capsule_list_dataset" in payload["sources"]["capsule"]
+        assert "capsule_list_dataset" in payload["sources"]["capsules"]["capsule_datasets"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -193,7 +193,7 @@ def test_list_cli_uses_configured_store_dir_for_capsule_alias_resolution(tmp_pat
         rc = list_cli.main(["datasets", "--capsule", "cfg_caps_alias", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "cfg_store_dataset" in payload["sources"]["capsule"]
+        assert "cfg_store_dataset" in payload["sources"]["capsules"]["capsule_cfg_store"]
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -225,7 +225,7 @@ def test_list_cli_does_not_auto_include_stored_capsules(tmp_path, monkeypatch, c
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "auto_capsule_model" not in payload["sources"]["capsule"]
+        assert "auto_capsule_model" not in payload["sources"]["capsules"].get("capsule_installed_models", [])
     finally:
         plugins.reset_capsule_plugin_cache()
 
@@ -253,6 +253,6 @@ def test_list_cli_auto_includes_workspace_capsules(tmp_path, monkeypatch, capsys
         rc = list_cli.main(["models", "--json"])
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "workspace_capsule_model" in payload["sources"]["capsule"]
+        assert "workspace_capsule_model" in payload["sources"]["capsules"]["capsule_models"]
     finally:
         plugins.reset_capsule_plugin_cache()

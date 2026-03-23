@@ -12,7 +12,7 @@ from .commands.config import main as run_config_command
 from .commands.export import main as run_export_command
 from .commands.list import main as run_list_command
 from .commands.push import main as run_push_command
-from .commands.repo import main as run_repo_command
+from .commands.repo import main as run_targets_command
 from .commands.sweep import main as run_sweep_command
 from .commands.train import main as run_train_command
 
@@ -49,8 +49,8 @@ def _run_push_cli(argv: Sequence[str]) -> int:
 def _run_export_cli(argv: Sequence[str]) -> int:
     return _run_command(run_export_command, argv)
 
-def _run_repo_cli(argv: Sequence[str]) -> int:
-    return _run_command(run_repo_command, argv)
+def _run_targets_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_targets_command, argv)
 
 
 def _run_sweep_cli(argv: Sequence[str]) -> int:
@@ -67,9 +67,9 @@ Commands:
   train      Run supervised or RL training
   sweep      Discover and run workspace sweeps
   audit      Run update-rule audit checks
-  push       Publish a capsule to a repo target
+  push       Publish a capsule to a target
   export     Export a capsule as a local tar.gz bundle
-  repo       Manage advanced capsule publish targets
+  targets    Manage GitHub publish targets
   config     Manage user settings and defaults
   list       List available registries and active-capsule exports
   capsule    Create, install, store, inspect, and share capsules
@@ -80,7 +80,7 @@ Help:
   lelabo audit -h
   lelabo push -h
   lelabo export -h
-  lelabo repo -h
+  lelabo targets -h
   lelabo config -h
   lelabo list -h
   lelabo capsule -h
@@ -91,8 +91,8 @@ Examples:
   lelabo audit --all --modes supervised,rl
   lelabo push my_capsule
   lelabo export my_capsule --out ./my_capsule.tar.gz
-  lelabo repo create
-  lelabo repo add capsule my_capsule
+  lelabo targets create
+  lelabo targets attach my_capsule
   lelabo config set github.owner your-org
   lelabo capsule init my_capsule
   lelabo list update-rules
@@ -138,10 +138,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_export_cli(["-h"])
         return _run_export_cli(rest)
 
-    if cmd == "repo":
+    if cmd == "targets":
         if not rest or is_help_token(rest[0]):
-            return _run_repo_cli(["-h"])
-        return _run_repo_cli(rest)
+            return _run_targets_cli(["-h"])
+        return _run_targets_cli(rest)
 
     if cmd == "config":
         if not rest or is_help_token(rest[0]):
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, sweep, audit, push, export, repo, config, list, capsule.\n"
+        "Use one of: train, sweep, audit, push, export, targets, config, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2
