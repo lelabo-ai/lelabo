@@ -47,9 +47,9 @@ def test_capsule_cli_install_list_show_remove(tmp_path, capsys) -> None:
     rc = capsule_cli.main(["show", "cli_alias", "--capsules-dir", str(caps_dir)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "Stored capsule" in out
+    assert "Visible capsule" in out
     assert "capsule_id: cli_cap" in out
-    assert "kind:" not in out
+    assert "status: store" in out
     assert "path:" in out
 
     installed_dir = caps_dir / "cli_cap"
@@ -219,6 +219,25 @@ def test_capsule_list_shows_store_workspace_conflict_as_two_entries(tmp_path, mo
         str(workspace_capsule.resolve()),
         str((caps_dir / "dup_capsule").resolve()),
     }
+
+
+def test_capsule_show_accepts_visible_workspace_capsule(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_show_visible"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.chdir(workspace)
+
+    rc = capsule_cli.main(["show", "demo_capsule", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "show"
+    assert payload["capsule"]["capsule_id"] == "demo_capsule"
+    assert payload["capsule"]["status"] == "workspace"
+    assert payload["capsule"]["path"] == str(capsule_root.resolve())
 
 
 def test_capsule_install_rejects_local_directory_and_points_to_attach(tmp_path) -> None:

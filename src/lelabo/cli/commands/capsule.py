@@ -17,10 +17,16 @@ from ...capsule import (
     get_capsule,
     install_capsule,
     install_capsule_from_directory,
+    list_capsules,
     remove_capsule,
     stash_capsule,
 )
-from ...capsule.discovery import DiscoveredCapsule, discover_visible_capsules, discover_workspace_capsules
+from ...capsule.discovery import (
+    DiscoveredCapsule,
+    discover_visible_capsules,
+    discover_workspace_capsules,
+    resolve_visible_capsule_ref,
+)
 from ...capsule.github import clone_github_repo, is_github_repo_url
 from ...capsule.plugins.discovery import find_active_capsule_root
 from ..interactive_picker import pick_many_with_checkboxes
@@ -41,7 +47,7 @@ Subcommands:
   checkout   Move a stored capsule back into a local workspace
   install    Import an external capsule bundle or GitHub repo into the local store
   list       List visible capsules from the workspace and store
-  show       Show one stored capsule entry
+  show       Show one visible capsule entry
   remove     Remove one stored capsule entry (and files by default)
 
 Help:
@@ -97,6 +103,8 @@ def _print_entry_block(title: str, row: dict[str, Any]) -> None:
         ("capsule_id", row.get("capsule_id", "-")),
         ("aliases", _render_aliases(row)),
     ]
+    if str(row.get("status", "")).strip():
+        rows.append(("status", row.get("status")))
     if str(row.get("path", "")).strip():
         rows.append(("path", row.get("path")))
     print_block(title, rows)
@@ -107,6 +115,8 @@ def _print_action_block(title: str, row: dict[str, Any], *, extra_fields: Sequen
         ("capsule_id", row.get("capsule_id", "-")),
         ("aliases", _render_aliases(row)),
     ]
+    if str(row.get("status", "")).strip():
+        rows.append(("status", row.get("status")))
     if str(row.get("path", "")).strip():
         rows.append(("path", row.get("path")))
     for field in extra_fields:
@@ -775,11 +785,11 @@ def _cmd_list(argv: list[str]) -> int:
 def _cmd_show(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo capsule show",
-        description="Show one stored capsule entry from the local capsule store.",
+        description="Show one visible capsule from the workspace or local store.",
         epilog="Examples:\n  lelabo capsule show my_capsule\n  lelabo capsule show my_alias --json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("id_or_alias", help="Stored capsule id or alias to inspect")
+    parser.add_argument("id_or_alias", help="Visible capsule id or alias to inspect")
     parser.add_argument("--capsules-dir", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args(argv)
@@ -787,15 +797,45 @@ def _cmd_show(argv: list[str]) -> int:
     caps_dir = _resolved_capsules_dir(args.capsules_dir, settings)
 
     try:
-        row = get_capsule(args.id_or_alias, caps_dir)
-        if row is None:
-            raise ValueError(f"Unknown capsule '{args.id_or_alias}'")
+        visible = resolve_visible_capsule_ref(
+            args.id_or_alias,
+            start=Path.cwd(),
+            capsules_dir=caps_dir,
+            command="lelabo capsule show",
+            usage="lelabo capsule show <capsule>",
+        )
     except ValueError as exc:
-        raise SystemExit(str(exc))
+        raise SystemExit(str(exc)) from exc
+    row = {
+        "capsule_id": visible.capsule_id,
+        "aliases": list(visible.aliases),
+        "path": visible.path,
+        "status": visible.status,
+    }
+    for stored in list_capsules(caps_dir):
+        raw_path = str(stored.get("path", "")).strip()
+        if not raw_path:
+            continue
+        try:
+            stored_root = Path(raw_path).expanduser().resolve()
+        except OSError:
+            continue
+        if stored_root != visible.root:
+            continue
+        for key, value in stored.items():
+            if key in {"capsule_id", "aliases", "path"}:
+                continue
+            row.setdefault(key, value)
+        break
+    if visible.status == "workspace":
+        info = inspect_capsule_directory(visible.root)
+        kind = str(info.get("kind", "")).strip()
+        if kind:
+            row.setdefault("kind", kind)
     if bool(args.json):
         _print_json(_capsule_command_json("show", row))
     else:
-        _print_entry_block("Stored capsule", row)
+        _print_entry_block("Visible capsule", row)
     return 0
 
 

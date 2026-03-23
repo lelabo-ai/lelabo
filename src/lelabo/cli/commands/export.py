@@ -8,8 +8,7 @@ import tarfile
 from pathlib import Path
 from typing import Any, Sequence
 
-from ...capsule import get_capsule
-from ...capsule.discovery import discover_visible_capsules, find_capsule_root
+from ...capsule.discovery import resolve_visible_capsule_ref
 from ...config.user_settings import load_effective_settings
 from ..ui import print_block, print_status
 
@@ -49,34 +48,17 @@ def _resolved_capsules_dir(raw_capsules_dir: str | None, settings: dict[str, Any
     return Path(store_dir).expanduser().resolve()
 
 
-def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
-    token = str(capsule_ref or "").strip()
-    if not token:
-        raise SystemExit("Missing capsule. Use `lelabo export <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
-    if "/" in token or token.startswith("."):
-        raise SystemExit(
-            "Local paths are not accepted by `lelabo export` in v1. "
-            "Pass a capsule id or alias from `lelabo capsule list`."
+def _resolve_visible_capsule(capsule_ref: str | None, *, caps_dir: Path | None) -> DiscoveredCapsule:
+    try:
+        return resolve_visible_capsule_ref(
+            capsule_ref,
+            start=Path.cwd(),
+            capsules_dir=caps_dir,
+            command="lelabo export",
+            usage="lelabo export <capsule>",
         )
-
-    visible = [
-        item
-        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
-        if item.capsule_id == token or token in set(item.aliases)
-    ]
-    if len(visible) == 1:
-        return visible[0].root
-    if len(visible) > 1:
-        matches = ", ".join(item.path for item in visible)
-        raise SystemExit(f"Capsule '{token}' is ambiguous across: {matches}")
-
-    row = get_capsule(token, caps_dir)
-    if row is None:
-        raise SystemExit(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
-    root = Path(str(row.get("path", ""))).expanduser().resolve()
-    if not root.exists() or not root.is_dir() or find_capsule_root(root) is None:
-        raise SystemExit(f"Capsule path does not exist on disk: {root}")
-    return root
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _export_capsule_local_bundle(capsule_root: Path, *, out_path: Path | None) -> Path:
@@ -112,7 +94,8 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
     args = parser.parse_args(list(argv))
     settings = _effective_settings()
     caps_dir = _resolved_capsules_dir(None, settings)
-    capsule_root = _resolve_capsule_root(args.capsule_ref, caps_dir=caps_dir)
+    capsule = _resolve_visible_capsule(args.capsule_ref, caps_dir=caps_dir)
+    capsule_root = capsule.root
     out = _export_capsule_local_bundle(
         capsule_root,
         out_path=Path(args.out).expanduser() if args.out else None,
@@ -121,8 +104,10 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
         "schema_version": EXPORT_JSON_SCHEMA,
         "command": "export",
         "capsule": {
-            "capsule_id": str(get_capsule(str(args.capsule_ref), caps_dir).get("capsule_id", capsule_root.name)),
-            "path": str(capsule_root),
+            "capsule_id": capsule.capsule_id,
+            "status": capsule.status,
+            "aliases": list(capsule.aliases),
+            "path": capsule.path,
         },
         "result": {
             "bundle_path": str(out),
@@ -137,6 +122,7 @@ def run_export_command(argv: Sequence[str], *, prog: str = "lelabo export") -> t
             "Export",
             (
                 ("capsule", payload["capsule"]["capsule_id"]),
+                ("status", payload["capsule"]["status"]),
                 ("bundle_path", out),
             ),
         )

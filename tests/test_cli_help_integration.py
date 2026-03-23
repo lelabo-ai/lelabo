@@ -141,8 +141,8 @@ def test_gitspace_command_is_unknown() -> None:
 def test_capsule_show_help_documents_positionals_and_examples() -> None:
     proc = _run_cli_help("capsule", "show", "-h")
     assert proc.returncode == 0
-    assert "Show one stored capsule entry" in proc.stdout
-    assert "Stored capsule id or alias to inspect" in proc.stdout
+    assert "Show one visible capsule from the workspace or local store." in proc.stdout
+    assert "Visible capsule id or alias to inspect" in proc.stdout
     assert "Examples:" in proc.stdout
 
 

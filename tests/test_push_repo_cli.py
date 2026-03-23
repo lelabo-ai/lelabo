@@ -40,6 +40,23 @@ def test_push_cli_requires_explicit_capsule_ref() -> None:
     assert "Missing capsule. Use `lelabo push <capsule>`." in str(exc.value)
 
 
+def test_push_cli_rejects_local_path_with_actionable_capsule_id(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace_path_push"
+    workspace.mkdir()
+    capsule_root = capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.chdir(workspace)
+
+    with pytest.raises(SystemExit) as exc:
+        push_cli.main([f"./{capsule_root.name}"])
+
+    assert "Local paths are not accepted by `lelabo push` in v1." in str(exc.value)
+    assert "Use `lelabo push demo_capsule`." in str(exc.value)
+
+
 def test_push_cli_without_target_guides_to_targets_commands(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace_bootstrap"
     workspace.mkdir()

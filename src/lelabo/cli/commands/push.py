@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from ...capsule import get_capsule, inspect_capsule_directory
-from ...capsule.discovery import discover_visible_capsules
+from ...capsule import inspect_capsule_directory
+from ...capsule.discovery import resolve_visible_capsule_ref
 from ...capsule.publish import (
     auto_commit_message,
     available_targets,
@@ -71,33 +71,16 @@ def _confirm(question: str, *, default: bool = False) -> bool:
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None) -> Path:
-    token = str(capsule_ref or "").strip()
-    if not token:
-        raise SystemExit("Missing capsule. Use `lelabo push <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
-    if "/" in token or token.startswith("."):
-        raise SystemExit(
-            "Local paths are not accepted by `lelabo push` in v1. "
-            "Pass a capsule id or alias from `lelabo capsule list`."
-        )
-
-    visible = [
-        item
-        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
-        if item.capsule_id == token or token in set(item.aliases)
-    ]
-    if len(visible) == 1:
-        return visible[0].root
-    if len(visible) > 1:
-        matches = ", ".join(item.path for item in visible)
-        raise SystemExit(f"Capsule '{token}' is ambiguous across: {matches}")
-
-    row = get_capsule(token, caps_dir)
-    if row is None:
-        raise SystemExit(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
-    root = Path(str(row.get("path", ""))).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"Capsule path does not exist on disk: {root}")
-    return root
+    try:
+        return resolve_visible_capsule_ref(
+            capsule_ref,
+            start=Path.cwd(),
+            capsules_dir=caps_dir,
+            command="lelabo push",
+            usage="lelabo push <capsule>",
+        ).root
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _repo_label(target: dict[str, Any]) -> str:

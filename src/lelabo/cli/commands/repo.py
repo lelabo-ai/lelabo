@@ -9,10 +9,10 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from ...capsule import get_capsule, inspect_capsule_directory, install_capsule_from_directory
+from ...capsule import inspect_capsule_directory, install_capsule_from_directory
 from ...capsule.discovery import (
     DiscoveredCapsule,
-    discover_visible_capsules,
+    resolve_visible_capsule_ref,
 )
 from ...capsule.publish import (
     create_repo,
@@ -54,7 +54,7 @@ Usage:
 Subcommands:
   list         List configured GitHub targets
   create       Create or register one shared GitHub target
-  edit         Edit one target and its attached capsules
+  edit         Manage one target: capsules, defaults, import/remove repo content
   detach       Detach one capsule from a configured GitHub target
 """
 
@@ -145,33 +145,25 @@ def _pick_capsule_root(candidates: Sequence[DiscoveredCapsule], *, title: str, c
 
 
 def _resolve_capsule_root(capsule_ref: str | None, *, caps_dir: Path | None, purpose: str) -> Path:
-    token = str(capsule_ref or "").strip()
-    if not token:
-        raise SystemExit(f"Missing capsule. Use `lelabo targets {purpose.lower()} <capsule>`. Run `lelabo capsule list` to inspect available capsules.")
-    if "/" in token or token.startswith("."):
-        raise SystemExit(
-            f"Local paths are not accepted by `lelabo targets {purpose.lower()}` in v1. "
-            "Pass a capsule id or alias from `lelabo capsule list`."
-        )
-
-    visible = [
-        item
-        for item in discover_visible_capsules(start=Path.cwd(), capsules_dir=caps_dir)
-        if item.capsule_id == token or token in set(item.aliases)
-    ]
-    if len(visible) == 1:
-        return visible[0].root
-    if len(visible) > 1:
-        matches = ", ".join(item.path for item in visible)
-        raise SystemExit(f"Capsule '{token}' is ambiguous across: {matches}")
-
-    row = get_capsule(token, caps_dir)
-    if row is None:
-        raise SystemExit(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
-    root = Path(str(row.get("path", ""))).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise SystemExit(f"Capsule path does not exist on disk: {root}")
-    return root
+    normalized = str(purpose).strip().lower()
+    command = "lelabo targets edit"
+    usage = "lelabo targets edit <owner/repo> <capsule>"
+    if normalized == "target detach":
+        command = "lelabo targets detach"
+        usage = "lelabo targets detach <target> <capsule>"
+    elif normalized == "target listing":
+        command = "lelabo targets list"
+        usage = "lelabo targets list <capsule>"
+    try:
+        return resolve_visible_capsule_ref(
+            capsule_ref,
+            start=Path.cwd(),
+            capsules_dir=caps_dir,
+            command=command,
+            usage=usage,
+        ).root
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _parse_repo_full_name(token: str) -> tuple[str, str]:
@@ -890,7 +882,7 @@ def _cmd_create(argv: list[str]) -> int:
 def _cmd_edit(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="lelabo targets edit",
-        description="Edit one target, its attached capsules, and its default-target state.",
+        description="Manage one target, its attached capsules, and its default-target state.",
     )
     parser.add_argument("repo_ref", nargs="?", default=None, help="Optional configured GitHub target as owner/repo")
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Optional capsule id or alias")

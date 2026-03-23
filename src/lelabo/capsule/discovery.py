@@ -203,6 +203,76 @@ def discover_visible_capsules(
     return tuple(rows)
 
 
+def _looks_like_local_path(token: str) -> bool:
+    raw = str(token).strip()
+    return raw.startswith(".") or raw.startswith("~") or "/" in raw
+
+
+def _candidate_visible_capsule_for_path(
+    token: str,
+    *,
+    start: Path | None = None,
+    capsules_dir: Path | None = None,
+) -> DiscoveredCapsule | None:
+    raw = str(token).strip()
+    if not raw:
+        return None
+    base = (start or Path.cwd()).expanduser().resolve()
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+    capsule_root = find_capsule_root(resolved)
+    if capsule_root is None:
+        return None
+    capsule_root = capsule_root.expanduser().resolve()
+    for item in discover_visible_capsules(start=start, capsules_dir=capsules_dir):
+        if item.root == capsule_root:
+            return item
+    return None
+
+
+def resolve_visible_capsule_ref(
+    capsule_ref: str | None,
+    *,
+    start: Path | None = None,
+    capsules_dir: Path | None = None,
+    command: str,
+    usage: str,
+) -> DiscoveredCapsule:
+    token = str(capsule_ref or "").strip()
+    if not token:
+        raise ValueError(
+            f"Missing capsule. Use `{usage}`. Run `lelabo capsule list` to inspect available capsules."
+        )
+    if _looks_like_local_path(token):
+        suggested = _candidate_visible_capsule_for_path(token, start=start, capsules_dir=capsules_dir)
+        if suggested is not None:
+            raise ValueError(
+                f"Local paths are not accepted by `{command}` in v1. "
+                f"Use `{command} {suggested.capsule_id}`."
+            )
+        raise ValueError(
+            f"Local paths are not accepted by `{command}` in v1. "
+            "Pass a capsule id or alias from `lelabo capsule list`."
+        )
+
+    visible = [
+        item
+        for item in discover_visible_capsules(start=start, capsules_dir=capsules_dir)
+        if item.capsule_id == token or token in set(item.aliases)
+    ]
+    if len(visible) == 1:
+        return visible[0]
+    if len(visible) > 1:
+        matches = ", ".join(item.path for item in visible)
+        raise ValueError(f"Capsule '{token}' is ambiguous across: {matches}")
+    raise ValueError(f"Unknown capsule '{token}'. Run `lelabo capsule list` to inspect available capsules.")
+
+
 __all__ = [
     "DiscoveredCapsule",
     "current_workspace_root",
@@ -210,4 +280,5 @@ __all__ = [
     "discover_workspace_capsules",
     "find_capsule_root",
     "is_capsule_root",
+    "resolve_visible_capsule_ref",
 ]
