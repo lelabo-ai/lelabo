@@ -110,6 +110,15 @@ def test_config_help_displays_config_subcommands() -> None:
     assert "edit" in proc.stdout
 
 
+def test_wandb_help_displays_wandb_subcommands() -> None:
+    proc = _run_cli_help("wandb", "-h")
+    assert proc.returncode == 0
+    assert "Manage Weights & Biases setup for LeLabo projects." in proc.stdout
+    assert "init" in proc.stdout
+    assert "login" in proc.stdout
+    assert "status" in proc.stdout
+
+
 def test_capsule_install_help_mentions_github_and_checkout() -> None:
     proc = _run_cli_help("capsule", "install", "-h")
     assert proc.returncode == 0

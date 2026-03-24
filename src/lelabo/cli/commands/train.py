@@ -17,6 +17,7 @@ from ...config.resolve import (
     to_rl_namespace,
     to_supervised_namespace,
 )
+from ...config.user_settings import find_local_override, read_settings_file
 from ...core.logger import RunLogger
 from ...core.run_artifacts import json_like, public_args_dict
 from ...core.seed import seed_everything
@@ -64,6 +65,23 @@ def _resolve_mode_config_path(mode: str, explicit: str | None) -> str | None:
         if path.exists() and path.is_file():
             return str(path)
     return None
+
+
+def _project_wandb_defaults(cwd: Path | None = None) -> dict[str, Any] | None:
+    local_cfg = find_local_override(cwd or Path.cwd())
+    if local_cfg is None:
+        return None
+    raw = read_settings_file(local_cfg)
+    wandb_raw = raw.get("wandb", {})
+    if not isinstance(wandb_raw, dict) or not wandb_raw:
+        return None
+    out: dict[str, Any] = {}
+    for key in ("project", "entity", "enabled"):
+        if key in wandb_raw:
+            out[key] = wandb_raw.get(key)
+    if not out:
+        return None
+    return {"wandb": out}
 
 
 def _add_config_args(parser: argparse.ArgumentParser) -> None:
@@ -316,6 +334,7 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             config_path=config_path,
             cli_overrides=_build_supervised_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
+            project_defaults=_project_wandb_defaults(Path.cwd()),
         )
         args = _validate_supervised_namespace(to_supervised_namespace(cfg, device_resolver=_default_device))
         setattr(args, "_resolved_config", _resolved_config_dict(cfg, resolved_device=str(args.device)))
@@ -326,6 +345,7 @@ def parse_train_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             config_path=config_path,
             cli_overrides=_build_rl_cli_overrides(parsed),
             set_overrides=list(parsed.set or []),
+            project_defaults=_project_wandb_defaults(Path.cwd()),
         )
         args = _validate_rl_namespace(to_rl_namespace(cfg, device_resolver=_default_device))
         setattr(args, "_resolved_config", _resolved_config_dict(cfg, resolved_device=str(args.device)))

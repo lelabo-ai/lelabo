@@ -22,12 +22,18 @@ DEFAULT_USER_SETTINGS: dict[str, Any] = {
         "default_checkout_dir": ".",
         "install_checkout": False,
     },
+    "wandb": {
+        "project": "",
+        "entity": "",
+        "enabled": True,
+    },
 }
 
 
 _BOOL_KEYS = {
     "github.create_repo_if_missing",
     "capsules.install_checkout",
+    "wandb.enabled",
 }
 
 _STRING_KEYS = {
@@ -36,6 +42,8 @@ _STRING_KEYS = {
     "github.default_branch",
     "capsules.store_dir",
     "capsules.default_checkout_dir",
+    "wandb.project",
+    "wandb.entity",
 }
 
 _SUPPORTED_KEYS = _BOOL_KEYS | _STRING_KEYS
@@ -87,6 +95,11 @@ def _read_toml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def read_settings_file(path: Path) -> dict[str, Any]:
+    """Read one config file without merging defaults."""
+    return _read_toml(path.expanduser().resolve())
 
 
 def load_effective_settings(*, cwd: Path | None = None) -> dict[str, Any]:
@@ -184,7 +197,7 @@ def _toml_scalar(value: Any) -> str:
 def dumps_toml(config: dict[str, Any]) -> str:
     """Serialize settings into deterministic TOML text."""
     lines: list[str] = []
-    for section in ("github", "capsules"):
+    for section in ("github", "capsules", "wandb"):
         lines.append(f"[{section}]")
         section_obj = config.get(section, {})
         if not isinstance(section_obj, dict):
@@ -236,6 +249,7 @@ __all__ = [
     "user_config_path",
     "find_local_override",
     "load_effective_settings",
+    "read_settings_file",
     "load_settings_file",
     "get_key",
     "set_key",

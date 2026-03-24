@@ -37,6 +37,29 @@ def test_config_cli_set_get_show_with_explicit_file(tmp_path, capsys) -> None:
     assert "install_checkout = true" in out
 
 
+def test_config_cli_supports_wandb_keys(tmp_path, capsys) -> None:
+    cfg = tmp_path / "settings.toml"
+
+    rc = config_cli.main(["set", "wandb.project", "demo-project", "--file", str(cfg)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = config_cli.main(["set", "wandb.enabled", "false", "--file", str(cfg)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = config_cli.main(["get", "wandb.project", "--file", str(cfg)])
+    assert rc == 0
+    assert capsys.readouterr().out.strip() == "demo-project"
+
+    rc = config_cli.main(["show", "--file", str(cfg)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[wandb]" in out
+    assert 'project = "demo-project"' in out
+    assert "enabled = false" in out
+
+
 def test_config_cli_show_effective_prefers_local_override(tmp_path, monkeypatch, capsys) -> None:
     xdg = tmp_path / "xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))

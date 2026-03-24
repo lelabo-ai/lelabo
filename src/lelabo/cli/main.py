@@ -15,6 +15,7 @@ from .commands.push import main as run_push_command
 from .commands.repo import main as run_targets_command
 from .commands.sweep import main as run_sweep_command
 from .commands.train import main as run_train_command
+from .commands.wandb import main as run_wandb_command
 
 # Internal compatibility aliases for tests and old helper names.
 run_registries_command = run_list_command
@@ -59,6 +60,9 @@ def _run_export_cli(argv: Sequence[str]) -> int:
 def _run_targets_cli(argv: Sequence[str]) -> int:
     return _run_command(run_targets_command, argv)
 
+def _run_wandb_cli(argv: Sequence[str]) -> int:
+    return _run_command(run_wandb_command, argv)
+
 
 def _run_sweep_cli(argv: Sequence[str]) -> int:
     return _run_command(run_sweep_command, argv)
@@ -77,6 +81,7 @@ Commands:
   push       Publish a capsule to a target
   export     Export a capsule as a local tar.gz bundle
   targets    Manage GitHub publish targets
+  wandb      Configure Weights & Biases for this project
   config     Manage user settings and defaults
   list       List available registries and active-capsule exports
   capsule    Create, install, store, inspect, and manage capsules
@@ -88,6 +93,7 @@ Help:
   lelabo push -h
   lelabo export -h
   lelabo targets -h
+  lelabo wandb -h
   lelabo config -h
   lelabo list -h
   lelabo capsule -h
@@ -101,6 +107,7 @@ Examples:
   lelabo export my_capsule --out ./my_capsule.tar.gz
   lelabo targets create
   lelabo targets attach your-org/lelabo-capsules my_capsule
+  lelabo wandb init --project my-project
   lelabo config set github.owner your-org
   lelabo capsule init my_capsule
   lelabo list update-rules
@@ -151,6 +158,11 @@ def main(argv: list[str] | None = None) -> int:
             return _run_targets_cli(["-h"])
         return _run_targets_cli(rest)
 
+    if cmd == "wandb":
+        if not rest or is_help_token(rest[0]):
+            return _run_wandb_cli(["-h"])
+        return _run_wandb_cli(rest)
+
     if cmd == "config":
         if not rest or is_help_token(rest[0]):
             return _run_config_cli(["-h"])
@@ -174,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     raise SystemExit(
         "Unknown command: "
         f"{cmd}\n\n"
-        "Use one of: train, sweep, audit, push, export, targets, config, list, capsule.\n"
+        "Use one of: train, sweep, audit, push, export, targets, wandb, config, list, capsule.\n"
         "Run `lelabo --help` for usage."
     )
     return 2

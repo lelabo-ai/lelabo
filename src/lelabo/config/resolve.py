@@ -398,8 +398,11 @@ def resolve_supervised_config(
     config_path: str | Path | None,
     cli_overrides: Mapping[str, Any] | None = None,
     set_overrides: list[str] | tuple[str, ...] | None = None,
+    project_defaults: Mapping[str, Any] | None = None,
 ) -> SupervisedConfig:
     merged = copy.deepcopy(DEFAULT_SUPERVISED_CONFIG)
+    if project_defaults:
+        merged = _deep_merge(merged, _normalize_keys(dict(project_defaults)))
     if config_path:
         merged = _deep_merge(merged, _load_toml(Path(config_path).expanduser()))
     if cli_overrides:
@@ -505,8 +508,11 @@ def resolve_rl_config(
     config_path: str | Path | None,
     cli_overrides: Mapping[str, Any] | None = None,
     set_overrides: list[str] | tuple[str, ...] | None = None,
+    project_defaults: Mapping[str, Any] | None = None,
 ) -> RLConfig:
     merged = copy.deepcopy(DEFAULT_RL_CONFIG)
+    if project_defaults:
+        merged = _deep_merge(merged, _normalize_keys(dict(project_defaults)))
     if config_path:
         merged = _deep_merge(merged, _load_toml(Path(config_path).expanduser()))
     if cli_overrides:
