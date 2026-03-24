@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Sequence
 
 from ...config.user_settings import (
+    DEFAULT_USER_SETTINGS,
     edit_settings_file,
     find_local_override,
     get_key,
     load_effective_settings,
     load_settings_file,
+    remove_key,
     set_key,
     user_config_path,
     write_settings,
@@ -31,6 +34,7 @@ Subcommands:
   show      Show effective settings
   get       Read one dotted key (e.g. github.owner)
   set       Write one dotted key into a config file
+  reset     Reset one dotted key or a whole config file to defaults
   edit      Open config file in $EDITOR
 
 Help:
@@ -43,6 +47,18 @@ def _target_file(raw_file: str | None) -> Path:
     if raw_file:
         return Path(raw_file).expanduser().resolve()
     return user_config_path()
+
+
+def _is_interactive_tty() -> bool:
+    return bool(sys.stdin.isatty() and sys.stdout.isatty())
+
+
+def _confirm(question: str, *, default: bool = False) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = input(f"{question} {suffix}: ").strip().lower()
+    if not answer:
+        return bool(default)
+    return answer in {"y", "yes"}
 
 
 def _cmd_path(argv: list[str]) -> int:
@@ -115,6 +131,43 @@ def _cmd_edit(argv: list[str]) -> int:
     return int(edit_settings_file(path))
 
 
+def _cmd_reset(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="lelabo config reset",
+        description="Reset one config key or one whole config file to defaults.",
+    )
+    parser.add_argument("key", nargs="?", default=None, help="Optional dotted key to reset, e.g. github.owner")
+    parser.add_argument("--file", default=None, help="Target config file (default: global user config).")
+    parser.add_argument("--yes", action="store_true", help="Accept full-file reset non-interactively")
+    args = parser.parse_args(argv)
+
+    path = _target_file(args.file)
+    if args.key:
+        data = load_settings_file(path)
+        updated = remove_key(data, args.key)
+        write_settings(path, updated)
+        print_status("success", "Config key reset.")
+        print_block(
+            "Config reset",
+            (
+                ("file", path),
+                ("key", args.key),
+                ("value", get_key(updated, args.key)),
+            ),
+        )
+        return 0
+
+    if not args.yes:
+        if not _is_interactive_tty():
+            raise SystemExit("Refusing to reset the whole config file non-interactively without `--yes`.")
+        if not _confirm(f"Reset config file {path} to defaults?", default=False):
+            raise SystemExit("Config reset canceled by user.")
+    write_settings(path, dict(DEFAULT_USER_SETTINGS))
+    print_status("success", "Config reset to defaults.")
+    print_block("Config reset", (("file", path),))
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     args = list(argv)
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -131,10 +184,12 @@ def main(argv: Sequence[str]) -> int:
         return _cmd_get(rest)
     if cmd == "set":
         return _cmd_set(rest)
+    if cmd == "reset":
+        return _cmd_reset(rest)
     if cmd == "edit":
         return _cmd_edit(rest)
     raise SystemExit(
         f"Unknown config subcommand: {cmd}\n\n"
-        "Use one of: path, show, get, set, edit.\n"
+        "Use one of: path, show, get, set, reset, edit.\n"
         "Run `lelabo config -h` for usage."
     )

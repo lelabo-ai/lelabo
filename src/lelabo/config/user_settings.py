@@ -70,8 +70,11 @@ def find_local_override(start: Path | None = None) -> Path | None:
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     out = dict(base)
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
-            out[key] = _deep_merge(dict(out[key]), value)
+        if isinstance(value, dict):
+            if isinstance(out.get(key), dict):
+                out[key] = _deep_merge(dict(out[key]), value)
+            else:
+                out[key] = _deep_merge({}, value)
         else:
             out[key] = value
     return out
@@ -154,6 +157,17 @@ def set_key(config: dict[str, Any], key: str, raw_value: str) -> dict[str, Any]:
     return out
 
 
+def remove_key(config: dict[str, Any], key: str) -> dict[str, Any]:
+    """Remove one supported dotted key from the settings dict."""
+    section, field = _split_key(key)
+    out = _deep_merge({}, config)
+    out.setdefault(section, {})
+    if not isinstance(out[section], dict):
+        out[section] = {}
+    out[section].pop(field, None)
+    return out
+
+
 def _toml_scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -225,6 +239,7 @@ __all__ = [
     "load_settings_file",
     "get_key",
     "set_key",
+    "remove_key",
     "dumps_toml",
     "write_settings",
     "edit_settings_file",

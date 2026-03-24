@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 from conftest import REPO_ROOT
 
 
@@ -102,3 +104,51 @@ def test_config_cli_path_and_set_use_human_blocks(tmp_path, capsys) -> None:
     assert "Config change" in out
     assert "key: github.owner" in out
     assert "value: acme" in out
+
+
+def test_config_cli_reset_key_restores_default_value(tmp_path, capsys) -> None:
+    cfg = tmp_path / "settings.toml"
+
+    rc = config_cli.main(["set", "github.owner", "acme", "--file", str(cfg)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = config_cli.main(["reset", "github.owner", "--file", str(cfg)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Success: Config key reset." in out
+    assert "key: github.owner" in out
+    assert "value:" in out
+
+    rc = config_cli.main(["get", "github.owner", "--file", str(cfg)])
+    assert rc == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_config_cli_reset_file_requires_yes_non_interactively(tmp_path) -> None:
+    cfg = tmp_path / "settings.toml"
+
+    with pytest.raises(SystemExit) as exc:
+        config_cli.main(["reset", "--file", str(cfg)])
+
+    assert "without `--yes`" in str(exc.value)
+
+
+def test_config_cli_reset_file_rewrites_defaults(tmp_path, capsys) -> None:
+    cfg = tmp_path / "settings.toml"
+
+    rc = config_cli.main(["set", "github.owner", "acme", "--file", str(cfg)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = config_cli.main(["reset", "--file", str(cfg), "--yes"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Success: Config reset to defaults." in out
+    assert "Config reset" in out
+
+    rc = config_cli.main(["show", "--file", str(cfg)])
+    assert rc == 0
+    shown = capsys.readouterr().out
+    assert 'owner = ""' in shown
+    assert 'default_visibility = "private"' in shown

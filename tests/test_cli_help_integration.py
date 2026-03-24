@@ -106,6 +106,7 @@ def test_config_help_displays_config_subcommands() -> None:
     assert "show" in proc.stdout
     assert "get" in proc.stdout
     assert "set" in proc.stdout
+    assert "reset" in proc.stdout
     assert "edit" in proc.stdout
 
 
