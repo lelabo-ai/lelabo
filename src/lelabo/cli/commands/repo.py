@@ -634,14 +634,16 @@ def create_shared_repo_interactively(
     persist: bool = True,
     create_remote_repo: bool = True,
     show_summary: bool = True,
+    skip_prompts: bool = False,
 ) -> dict[str, Any]:
-    owner, repo = _prompt_owner_repo(
-        settings,
-        owner_repo_override=_repo_label(
-            str(owner_override or _default_owner(settings)).strip(),
-            str(repo_override or "lelabo-capsules").strip() or "lelabo-capsules",
-        ),
+    owner_repo_default = _repo_label(
+        str(owner_override or _default_owner(settings)).strip(),
+        str(repo_override or "lelabo-capsules").strip() or "lelabo-capsules",
     )
+    if skip_prompts:
+        owner, repo = _parse_repo_full_name(owner_repo_default)
+    else:
+        owner, repo = _prompt_owner_repo(settings, owner_repo_override=owner_repo_default)
     existing = get_global_target(owner, repo, kind="github")
     if existing is not None:
         target = dict(existing)
@@ -656,7 +658,7 @@ def create_shared_repo_interactively(
         target["created_repo"] = False
         return target
 
-    visibility = _prompt_with_default("Visibility", _default_visibility(settings, visibility_override))
+    visibility = _default_visibility(settings, visibility_override) if skip_prompts else _prompt_with_default("Visibility", _default_visibility(settings, visibility_override))
     visibility = str(visibility).strip().lower() or "private"
     if visibility not in {"public", "private"}:
         raise SystemExit("Visibility must be 'public' or 'private'.")
@@ -669,7 +671,7 @@ def create_shared_repo_interactively(
             ),
         )
     question = "Create target?" if create_remote_repo else "Register this target?"
-    if not _confirm(question, default=True):
+    if not skip_prompts and not _confirm(question, default=True):
         raise SystemExit("Target creation canceled by user.")
     target, action = _register_github_target(
         owner=owner,
@@ -692,12 +694,15 @@ def _attach_capsule_to_target(
     persist: bool,
     make_default_default: bool,
     show_summary: bool,
+    folder_override: str | None = None,
+    default_override: bool | None = None,
+    confirm_attach: bool = True,
 ) -> dict[str, Any]:
     info = inspect_capsule_directory(capsule_root)
     capsule_id = str(info.get("capsule_id", capsule_root.name)).strip() or capsule_root.name
     existing_targets = [item for item in list_configured_targets(capsule_root) if str(item.get("kind", "")).strip() == "github"]
-    folder = _prompt_with_default("Folder", capsule_id)
-    set_default = _confirm("Use this as a default target for this capsule?", default=make_default_default)
+    folder = str(folder_override).strip() if folder_override is not None else _prompt_with_default("Folder", capsule_id)
+    set_default = bool(default_override) if default_override is not None else _confirm("Use this as a default target for this capsule?", default=make_default_default)
     target = _build_target_payload(
         capsule_root=capsule_root,
         existing_targets=existing_targets,
@@ -717,7 +722,7 @@ def _attach_capsule_to_target(
             ),
         )
     question = "Attach this capsule to this target?" if persist else "Use this target in preview?"
-    if not _confirm(question, default=True):
+    if confirm_attach and not _confirm(question, default=True):
         raise SystemExit("Target setup canceled by user.")
     if persist:
         return save_configured_target(capsule_root, target, make_default=set_default)
@@ -739,6 +744,10 @@ def configure_github_target_for_capsule(
     make_default_default: bool = True,
     create_remote_repo: bool | None = None,
     show_summary: bool = True,
+    folder_override: str | None = None,
+    default_override: bool | None = None,
+    skip_prompts: bool = False,
+    confirm_attach: bool = True,
 ) -> dict[str, Any]:
     if show_summary:
         _print_capsule_context(capsule_root)
@@ -763,6 +772,7 @@ def configure_github_target_for_capsule(
                     persist=persist,
                     create_remote_repo=create_remote_repo is not False,
                     show_summary=show_summary,
+                    skip_prompts=skip_prompts,
                 )
     else:
         action = _pick_one(
@@ -796,6 +806,7 @@ def configure_github_target_for_capsule(
                 persist=persist,
                 create_remote_repo=create_remote_repo is not False,
                 show_summary=show_summary,
+                skip_prompts=skip_prompts,
             )
 
     if selected_target is None:
@@ -808,6 +819,9 @@ def configure_github_target_for_capsule(
         persist=persist,
         make_default_default=make_default_default,
         show_summary=show_summary,
+        folder_override=folder_override,
+        default_override=default_override,
+        confirm_attach=confirm_attach,
     )
 
 

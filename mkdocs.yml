@@ -52,14 +52,18 @@ nav:
       - Configuration: concepts/configuration.md
   - Guides:
       - guides/index.md
-      - Run Supervised Experiments: guides/run-supervised.md
-      - Run Parameter Sweeps: guides/sweeps.md
-      - Weights & Biases Integration: guides/wandb.md
-      - Create a Capsule: guides/create-capsule.md
-      - Create a Model: guides/create-model.md
-      - Create an Update Rule: guides/create-update-rule.md
-      - Create a Dataset: guides/create-dataset.md
-      - Build a Paper Pack: guides/paper-pack.md
+      - Running Experiments:
+          - Run Supervised Experiments: guides/run-supervised.md
+          - Run Parameter Sweeps: guides/sweeps.md
+          - Weights & Biases Integration: guides/wandb.md
+      - Extending LeLabo:
+          - Create a Capsule: guides/create-capsule.md
+          - Create a Model: guides/create-model.md
+          - Create an Update Rule: guides/create-update-rule.md
+          - Create a Dataset: guides/create-dataset.md
+      - Sharing & Reuse:
+          - Push a Capsule: guides/push-capsule.md
+          - Build a Paper Pack: guides/paper-pack.md
   - Tutorials:
       - tutorials/index.md
       - Reproduce a Paper: tutorials/reproduce-paper.md
@@ -74,9 +78,10 @@ nav:
       - Config Schema: reference/config-schema.md
       - Run Artifacts Contract: reference/run-artifacts.md
       - Built-in Components: reference/built-ins.md
-  - RL: rl.md
-  - Research Notes: research-notes.md
-  - Contributing: community.md
+  - More:
+      - Reinforcement Learning: rl.md
+      - Research Notes: research-notes.md
+      - Contributing: community.md
 
 markdown_extensions:
   - admonition

@@ -105,8 +105,8 @@ Built-in rules: `bp`, `dfa`, `drtp`, `fa`, `dni`, `scl`, `softhebb`
 | `epochs` | int | `20` | Number of training epochs |
 | `batch` | int | `32` | Batch size |
 | `val_frac` | float | `0.1` | Fraction of training data to use for validation (if no val split) |
-| `input_noise_dataset` | float | `0.0` | Gaussian noise std applied to inputs |
-| `noise_on_test` | bool | `false` | Also apply noise during test evaluation |
+| `input_noise_dataset` | float | `0.0` | Gaussian noise std applied to training inputs (for robustness experiments) |
+| `noise_on_test` | bool | `false` | Also apply input noise during test evaluation |
 
 ---
 
@@ -178,10 +178,13 @@ enabled = true
 
 ## `[robustness]`
 
-Optional robustness evaluation settings.
+Optional robustness evaluation settings. Used for repeated evaluation under noise or perturbation.
+
+!!! warning "Experimental"
+    This section is not yet fully documented. The fields exist in the schema but robustness evaluation workflows are not yet covered by guides.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `mode` | str | `"none"` | Robustness evaluation mode |
+| `mode` | str | `"none"` | Robustness evaluation mode. `"none"` disables it. |
 | `trials` | int | `30` | Number of evaluation trials |
 | `max_samples` | int | `0` | Max samples per trial (0 = no limit) |

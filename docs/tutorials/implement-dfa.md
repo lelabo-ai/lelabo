@@ -127,7 +127,8 @@ def build_dfa_tutorial(ctx: UpdateRuleContext):
             out, _cache, views = forward_with_standard_cache(   # (3)
                 self.model, x, cache_spec=cache_spec
             )
-            execution_blocks = views.get("execution", [])
+            # views is a list[ResolvedBlock] — iterate directly
+            execution_blocks = views
 
             # Compute loss and output error
             loss = ctx.loss_fn(out, y)
@@ -146,27 +147,27 @@ def build_dfa_tutorial(ctx: UpdateRuleContext):
             output_block = None
             hidden_blocks = []
             for block in execution_blocks:
-                if block.get("is_output", False):
+                if block.is_output:
                     output_block = block
                 else:
-                    if block.get("is_trainable", False):
+                    if block.is_trainable:
                         hidden_blocks.append(block)
 
             # Update output layer with standard gradient
             if output_block is not None:
-                x_out = output_block.get("x")                   # (5)
+                x_out = output_block.x                          # (5)
                 if x_out is not None and x_out.dim() == 2:
-                    module = output_block.get("module")
+                    module = output_block.module
                     module.weight.grad = (delta_output.T @ x_out) / x.size(0)
                     if module.bias is not None:
                         module.bias.grad = delta_output.mean(dim=0)
 
             # Update hidden layers with direct feedback
             for block in hidden_blocks:                          # (6)
-                name = block.get("name", "")
-                module = block.get("module")
-                x_in = block.get("x")       # input to this layer
-                u = block.get("u")          # output of this layer (pre-activation)
+                name = block.name
+                module = block.module
+                x_in = block.x          # input to this layer
+                u = block.u             # output of this layer (pre-activation)
 
                 if x_in is None or u is None:
                     continue
@@ -207,7 +208,7 @@ Let's break down the key parts:
 
 4. **`delta_output`** — the error at the output layer. For cross-entropy + softmax, this is simply `softmax(logits) - one_hot_targets`.
 
-5. **`block.get("x")`** — the input tensor captured by the cache. `block.get("u")` is the output (pre-activation). These are the tensors we need to compute local weight updates.
+5. **`output_block.x`** — the input tensor captured by the cache. `block.u` is the output (pre-activation). `ResolvedBlock` fields are accessed as attributes, not dict keys. These are the tensors we need to compute local weight updates.
 
 6. **Hidden layer loop** — this is where DFA differs from BP. Instead of backpropagating through each layer, we project the output error directly to each hidden layer through a fixed random matrix.
 
@@ -320,8 +321,8 @@ To inspect what the cache captures:
 ```python
 # Inside train_step, after forward_with_standard_cache:
 for block in execution_blocks:
-    print(f"{block.get('name'):10s}  trainable={block.get('is_trainable')}  "
-          f"x={block.get('x') is not None}  u={block.get('u') is not None}")
+    print(f"{block.name:10s}  trainable={block.is_trainable}  "
+          f"x={block.x is not None}  u={block.u is not None}")
 ```
 
 ## Next steps

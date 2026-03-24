@@ -78,23 +78,124 @@ def test_push_cli_accepts_local_path(tmp_path, monkeypatch, capsys) -> None:
     assert payload["capsule"]["capsule_id"] == "demo_capsule"
 
 
-def test_push_cli_without_target_guides_to_targets_commands(tmp_path, monkeypatch) -> None:
+def test_push_cli_without_target_bootstraps_interactively(tmp_path, monkeypatch, capsys) -> None:
     workspace = tmp_path / "workspace_bootstrap"
     workspace.mkdir()
-    capsule_root = capsule_create.create_capsule_scaffold(
+    capsule_create.create_capsule_scaffold(
         capsule_name="demo_capsule",
         base_dir=workspace,
         register=False,
     )
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(push_cli, "available_targets", lambda _: [])
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: True)
+    monkeypatch.setattr(push_cli, "_default_owner", lambda settings: "acme")
+    monkeypatch.setattr(push_cli, "_confirm", lambda question, default=False: True)
+    monkeypatch.setattr(
+        push_cli,
+        "configure_github_target_for_capsule",
+        lambda capsule_root, **kwargs: {
+            "name": "github-lelabo-capsules",
+            "kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "demo_capsule",
+            "visibility": "private",
+            "default": True,
+        },
+    )
+    monkeypatch.setattr(
+        push_cli,
+        "push_github_target",
+        lambda **kwargs: {
+            "target_name": "github-lelabo-capsules",
+            "target_kind": "github",
+            "owner": "acme",
+            "repo": "lelabo-capsules",
+            "branch": "main",
+            "path": "demo_capsule",
+            "commit_message": "Update demo_capsule",
+            "committed": False,
+            "pushed": True,
+        },
+    )
+
+    rc = push_cli.main(["demo_capsule"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "No target configured for demo_capsule." in out
+    assert "repo: acme/lelabo-capsules" in out
+    assert "Saved publish target: acme/lelabo-capsules for capsule demo_capsule." in out
+
+
+def test_push_cli_without_target_noninteractive_requires_repo_flag(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace_bootstrap_noninteractive"
+    workspace.mkdir()
+    capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [])
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: False)
+
     with pytest.raises(SystemExit) as exc:
         push_cli.main(["demo_capsule"])
 
     message = str(exc.value)
     assert "No publish target is configured for this capsule." in message
-    assert "`lelabo targets create`" in message
-    assert "`lelabo targets attach <owner/repo> <capsule>`" in message
+    assert "`--repo <owner/repo>`" in message
+
+
+def test_push_cli_repo_flag_bootstraps_and_pushes(tmp_path, monkeypatch, capsys) -> None:
+    workspace = tmp_path / "workspace_repo_flag"
+    workspace.mkdir()
+    capsule_create.create_capsule_scaffold(
+        capsule_name="demo_capsule",
+        base_dir=workspace,
+        register=False,
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(push_cli, "available_targets", lambda _: [])
+    monkeypatch.setattr(push_cli, "_is_interactive_tty", lambda: False)
+    monkeypatch.setattr(
+        push_cli,
+        "configure_github_target_for_capsule",
+        lambda capsule_root, **kwargs: {
+            "name": "github-test-public",
+            "kind": "github",
+            "owner": "acme",
+            "repo": "test-public",
+            "branch": "main",
+            "path": "demo_capsule",
+            "visibility": "private",
+            "default": True,
+        },
+    )
+    monkeypatch.setattr(
+        push_cli,
+        "push_github_target",
+        lambda **kwargs: {
+            "target_name": "github-test-public",
+            "target_kind": "github",
+            "owner": "acme",
+            "repo": "test-public",
+            "branch": "main",
+            "path": "demo_capsule",
+            "commit_message": "Update demo_capsule",
+            "committed": False,
+            "pushed": True,
+        },
+    )
+
+    rc = push_cli.main(["demo_capsule", "--repo", "acme/test-public", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["repo"] == "test-public"
+    assert payload["bootstrap"]["target"] == "acme/test-public"
+    assert payload["bootstrap"]["saved"] is True
 
 
 def test_push_cli_last_used_target_is_suggested_before_picker(tmp_path, monkeypatch, capsys) -> None:

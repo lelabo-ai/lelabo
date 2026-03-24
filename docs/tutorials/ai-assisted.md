@@ -15,7 +15,8 @@ cd nsfa_method
 
 Open the capsule folder in VS Code, Cursor, or any IDE with an AI coding assistant. The agent will see the capsule structure and the `resources/` documentation.
 
-<!-- screenshot: IDE open with capsule structure visible in sidebar -->
+!!! todo "Screenshot needed"
+    Add screenshot: IDE open with capsule structure visible in sidebar.
 
 ## Step 3 — Describe your idea to the agent
 
@@ -45,7 +46,8 @@ Please implement:
 3. A smoke test in tests/
 ```
 
-<!-- screenshot: the prompt in Claude Code / Cursor -->
+!!! todo "Screenshot needed"
+    Add screenshot: the prompt given to the agent in Claude Code / Cursor.
 
 ## Step 4 — The agent reads the contracts
 
@@ -64,7 +66,8 @@ These files give the agent precise context about:
 - What `train_step` must return (dict of numeric scalars)
 - How to structure the TOML config
 
-<!-- screenshot: agent reading resources/ files -->
+!!! todo "Screenshot needed"
+    Add screenshot: agent reading `resources/` files in the capsule.
 
 ## Step 5 — Review the implementation
 
@@ -114,7 +117,8 @@ def build_nsfa(ctx: UpdateRuleContext):
             out, _cache, views = forward_with_standard_cache(
                 self.model, x, cache_spec=cache_spec
             )
-            blocks = views.get("execution", [])
+            # views is a list[ResolvedBlock] — iterate directly
+            blocks = views
 
             loss = ctx.loss_fn(out, y)
 
@@ -139,7 +143,8 @@ def build_nsfa(ctx: UpdateRuleContext):
 - Is the noise schedule applied correctly to the feedback matrices?
 - Does the config point to the right component names?
 
-<!-- screenshot: reviewing the generated code -->
+!!! todo "Screenshot needed"
+    Add screenshot: reviewing the generated implementation in the IDE.
 
 ## Step 6 — Run and test
 
@@ -154,7 +159,8 @@ lelabo train supervised --config configs/train/supervised.paper_pack.toml
 pytest -q tests/
 ```
 
-<!-- screenshot: successful run output -->
+!!! todo "Screenshot needed"
+    Add screenshot: successful `lelabo train` and `pytest` output.
 
 ## Why this works
 

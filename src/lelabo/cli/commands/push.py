@@ -13,11 +13,15 @@ from ...capsule.discovery import resolve_visible_capsule_ref
 from ...capsule.publish import (
     auto_commit_message,
     available_targets,
+    current_github_login,
     get_target_preferences,
+    get_global_target,
+    github_repo_metadata,
     push_github_target,
     resolve_target,
 )
 from ...config.user_settings import load_effective_settings
+from .repo import configure_github_target_for_capsule
 from ..interactive_picker import pick_many_with_checkboxes
 from ..ui import print_block, print_list_block, print_status
 
@@ -25,15 +29,16 @@ from ..ui import print_block, print_list_block, print_status
 PUSH_JSON_SCHEMA = "lelabo.cli.push/v1"
 PUSHES_JSON_SCHEMA = "lelabo.cli.pushes/v1"
 PUSH_HELP = """\
-Publish one capsule to configured remote targets.
+Publish one capsule to remote targets.
 
 Usage:
-  lelabo push <capsule> [--target NAME] [--all-targets] [-m MESSAGE] [--preview] [--yes] [--json]
+  lelabo push <capsule> [--target NAME] [--repo OWNER/REPO] [--all-targets] [-m MESSAGE] [--preview] [--yes] [--json]
 
 Notes:
   - pass a visible capsule id/alias from `lelabo capsule list`
   - local capsule paths are also accepted, e.g. `./my_capsule`
-  - `lelabo push` publishes to saved remote targets
+  - `--repo owner/repo` bootstraps and saves a GitHub target for this capsule if needed
+  - `lelabo push` bootstraps a first target interactively when none is configured
   - use `lelabo export` for local exports
 """
 
@@ -91,6 +96,30 @@ def _repo_label(target: dict[str, Any]) -> str:
     return repo or "-"
 
 
+def _parse_repo_full_name(token: str) -> tuple[str, str]:
+    owner, _, repo = str(token).strip().partition("/")
+    owner = owner.strip()
+    repo = repo.strip()
+    if not owner or not repo:
+        raise SystemExit("GitHub repo must be formatted as owner/repo.")
+    return owner, repo
+
+
+def _capsule_id(capsule_root: Path) -> str:
+    return str(inspect_capsule_directory(capsule_root).get("capsule_id", capsule_root.name)).strip() or capsule_root.name
+
+
+def _default_owner(settings: dict[str, Any]) -> str:
+    github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
+    return str(github_cfg.get("owner") or current_github_login() or "").strip()
+
+
+def _default_visibility(settings: dict[str, Any]) -> str:
+    github_cfg = settings.get("github", {}) if isinstance(settings.get("github", {}), dict) else {}
+    token = str(github_cfg.get("default_visibility") or "private").strip().lower()
+    return token if token in {"public", "private"} else "private"
+
+
 def _target_picker_label(target: dict[str, Any]) -> str:
     kind = str(target.get("kind", "")).strip() or "-"
     folder = str(target.get("path", "")).strip() or "-"
@@ -106,6 +135,19 @@ def _target_summary(target: dict[str, Any]) -> str:
 
 def _push_targets(capsule_root: Path) -> list[dict[str, Any]]:
     return [item for item in available_targets(capsule_root) if str(item.get("kind", "")).strip() != "workspace"]
+
+
+def _find_target_by_repo(targets: Sequence[dict[str, Any]], *, owner: str, repo: str) -> dict[str, Any] | None:
+    owner_token = str(owner).strip()
+    repo_token = str(repo).strip()
+    for item in targets:
+        if (
+            str(item.get("kind", "")).strip() == "github"
+            and str(item.get("owner", "")).strip() == owner_token
+            and str(item.get("repo", "")).strip() == repo_token
+        ):
+            return item
+    return None
 
 
 def _find_target_by_name(targets: Sequence[dict[str, Any]], name: str) -> dict[str, Any] | None:
@@ -151,10 +193,129 @@ def _confirm_multiple_targets(
         raise SystemExit(cancel_message or "Push canceled by user.")
 
 
+def _bootstrap_target_visibility(*, settings: dict[str, Any], owner: str, repo: str) -> str:
+    existing = get_global_target(owner, repo, kind="github")
+    if isinstance(existing, dict):
+        token = str(existing.get("visibility", "")).strip().lower()
+        if token in {"public", "private"}:
+            return token
+    remote = github_repo_metadata(owner, repo)
+    if isinstance(remote, dict):
+        token = str(remote.get("visibility", "")).strip().lower()
+        if token in {"public", "private"}:
+            return token
+    return _default_visibility(settings)
+
+
+def _bootstrap_repo_ref(settings: dict[str, Any]) -> str | None:
+    owner = _default_owner(settings)
+    if not owner:
+        return None
+    return f"{owner}/lelabo-capsules"
+
+
+def _bootstrap_target_for_push(
+    *,
+    capsule_root: Path,
+    settings: dict[str, Any],
+    repo_ref: str,
+    preview: bool,
+    assume_yes: bool,
+    show_review: bool,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    owner, repo = _parse_repo_full_name(repo_ref)
+    capsule_id = _capsule_id(capsule_root)
+    visibility = _bootstrap_target_visibility(settings=settings, owner=owner, repo=repo)
+    if show_review and _is_interactive_tty() and not assume_yes:
+        print_block(
+            "Publish setup",
+            (
+                ("capsule", capsule_id),
+                ("repo", f"{owner}/{repo}"),
+                ("folder", capsule_id),
+                ("visibility", visibility),
+            ),
+        )
+        if not _confirm(f"Use {owner}/{repo} and publish under folder {capsule_id}?", default=True):
+            raise SystemExit("Push canceled by user.")
+    target = configure_github_target_for_capsule(
+        capsule_root,
+        settings=settings,
+        persist=not preview,
+        owner_override=owner,
+        repo_override=repo,
+        visibility_override=visibility,
+        make_default_default=True,
+        create_remote_repo=not preview,
+        show_summary=False,
+        folder_override=capsule_id,
+        default_override=True,
+        skip_prompts=True,
+        confirm_attach=False,
+    )
+    bootstrap = {
+        "target": f"{owner}/{repo}",
+        "folder": capsule_id,
+        "visibility": visibility,
+        "saved": not preview,
+    }
+    return target, bootstrap
+
+
+def _bootstrap_missing_target(
+    *,
+    capsule_root: Path,
+    settings: dict[str, Any],
+    preview: bool,
+    assume_yes: bool,
+    show_review: bool,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    suggested = _bootstrap_repo_ref(settings)
+    if show_review and _is_interactive_tty():
+        if suggested:
+            owner, repo = _parse_repo_full_name(suggested)
+            capsule_id = _capsule_id(capsule_root)
+            visibility = _bootstrap_target_visibility(settings=settings, owner=owner, repo=repo)
+            print_status("info", f"No target configured for {capsule_id}.")
+            print_block(
+                "Publish setup",
+                (
+                    ("repo", suggested),
+                    ("folder", capsule_id),
+                    ("visibility", visibility),
+                ),
+            )
+            if assume_yes or _confirm(f"Use {suggested} and publish under folder {capsule_id}?", default=True):
+                return _bootstrap_target_for_push(
+                    capsule_root=capsule_root,
+                    settings=settings,
+                    repo_ref=suggested,
+                    preview=preview,
+                    assume_yes=True,
+                    show_review=show_review,
+                )
+        return (
+            configure_github_target_for_capsule(
+                capsule_root,
+                settings=settings,
+                persist=not preview,
+                make_default_default=True,
+                create_remote_repo=not preview,
+                show_summary=show_review,
+            ),
+            None,
+        )
+    raise SystemExit(
+        "No publish target is configured for this capsule. "
+        "Re-run interactively to configure one, or pass `--repo <owner/repo>`."
+    )
+
+
 def push_capsule(
     *,
     capsule_root: Path,
     target_name: str | None,
+    repo_ref: str | None,
     all_targets: bool,
     message: str | None,
     preview: bool,
@@ -166,16 +327,40 @@ def push_capsule(
     create_repo_if_missing = bool(github_cfg.get("create_repo_if_missing", True))
     if str(target_name or "").strip() == "workspace":
         raise SystemExit("`lelabo push` does not support the workspace target. Use `lelabo export` for local exports.")
+    if str(repo_ref or "").strip() and all_targets:
+        raise SystemExit("`--repo <owner/repo>` cannot be combined with `--all-targets`.")
 
     targets = _push_targets(capsule_root)
+    bootstrap_meta: dict[str, Any] | None = None
+    default_target_names: list[str] = []
 
-    if all_targets:
-        if not targets:
-            raise SystemExit(
-                "No publish target is configured for this capsule. "
-                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets attach <owner/repo> <capsule>`."
+    if repo_ref:
+        owner, repo = _parse_repo_full_name(repo_ref)
+        existing_attachment = _find_target_by_repo(targets, owner=owner, repo=repo)
+        if existing_attachment is not None:
+            chosen = [existing_attachment]
+        else:
+            bootstrapped_target, bootstrap_meta = _bootstrap_target_for_push(
+                capsule_root=capsule_root,
+                settings=settings,
+                repo_ref=repo_ref,
+                preview=preview,
+                assume_yes=assume_yes,
+                show_review=show_review,
             )
-        chosen = targets
+            chosen = [bootstrapped_target]
+    elif all_targets:
+        if not targets:
+            bootstrapped_target, bootstrap_meta = _bootstrap_missing_target(
+                capsule_root=capsule_root,
+                settings=settings,
+                preview=preview,
+                assume_yes=assume_yes,
+                show_review=show_review,
+            )
+            chosen = [bootstrapped_target]
+        else:
+            chosen = targets
     elif target_name:
         try:
             resolved = resolve_target(capsule_root, target_name)
@@ -199,10 +384,14 @@ def push_capsule(
                 else:
                     chosen = _pick_targets_interactively(targets=targets)
         elif not targets:
-            raise SystemExit(
-                "No publish target is configured for this capsule. "
-                "Create one with `lelabo targets create`, then attach this capsule with `lelabo targets attach <owner/repo> <capsule>`."
+            bootstrapped_target, bootstrap_meta = _bootstrap_missing_target(
+                capsule_root=capsule_root,
+                settings=settings,
+                preview=preview,
+                assume_yes=assume_yes,
+                show_review=show_review,
             )
+            chosen = [bootstrapped_target]
         else:
             if assume_yes and len(targets) == 1:
                 chosen = [targets[0]]
@@ -239,6 +428,8 @@ def push_capsule(
             )
         else:
             raise SystemExit(f"Unsupported publish target kind '{kind}'.")
+        if bootstrap_meta is not None:
+            result["_bootstrap"] = dict(bootstrap_meta)
         results.append(result)
     return results
 
@@ -246,18 +437,21 @@ def push_capsule(
 def _build_parser(*, prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Publish a capsule to configured remote targets.",
+        description="Publish a capsule to remote targets.",
         epilog=(
             "Examples:\n"
             f"  {prog} my_capsule\n"
             f"  {prog} ./my_capsule\n"
+            f"  {prog} my_capsule --repo your-org/lelabo-capsules\n"
             f"  {prog} my_capsule --target github\n"
             f"  {prog} my_capsule --all-targets --preview"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("capsule_ref", nargs="?", default=None, help="Visible capsule id, alias, or local capsule path")
-    parser.add_argument("--target", default=None, help="Publish target name")
+    target_group = parser.add_mutually_exclusive_group()
+    target_group.add_argument("--target", default=None, help="Saved publish target name")
+    target_group.add_argument("--repo", default=None, help="GitHub repo as owner/repo; create/register and attach it if needed")
     parser.add_argument("--all-targets", action="store_true", help="Publish to all configured targets")
     parser.add_argument("-m", "--message", default=None, help="Commit message (defaults to `Update <capsule_id>`)")
     parser.add_argument("--preview", action="store_true", help="Show the resolved publish plan without pushing")
@@ -277,6 +471,7 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
     results = push_capsule(
         capsule_root=capsule_root,
         target_name=args.target,
+        repo_ref=args.repo,
         all_targets=bool(args.all_targets),
         message=args.message,
         preview=bool(args.preview),
@@ -284,14 +479,21 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
         settings=settings,
         show_review=not bool(args.json),
     )
-    payload_results = [{key: value for key, value in row.items() if not str(key).startswith("_")} for row in results]
+    payload_results = []
+    for row in results:
+        clean_row = {key: value for key, value in row.items() if not str(key).startswith("_")}
+        bootstrap = row.get("_bootstrap")
+        if bootstrap is not None:
+            clean_row["bootstrap"] = bootstrap
+        payload_results.append(clean_row)
     payload = {
         "schema_version": PUSH_JSON_SCHEMA if len(payload_results) == 1 else PUSHES_JSON_SCHEMA,
         "command": "push",
         "capsule": {
-            "capsule_id": inspect_capsule_directory(capsule_root).get("capsule_id"),
+            "capsule_id": _capsule_id(capsule_root),
             "path": str(capsule_root),
         },
+        "bootstrap": payload_results[0].get("bootstrap") if len(payload_results) == 1 else None,
         "result": payload_results[0] if len(payload_results) == 1 else None,
         "results": payload_results if len(payload_results) > 1 else None,
     }
@@ -322,6 +524,12 @@ def run_push_command(argv: Sequence[str], *, prog: str = "lelabo push") -> tuple
                     ("pushed", row.get("pushed")),
                 ),
             )
+            bootstrap = row.get("_bootstrap")
+            if isinstance(bootstrap, dict) and not bool(args.preview):
+                print_status(
+                    "info",
+                    f"Saved publish target: {bootstrap.get('target')} for capsule {_capsule_id(capsule_root)}.",
+                )
         else:
             header = "Push preview" if bool(args.preview) else "Push results"
             if not bool(args.preview):

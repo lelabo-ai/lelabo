@@ -170,22 +170,79 @@ lelabo push [capsule_ref] [--target NAME] [--all-targets] [-m MESSAGE] [--previe
 
 ---
 
-## `lelabo repo`
+## `lelabo targets`
 
-Manage advanced publish targets for capsules.
+Manage GitHub publish targets for capsules. Most users only need `lelabo push` — use `lelabo targets` when you need multiple publish destinations or to manage which capsules are attached to a shared repo.
 
 ```bash
-lelabo repo <subcommand> [args]
+lelabo targets <subcommand> [args]
 ```
 
-| Subcommand | Description |
-|---|---|
-| `list [capsule_ref]` | List publish targets for one capsule |
-| `add [capsule_ref] --name NAME --owner OWNER --repo REPO` | Add a GitHub publish target |
-| `use <name> [capsule_ref]` | Set the default publish target |
-| `remove <name> [capsule_ref]` | Remove one configured publish target |
+### `list`
 
-`repo list` also shows the implicit `workspace` target when the capsule already belongs to a git repo with `origin`.
+```bash
+lelabo targets list [CAPSULE_REF] [--json]
+```
+
+List configured GitHub targets. With a `CAPSULE_REF`, shows targets for that specific capsule.
+
+### `create`
+
+```bash
+lelabo targets create [--target OWNER/REPO] [--public | --private] [--json]
+```
+
+Create or register a shared GitHub target repo.
+
+### `attach`
+
+```bash
+lelabo targets attach REPO_REF CAPSULE_REF [--json]
+```
+
+Attach a capsule to an existing configured target. `REPO_REF` is `owner/repo`.
+
+### `detach`
+
+```bash
+lelabo targets detach REPO_REF CAPSULE_REF [--json]
+```
+
+Detach a capsule from a target (local config only — does not delete remote files).
+
+### `defaults`
+
+```bash
+lelabo targets defaults list CAPSULE_REF [--json]
+lelabo targets defaults add CAPSULE_REF REPO_REF [--json]
+lelabo targets defaults remove CAPSULE_REF REPO_REF [--json]
+```
+
+Manage which targets are marked as default for a given capsule.
+
+### `import`
+
+```bash
+lelabo targets import REPO_REF [--capsule CAPSULE_ID] [--json]
+```
+
+Import capsule(s) discovered in a target repo into the local store.
+
+### `remove-capsule`
+
+```bash
+lelabo targets remove-capsule REPO_REF CAPSULE_REF [--json]
+```
+
+Remove a capsule from a target repo and detach it locally.
+
+### `delete`
+
+```bash
+lelabo targets delete REPO_REF [--json]
+```
+
+Delete a target entry from the local config and clean its attachments.
 
 ---
 
@@ -276,7 +333,7 @@ Import a capsule into the local store.
 - GitHub LeLabo repo URL (`https://github.com/<owner>/<repo>` or `.git`)
 
 Local capsule directories must use `lelabo capsule attach <capsule_dir>`.
-GitHub repos without `.lelabo/gitspace.toml` are not supported.
+GitHub repos must be LeLabo-compatible repos (created or managed via `lelabo targets` or `lelabo push`).
 
 Install is store-first. Use `--checkout` to move the installed capsule into a workspace after install.
 
@@ -297,27 +354,6 @@ Install conflict policy:
 - multi-capsule repo without `--capsule` or `--all`: interactive checkbox picker in TTY (`↑/↓`, `space`, `a`, `enter`), error otherwise
 
 Human mode prints short progress updates such as cloning, resolving, and installing. `--json` stays silent except for the final payload.
-
-### `share`
-
-```bash
-lelabo capsule share [capsule_ref] [--mode github|local] [--owner OWNER] [--repo REPO] [--branch BRANCH] [--public|--private] [--out PATH] [--yes] [--json]
-```
-
-Transition alias for `lelabo push`, with local bundle export kept for compatibility.
-
-- Default: `--mode github`
-- Local export: `--mode local`
-- `capsule_ref` can be a local path or a stored capsule id/alias (so you can share from a multi-capsule workspace)
-- GitHub publish now follows the same target logic as `lelabo push`
-
-Preconditions:
-- `gh` is installed and authenticated (`gh auth status`)
-
-Behavior:
-- with `--mode local`, exports a `.tar.gz` bundle in the current directory by default (or `--out PATH`) and does not require git/gh
-- with `--mode github`, the command delegates to `lelabo push` and can bootstrap a GitHub target when needed
-- optional repo auto-creation remains controlled by `github.create_repo_if_missing`
 
 ### `list`
 

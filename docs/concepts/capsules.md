@@ -98,17 +98,20 @@ Your custom optimizer is now part of the runtime — no core code touched.
 A capsule moves through a simple lifecycle:
 
 ```
-init → (develop) → stash → (share) → install
+init → (develop) → stash → push → install
                  ↘ pack  ↗
+                 ↘ attach (link in-place)
 ```
 
 | Command | What it does |
 |---|---|
 | `lelabo capsule init <name>` | Create a new capsule scaffold in the current directory |
 | `lelabo capsule stash` | Move the capsule into the local capsule store |
+| `lelabo capsule attach` | Link an existing local capsule into the store without moving files |
 | `lelabo capsule checkout <id>` | Restore a stored capsule back into a workspace |
 | `lelabo capsule pack --from <run-dir>` | Build a shareable `.tar.gz` bundle |
-| `lelabo capsule install <bundle>` | Import a bundle into the local store |
+| `lelabo capsule install <bundle>` | Import a bundle or GitHub repo into the local store |
+| `lelabo push` | Publish a capsule to GitHub (see the [push guide](../guides/push-capsule.md)) |
 | `lelabo capsule list` | List stored capsules |
 | `lelabo capsule remove <id>` | Remove a capsule from the store |
 
@@ -127,7 +130,7 @@ This page explains what capsules are and how to use them.
 The detailed extension contracts live inside the generated capsule itself:
 
 - `README.md` — start here
-- `AGENTS.md` — hub for agent-oriented workflows
+- `AGENTS.md` — documentation hub designed for AI coding agents (Claude Code, Cursor, Codex, etc.). When an AI assistant opens your capsule, it reads this file automatically to understand the contracts and extension points. Human developers can ignore it and use `README.md` instead.
 - `resources/EXTENSION_RECIPES.md` — step-by-step recipes for each extension type
 - `resources/LELABO_REFERENCE.md` — exact signatures and contracts
 - `resources/PARAM_FLOW.md` — how parameters flow from config to builder

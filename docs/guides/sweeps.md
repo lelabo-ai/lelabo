@@ -4,6 +4,32 @@ You have an experiment that runs. Now you want to know if the result holds — a
 
 A sweep runs the same experiment across a grid of parameters. LeLabo generates all combinations, executes them as independent `lelabo train` subprocesses, and writes structured artifacts for each run.
 
+## Discovering sweeps in a workspace
+
+If you work inside a capsule workspace, you can launch sweeps without specifying a config path:
+
+```bash
+lelabo sweep
+```
+
+In an interactive terminal, this opens a full-screen picker that lists all capsules in the workspace and their named sweeps. Navigate with ↑/↓, press Enter to run, `d` for dry-run, `e` to edit flags before launching. Press Esc to cancel.
+
+Outside a TTY (e.g. in a CI script), it prints a compact listing instead.
+
+Named sweeps are discovered from `sweeps/*.yaml` inside each capsule.
+
+### Launching from a workspace without the picker
+
+To run a specific sweep non-interactively:
+
+```bash
+lelabo sweep run --capsule demo_capsule --sweep example
+```
+
+This is the equivalent of `lelabo sweep run --config demo_capsule/sweeps/example.yaml` but resolves the capsule by id from the workspace. Useful in scripts and CI pipelines.
+
+---
+
 ## Sweep config file
 
 A sweep is defined by a YAML file with three sections:
@@ -108,6 +134,18 @@ Each run directory follows the standard [run artifacts contract](../reference/ru
 ### Run folder naming
 
 Folder names are built from `display_keys` plus a deterministic short hash (`id=...`). The hash guarantees uniqueness even when display keys don't cover all grid parameters.
+
+The hash is deterministic: it is computed from the SHA-1 of the full argument dict (sorted). The same parameters always produce the same hash — so the same sweep config always produces the same folder names. Re-running an identical sweep does not create duplicate directories.
+
+### What happens when a job fails
+
+The sweep always continues even if individual jobs fail. A failed job prints `[FAIL] job N` with the path to its `stdout.log`. At the end of the sweep, a summary is printed:
+
+```
+completed: 17/18  failed: 1/18
+```
+
+The sweep exits with code 1 if any job failed, 0 if all succeeded. The `plan.json` file lets you re-run specific failed jobs.
 
 ## W&B integration
 
@@ -256,10 +294,39 @@ grid:
   rule: [bp, dfa, fa]
 ```
 
+## Re-running failed jobs
+
+When a sweep partially fails, use `plan.json` to re-run specific jobs without restarting the whole sweep. Each entry in `plan.json` has a `cmd` field — the exact command that was run:
+
+```python
+import json, subprocess
+
+jobs = json.load(open("outputs/runs/my_sweep/plan.json"))
+
+# Re-run job 3
+subprocess.run(jobs[3]["cmd"])
+```
+
+Or to re-run all jobs that failed (requires checking which run dirs are missing or have `status: failed` in their `meta.json`):
+
+```python
+import json, subprocess
+from pathlib import Path
+
+jobs = json.load(open("outputs/runs/my_sweep/plan.json"))
+for job in jobs:
+    meta = Path(job["dir"]) / "meta.json"
+    if not meta.exists():
+        subprocess.run(job["cmd"])
+```
+
+---
+
 ## Tips
 
 - **Start with `--dry-run`** to verify the number of jobs and commands before launching.
 - **Use `display_keys`** to keep folder names readable — include only the parameters that vary.
 - **Set `--max-parallel`** to match your hardware. On a single GPU, keep it at 1. With multiple GPUs, match `--max-parallel` to `--gpus` count.
-- **Check `plan.json`** if a sweep fails — it records every job's command for easy re-running.
+- **Check `plan.json`** after a partial failure — `cmd` in each job entry is the exact command to re-run it.
 - **Combine with W&B** for live monitoring. Each run logs independently, and the group view lets you compare curves in real time.
+- **Folder names are stable** — the hash in each run directory is deterministic. You can safely compare two sweeps with the same config and get the same folder layout.

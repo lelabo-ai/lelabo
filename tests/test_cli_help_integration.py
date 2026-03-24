@@ -79,6 +79,7 @@ def test_push_help_displays_publish_usage() -> None:
     assert proc.returncode == 0
     assert "Publish one capsule" in proc.stdout
     assert "--target NAME" in proc.stdout
+    assert "--repo OWNER/REPO" in proc.stdout
     assert "--all-targets" in proc.stdout
 
 

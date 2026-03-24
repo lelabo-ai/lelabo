@@ -7,6 +7,13 @@
 
 ## Install
 
+!!! tip "Use a virtual environment"
+    We recommend installing LeLabo in a dedicated virtual environment to avoid dependency conflicts:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate   # on Windows: .venv\Scripts\activate
+    ```
+
 ```bash
 pip install lelabo
 ```
@@ -19,7 +26,7 @@ If you want the latest development version:
 
 ```bash
 git clone https://github.com/lelabo-ai/lelabo.git
-cd LeLabo
+cd lelabo
 pip install -e "."
 ```
 

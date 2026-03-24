@@ -1,6 +1,6 @@
 # Getting Started
 
-Three pages to go from zero to a working experiment.
+Two pages to go from zero to a working experiment.
 
 | | |
 |---|---|

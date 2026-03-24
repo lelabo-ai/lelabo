@@ -41,6 +41,15 @@ def build_my_rule(ctx: UpdateRuleContext):
     ...
 ```
 
+`UpdateRuleContext` fields:
+
+| Field | Description |
+|---|---|
+| `ctx.model` | The `nn.Module` being trained |
+| `ctx.loss_fn` | The configured loss function — call as `ctx.loss_fn(output, target)` |
+| `ctx.device` | The device string (`"cpu"`, `"cuda"`, etc.) |
+| `ctx.extra` | Dict of additional context, including rule params |
+
 Rule params: `ctx.extra.get("update_rule_params", {})`
 
 ### `@register_dataset(name)`

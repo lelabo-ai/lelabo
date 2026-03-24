@@ -20,4 +20,10 @@ All extensions live in a capsule. [Create a capsule](create-capsule.md) first if
 | [Create a model](create-model.md) | Register a custom `nn.Module` |
 | [Create an update rule](create-update-rule.md) | Register a custom learning rule |
 | [Create a dataset](create-dataset.md) | Register a custom data loader |
+
+## Sharing & Reuse
+
+| | |
+|---|---|
+| [Push a capsule](push-capsule.md) | Publish a capsule to GitHub and install it on another machine |
 | [Build a paper pack](paper-pack.md) | Package a full method implementation as a shareable capsule |

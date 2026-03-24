@@ -96,7 +96,8 @@ Examples:
   lelabo train supervised --dataset iris --model mlp --rule bp
   lelabo train rl --env CartPole-v1 --algo ppo
   lelabo audit --all --modes supervised,rl
-  lelabo push my_capsule
+  lelabo push ./my_capsule
+  lelabo push my_capsule --repo your-org/lelabo-capsules
   lelabo export my_capsule --out ./my_capsule.tar.gz
   lelabo targets create
   lelabo targets attach your-org/lelabo-capsules my_capsule

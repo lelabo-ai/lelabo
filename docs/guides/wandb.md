@@ -92,6 +92,9 @@ W&B settings follow the same resolution order as all LeLabo config:
 
 Config file values take precedence over environment variables. CLI overrides take precedence over everything.
 
+!!! warning "Config file beats environment variables"
+    This is the opposite of the usual convention. If `WANDB_PROJECT` is exported in your shell but `project = "..."` is also set in the TOML config file, the **config file value wins**. To let the environment variable take effect, either remove the `project` key from the config, or use `--set wandb.project=...` at the CLI.
+
 ## What gets logged
 
 ### Metrics
@@ -104,7 +107,10 @@ Every numeric value in the epoch record is sent to W&B at each epoch:
 
 ### Config
 
-The full resolved config is attached to the W&B run, so you can filter, sort, and group runs by any parameter in the dashboard.
+The public run arguments are attached to the W&B run config: dataset, model, rule, optimizer, lr, epochs, seed, and other top-level parameters. This lets you filter, sort, and group runs by any of these values in the dashboard.
+
+!!! note
+    The **full** `resolved_config.yaml` (including nested model and optimizer params) is stored locally in `run_dir` but is not uploaded to W&B. Use `--set` overrides or `display_keys` in sweeps to surface additional params in the W&B UI.
 
 ### Summary
 
@@ -123,11 +129,11 @@ At the end of training, the final summary (best metrics, epoch count, training t
 
 ## Using W&B with sweeps
 
-LeLabo sweeps automatically group runs in W&B. The sweep `name` becomes the W&B group:
+If `WANDB_PROJECT` is configured, **every job in a `lelabo sweep` logs to W&B automatically** — no additional configuration required. LeLabo injects `--set wandb.group=<sweep_name>` into every subprocess, so all runs are grouped together in the dashboard.
 
 ```yaml
 # sweep.yaml
-name: compare_rules    # ← W&B group
+name: compare_rules    # ← becomes the W&B group name
 
 base:
   dataset: mnist
@@ -145,6 +151,9 @@ lelabo sweep run --config sweep.yaml
 ```
 
 All 9 runs appear under group `compare_rules` in the W&B dashboard. Use the group view to overlay training curves and compare final metrics.
+
+!!! note "You don't need `wandb sweep`"
+    LeLabo handles all sweep orchestration locally. If W&B is configured, runs appear in W&B automatically. There is no need to use `wandb sweep` or `wandb agent` — those are W&B's own distributed sweep system and are not used by LeLabo.
 
 See [Run parameter sweeps](sweeps.md) for the full sweep guide.
 
@@ -182,10 +191,10 @@ export WANDB_MODE=offline
 lelabo train supervised --config ... --run-dir outputs/run_001
 ```
 
-Logs are saved locally. Sync them later with:
+Logs are saved locally by the wandb library. By default, wandb creates a `wandb/` directory in your **current working directory** at the time of the run. Sync later with:
 
 ```bash
-wandb sync outputs/run_001/wandb/
+wandb sync wandb/
 ```
 
 ## Graceful degradation
