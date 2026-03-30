@@ -117,6 +117,18 @@ def test_build_sweep_plan(tmp_path: Path):
     assert plan.name == "test_sweep"
     assert len(plan.jobs) == 6  # 2 algos * 3 seeds
     assert all("--run-dir" in " ".join(j.cmd) for j in plan.jobs)
+    assert all(" train supervised " in f" {' '.join(j.cmd)} " for j in plan.jobs)
+
+
+def test_build_sweep_plan_supports_explicit_rl_mode(tmp_path: Path):
+    cfg = {
+        "name": "rl_sweep",
+        "mode": "rl",
+        "base": {"env": "CartPole-v1", "algo": "ppo"},
+        "grid": {"seed": [0]},
+    }
+    plan = build_sweep_plan(config=cfg, outdir=tmp_path)
+    assert " train rl " in f" {' '.join(plan.jobs[0].cmd)} "
 
 
 def test_build_sweep_plan_injects_wandb_group(tmp_path: Path):

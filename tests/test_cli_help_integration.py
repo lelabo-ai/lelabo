@@ -116,7 +116,10 @@ def test_wandb_help_displays_wandb_subcommands() -> None:
     assert "Manage Weights & Biases setup for LeLabo projects." in proc.stdout
     assert "init" in proc.stdout
     assert "login" in proc.stdout
+    assert "logout" in proc.stdout
     assert "status" in proc.stdout
+    assert "open" in proc.stdout
+    assert "sync" in proc.stdout
 
 
 def test_capsule_install_help_mentions_github_and_checkout() -> None:

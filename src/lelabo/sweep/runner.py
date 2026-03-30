@@ -77,6 +77,9 @@ def build_sweep_plan(
     base: dict[str, Any] = dict(config.get("base", {}))
     grid: dict[str, list[Any]] = dict(config.get("grid", {}))
     display_keys: list[str] = config.get("display_keys", _DEFAULT_DISPLAY_KEYS)
+    mode = str(config.get("mode") or base.pop("mode", None) or "supervised").strip().lower()
+    if mode not in {"supervised", "rl"}:
+        raise ValueError(f"Unsupported sweep mode '{mode}'. Expected 'supervised' or 'rl'.")
 
     exp_name = name or config.get("name") or datetime.now().strftime("%Y%m%d_%H%M%S")
     combos = cartesian_grid(grid)
@@ -98,7 +101,7 @@ def build_sweep_plan(
         job_dir = out_root / run_dirname
         cmd = [py, "-m", entry]
         if entry == "lelabo.cli.main":
-            cmd.append("train")
+            cmd += ["train", mode]
         cmd += to_cli_args(merged) + ["--run-dir", str(job_dir)]
         cmd += ["--set", f"wandb.group={group}"]
 
